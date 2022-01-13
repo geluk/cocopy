@@ -3,6 +3,8 @@ use std::{
     ops::Range,
 };
 
+use thiserror::Error;
+
 use crate::parser::syntax_tree;
 
 #[derive(Clone, Debug)]
@@ -17,6 +19,12 @@ impl Token {
     }
 }
 
+impl Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self.kind)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TokenKind {
     Structure(Structure),
@@ -27,7 +35,7 @@ pub enum TokenKind {
 }
 
 /// A structural token, representing a line break, indent, or dedent.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Structure {
     Newline,
     Indent,

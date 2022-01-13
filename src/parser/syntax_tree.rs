@@ -69,13 +69,14 @@ pub struct BinExpr {
 impl Display for BinExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.op {
-            BinOp::MemberAccess => write!(f, "{}{}{}", self.lhs, self.op, self.rhs),
+            BinOp::MemberAccess => write!(f, "({}{}{})", self.lhs, self.op, self.rhs),
+            BinOp::Index => write!(f, "{}[{}]", self.lhs, self.rhs),
             _ => write!(f, "({} {} {})", self.lhs, self.op, self.rhs),
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
     // Symbols
     Add,
@@ -90,6 +91,7 @@ pub enum BinOp {
     Equal,
     NotEqual,
     MemberAccess,
+    Index,
     // Keywords
     Or,
     And,
@@ -111,6 +113,7 @@ impl Display for BinOp {
             BinOp::Equal => "==",
             BinOp::NotEqual => "!=",
             BinOp::MemberAccess => ".",
+            BinOp::Index => "[]",
             BinOp::Or => "or",
             BinOp::And => "and",
             BinOp::Is => "is",

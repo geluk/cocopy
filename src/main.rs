@@ -1,9 +1,10 @@
 use std::{env, fs, iter};
 
 use anyhow::Result;
-use lexer::LexError;
+use error::PositionalError;
 
 mod codegen;
+mod error;
 mod lexer;
 mod parser;
 mod pretty_print;
@@ -33,8 +34,14 @@ fn main() -> Result<()> {
             println!("===============\n");
 
             match parse_result {
-                Ok(expr) => println!("{:#?}", expr),
-                Err(err) => println!("Parse failure! {:#?}", err),
+                Ok(expr) => {
+                    println!("{:#?}\n", expr);
+                    println!("{}", expr);
+                }
+                Err(err) => {
+                    // println!("Parse failure! {:#?}", err);
+                    describe_error(&err, &content);
+                }
             }
         }
         Err(errors) => {
@@ -47,9 +54,9 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn describe_error(err: &LexError, content: &str) {
-    let (line_no, line_start, error_line) = find_line(content, err.range.start);
-    let padding = err.range.start - line_start;
+pub fn describe_error<E: PositionalError>(err: &E, content: &str) {
+    let (line_no, line_start, error_line) = find_line(content, err.range().start);
+    let padding = err.range().start - line_start;
 
     fn pad_char(ch: char, times: usize) -> String {
         iter::repeat(ch).take(times).collect()
@@ -59,14 +66,14 @@ fn describe_error(err: &LexError, content: &str) {
 
     println!("{}| {}", gutter, error_line);
     println!(
-        "{}| {}{}--- {}",
+        "{}| {}{}--- {}\n",
         pad_char(' ', gutter.len()),
         pad_char(' ', padding),
         pad_char('^', err.length()),
-        err.error_type
+        err.describe()
     );
 
-    println!("Lexer error ({})", err.error_type);
+    // println!("Lexer error ({})", err.describe());
 }
 
 fn find_line(source: &str, target_position: usize) -> (usize, usize, &str) {

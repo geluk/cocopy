@@ -1,4 +1,11 @@
-use crate::lexer::tokens::Token;
+use std::{
+    fmt::{self, Display},
+    ops::Range,
+};
+
+use thiserror::Error;
+
+use crate::{error::PositionalError, lexer::tokens::Token};
 
 #[derive(Clone, Copy)]
 pub struct ParserState<'a> {
@@ -30,27 +37,98 @@ impl<'a> ParserState<'a> {
     }
 }
 
+/// A parse operation that may fail, specifying both the reason for the failure, and the
+/// parsing stage during which the failure occurred.
+pub type ParseResult<'a, O> = Result<(O, ParserState<'a>), ParseError>;
+
+/// A parse operation that may fail with a given reason, but without specifying the parsing stage
+/// in which the failure occurred.
+pub type Fallible<'a, O> = Result<(O, ParserState<'a>), Reason>;
+
+/// A parse operation that may fail, without specifying a reason or parsing stage.
+pub type ParseOption<'a, O> = Option<(O, ParserState<'a>)>;
+
 #[derive(Debug)]
-pub enum ParseFailure {
+pub struct ParseError {
+    stage: Stage,
+    reason: Reason,
+}
+
+impl PositionalError for ParseError {
+    fn range(&self) -> Range<usize> {
+        match &self.reason {
+            Reason::UnexpectedToken(tok) => tok.source.clone(),
+            Reason::UnexpectedEndOfInput => 0..0,
+        }
+    }
+
+    fn describe(&self) -> String {
+        format!(
+            "{} when parsing {} ({:?})",
+            self.reason, self.stage, self.stage
+        )
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum Reason {
+    #[error("unexpected {0}")]
     UnexpectedToken(Token),
+    #[error("unexpected end of input")]
     UnexpectedEndOfInput,
 }
 
-pub type ParseResult<'a, O> = Result<(O, ParserState<'a>), ParseFailure>;
+#[derive(Debug)]
+pub enum Stage {
+    /// The end of a complete program.
+    ProgramEnd,
+    /// The start of an expression.
+    ExprStart,
+    /// The end of a binary expression. May be followed by another binary operator in the case of
+    /// compound expressions (a + b + c).
+    BinExprEnd,
+    /// The end of a parenthesised expression.
+    ParenExprEnd,
+    /// The end of an index expression.
+    IndexEnd,
+}
+impl Display for Stage {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str(match self {
+            Stage::ExprStart => "the beginning of an expression",
+            Stage::BinExprEnd => "an expression",
+            Stage::ParenExprEnd => "the end of a parenthesised expression",
+            Stage::IndexEnd => "the end of an index expression",
+            Stage::ProgramEnd => "the end of the program",
+        })
+    }
+}
 
-pub type ParseOption<'a, O> = Option<(O, ParserState<'a>)>;
+pub trait AnnotateStage {
+    type Annotated;
 
-pub fn success<'a, O>(value: O, state: ParserState<'a>) -> ParseResult<'a, O> {
+    fn add_stage(self, stage: Stage) -> Self::Annotated;
+}
+
+impl<'a, O> AnnotateStage for Fallible<'a, O> {
+    type Annotated = ParseResult<'a, O>;
+
+    fn add_stage(self, stage: Stage) -> Self::Annotated {
+        self.map_err(|reason| ParseError { stage, reason })
+    }
+}
+
+pub fn success<'a, O, E>(value: O, state: ParserState<'a>) -> Result<(O, ParserState<'a>), E> {
     Ok((value, state))
 }
 
-pub fn failure<'a, O>(error: ParseFailure) -> ParseResult<'a, O> {
-    Err(error)
+pub fn failure<R>(stage: Stage, reason: Reason) -> Result<R, ParseError> {
+    Err(ParseError { stage, reason })
 }
 
-pub fn expect_token(state: ParserState) -> ParseResult<Token> {
+pub fn expect_token(state: ParserState) -> Fallible<Token> {
     match state.next() {
-        Some((token, state)) => Ok((token, state)),
-        None => Err(ParseFailure::UnexpectedEndOfInput),
+        Some((token, state)) => success(token, state),
+        None => Err(Reason::UnexpectedEndOfInput),
     }
 }

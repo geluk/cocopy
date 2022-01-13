@@ -18,12 +18,14 @@ macro_rules! recognise {
 /// state wrapped in an [`Option`] if it matches, or [`None`] if it doesn't.
 macro_rules! recognise_token {
     ($state_expr:expr, $(|)? $( $pattern:pat_param )|+ $( if $guard: expr )? => $result_expr:expr $(,)?) => {{
-        let (token, state) = expect_token($state_expr)?;
-        recognise!(token.kind, $( $pattern )|+ $( if $guard )? => ($result_expr, state))
+        expect_token($state_expr).and_then(|(token, state)| {
+            recognise!(&token.kind, $( $pattern )|+ $( if $guard )? => (*$result_expr, state))
+                .ok_or_else(|| Reason::UnexpectedToken(token))
+        })
     }};
 }
 
-pub fn parse(token_stream: &Vec<Token>) -> Result<Expr, ParseFailure> {
+pub fn parse(token_stream: &Vec<Token>) -> Result<Expr, ParseError> {
     parse_internal(token_stream)
 }
 
@@ -71,7 +73,7 @@ impl Fixity {
             | BinOp::Is => (Assoc::None, 5),
             BinOp::Add | BinOp::Subtract => (Assoc::Left, 6),
             BinOp::Multiply | BinOp::IntDiv | BinOp::Remainder => (Assoc::Left, 7),
-            BinOp::MemberAccess => (Assoc::Left, 9),
+            BinOp::MemberAccess | BinOp::Index => (Assoc::Left, 9),
         };
         Self { assoc, precedence }
     }
@@ -84,14 +86,18 @@ impl Fixity {
     }
 }
 
-fn parse_internal(tokens: &[Token]) -> Result<Expr, ParseFailure> {
+fn parse_internal(tokens: &[Token]) -> Result<Expr, ParseError> {
     let state = ParserState::new(tokens);
 
-    expression(Fixity::none(), state).map(|(result, _)| result)
+    let (expr, state) = expression(Fixity::none(), state)?;
+
+    recognise_token!(state, TokenKind::Structure(s) if *s == Structure::Newline => s)
+        .add_stage(Stage::ProgramEnd)
+        .map(|(_, _)| expr)
 }
 
 fn expression(left_fix: Fixity, state: ParserState) -> ParseResult<Expr> {
-    let (tk, state) = expect_token(state)?;
+    let (tk, state) = expect_token(state).add_stage(Stage::ExprStart)?;
 
     let (lhs, state) = match tk.kind {
         TokenKind::Identifier(id) => (Expr::Identifier(id), state),
@@ -104,12 +110,13 @@ fn expression(left_fix: Fixity, state: ParserState) -> ParseResult<Expr> {
         }
         TokenKind::Symbol(Symbol::OpenParen) => {
             let (lhs, state) = expression(Fixity::none(), state)?;
-            let (_, state) = expect_symbol(Symbol::CloseParen, state)?;
+            let (_, state) =
+                expect_symbol(Symbol::CloseParen, state).add_stage(Stage::ParenExprEnd)?;
             (lhs, state)
         }
         TokenKind::Symbol(Symbol::Minus) => un_expr(UnOp::Negate, state)?,
         TokenKind::Keyword(Keyword::Not) => un_expr(UnOp::Not, state)?,
-        _ => return failure(ParseFailure::UnexpectedToken(tk)),
+        _ => return failure(Stage::ExprStart, Reason::UnexpectedToken(tk)),
     };
 
     pratt_parse(lhs, left_fix, state)
@@ -138,12 +145,13 @@ fn pratt_parse(mut lhs: Expr, prev_fix: Fixity, mut state: ParserState) -> Parse
                     token.kind,
                     TokenKind::Structure(Structure::Newline)
                         | TokenKind::Symbol(Symbol::CloseParen)
+                        | TokenKind::Symbol(Symbol::CloseBracket)
                 ) {
                     return success(lhs, state);
                 }
                 // Anything else is an error
                 else {
-                    return failure(ParseFailure::UnexpectedToken(token));
+                    return failure(Stage::BinExprEnd, Reason::UnexpectedToken(token));
                 }
             }
         };
@@ -161,6 +169,11 @@ fn pratt_parse(mut lhs: Expr, prev_fix: Fixity, mut state: ParserState) -> Parse
 
         let (rhs, next) = expression(cur_fix, state)?;
         state = next;
+
+        if op == BinOp::Index {
+            let (_, next) = expect_symbol(Symbol::CloseBracket, next).add_stage(Stage::IndexEnd)?;
+            state = next;
+        }
 
         let bin_expr = BinExpr { lhs, op, rhs };
         lhs = Expr::BinExpr(Box::new(bin_expr));
@@ -182,6 +195,7 @@ fn as_bin_op(kind: &TokenKind) -> Option<BinOp> {
                 Symbol::Gte => BinOp::GreaterThanEqual,
                 Symbol::Eq => BinOp::Equal,
                 Symbol::Neq => BinOp::NotEqual,
+                Symbol::OpenBracket => BinOp::Index,
                 Symbol::Period => BinOp::MemberAccess,
                 _ => return None,
             })
@@ -198,13 +212,8 @@ fn as_bin_op(kind: &TokenKind) -> Option<BinOp> {
         })
 }
 
-fn expect_symbol(symbol: Symbol, state: ParserState) -> ParseResult<Symbol> {
-    let (token, state) = expect_token(state)?;
-
-    match token.kind {
-        TokenKind::Symbol(s) if s == symbol => success(s, state),
-        _ => failure(ParseFailure::UnexpectedToken(token)),
-    }
+fn expect_symbol(symbol: Symbol, state: ParserState) -> Fallible<Symbol> {
+    recognise_token!(state, TokenKind::Symbol(s) if *s == symbol => s)
 }
 
 #[cfg(test)]
@@ -285,14 +294,20 @@ mod tests {
 
     /// ChocoPy Language Reference: 4.1
     #[test]
-    fn combined_operators() {
-        assert_parses!("1 + 10 + 9", "((1 + 10) + 9)");
+    fn member_access() {
+        assert_parses!("a.b and c", "((a.b) and c)");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
-    fn member_access() {
-        assert_parses!("a.b and c", "(a.b and c)");
+    fn index() {
+        assert_parses!("a[b] and c", "(a[b] and c)");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn combined_operators() {
+        assert_parses!("1 + 10 + 9", "((1 + 10) + 9)");
     }
 
     /// ChocoPy Language Reference: 4.1

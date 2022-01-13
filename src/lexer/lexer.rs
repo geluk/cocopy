@@ -6,6 +6,8 @@ use std::{
 
 use thiserror::Error;
 
+use crate::error::PositionalError;
+
 use super::{char_lexer::CharLexer, tokens::*};
 
 type LexResult<T> = Option<Result<T, LexError>>;
@@ -40,6 +42,16 @@ impl Display for LexError {
             "Lexer error ({:?}) at {} - {}",
             self.error_type, self.range.start, self.range.end
         ))
+    }
+}
+
+impl PositionalError for LexError {
+    fn range(&self) -> Range<usize> {
+        self.range.clone()
+    }
+
+    fn describe(&self) -> String {
+        self.to_string()
     }
 }
 
