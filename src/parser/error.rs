@@ -1,53 +1,11 @@
-use std::{
-    fmt::{self, Display},
-    ops::Range,
-};
+use std::{fmt, ops::Range};
 
 use thiserror::Error;
 
 use crate::{error::PositionalError, lexer::tokens::Token};
 
-#[derive(Clone, Copy)]
-pub struct ParserState<'a> {
-    tokens: &'a [Token],
-}
-
-impl<'a> ParserState<'a> {
-    pub fn new(tokens: &'a [Token]) -> Self {
-        Self { tokens }
-    }
-
-    pub fn next(self) -> ParseOption<'a, Token> {
-        if self.tokens.is_empty() {
-            None
-        } else {
-            Some((
-                // TODO: Avoid this clone
-                self.tokens[0].clone(),
-                ParserState {
-                    tokens: &self.tokens[1..],
-                },
-            ))
-        }
-    }
-
-    pub fn advance(self) -> Self {
-        let (_, state) = self.next().unwrap();
-        state
-    }
-}
-
-/// A parse operation that may fail, specifying both the reason for the failure, and the
-/// parsing stage during which the failure occurred.
-pub type ParseResult<'a, O> = Result<(O, ParserState<'a>), ParseError>;
-
-/// A parse operation that may fail with a given reason, but without specifying the parsing stage
-/// in which the failure occurred.
-pub type Fallible<'a, O> = Result<(O, ParserState<'a>), Reason>;
-
-/// A parse operation that may fail, without specifying a reason or parsing stage.
-pub type ParseOption<'a, O> = Option<(O, ParserState<'a>)>;
-
+/// A parsing error, indicating both the parsing stage in which the error was encoutered
+/// and the cause for the error.
 #[derive(Debug)]
 pub struct ParseError {
     stage: Stage,
@@ -104,8 +62,10 @@ pub enum Stage {
     IndexEnd,
     /// The 'else' keyword of a ternary expression
     TernaryElse,
+    /// The 'else' keyword of a ternary expression
+    CallEnd,
 }
-impl Display for Stage {
+impl fmt::Display for Stage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match self {
             Stage::ExprStart => "the beginning of an expression",
@@ -114,35 +74,25 @@ impl Display for Stage {
             Stage::IndexEnd => "the end of an index expression",
             Stage::ProgramEnd => "the end of the program",
             Stage::TernaryElse => "a ternary if-expression",
+            Stage::CallEnd => "a parameter list",
         })
     }
 }
 
-pub trait AnnotateStage {
+pub trait AddStage {
     type Annotated;
 
     fn add_stage(self, stage: Stage) -> Self::Annotated;
 }
 
-impl<'a, O> AnnotateStage for Fallible<'a, O> {
-    type Annotated = ParseResult<'a, O>;
+impl<O> AddStage for Result<O, Reason> {
+    type Annotated = Result<O, ParseError>;
 
     fn add_stage(self, stage: Stage) -> Self::Annotated {
         self.map_err(|reason| ParseError { stage, reason })
     }
 }
 
-pub fn success<O, E>(value: O, state: ParserState) -> Result<(O, ParserState), E> {
-    Ok((value, state))
-}
-
 pub fn failure<R>(stage: Stage, reason: Reason) -> Result<R, ParseError> {
     Err(ParseError { stage, reason })
-}
-
-pub fn expect_token(state: ParserState) -> Fallible<Token> {
-    match state.next() {
-        Some((token, state)) => success(token, state),
-        None => Err(Reason::UnexpectedEndOfInput),
-    }
 }

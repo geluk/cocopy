@@ -1,33 +1,9 @@
-use crate::lexer::tokens::*;
+use crate::lexer::tokens::{Keyword, Structure, Symbol, Token, TokenKind};
 
-use super::combinator::*;
-use super::fixity::Fixity;
-use super::syntax_tree::{self, *};
-
-/// Tries to recognise a pattern, returning the expression wrapped in an [`Option`]
-/// if it succeeds, or [`None`] if it doesn't.
-macro_rules! recognise {
-    ($expression:expr, $(|)? $( $pattern:pat_param )|+ $( if $guard: expr )? => $result_expr:expr $(,)?) => {
-        match $expression {
-            $( $pattern )|+ $( if $guard )? => Some($result_expr),
-            _ => None
-        }
-    }
-}
-
-/// Tries to recognise a token from the provided parser, returning the token and modified parser
-/// state wrapped in an [`Option`] if it matches, or [`None`] if it doesn't.
-macro_rules! recognise_token {
-    ($state_expr:expr, $(|)? $( $pattern:pat_param )|+ $( if $guard: expr )? => $result_expr:expr $(,)?) => {{
-        expect_token($state_expr).and_then(|(token, state)| {
-            recognise!(&token.kind, $( $pattern )|+ $( if $guard )? => (*$result_expr, state))
-                .ok_or_else(|| Reason::UnexpectedToken(token))
-        })
-    }};
-}
+use super::{error::*, fixity::Fixity, parser_base::*, syntax_tree::*};
 
 pub fn parse(token_stream: &[Token]) -> Result<Expr, ParseError> {
-    parse_internal(token_stream)
+    Parser::new(token_stream).parse_internal()
 }
 
 /// An N-ary operator, with N > 1.
@@ -37,124 +13,201 @@ pub enum NAryOp {
     Ternary(TerOp),
 }
 
-fn parse_internal(tokens: &[Token]) -> Result<Expr, ParseError> {
-    let state = ParserState::new(tokens);
+struct Delimiter {
+    token_kind: TokenKind,
+    stage: Stage,
+    required: bool,
+}
+impl Delimiter {
+    /// Construct a delimiter for an expression surrounded by parentheses.
+    pub fn parentheses() -> Option<Self> {
+        Some(Self {
+            token_kind: TokenKind::Symbol(Symbol::CloseParen),
+            stage: Stage::ParenExprEnd,
+            required: true,
+        })
+    }
+    /// Construct a delimiter for an expression terminated by a newline.
+    pub fn newline() -> Option<Self> {
+        Some(Self {
+            token_kind: TokenKind::Structure(Structure::Newline),
+            stage: Stage::ProgramEnd,
+            required: true,
+        })
+    }
+    /// Construct a delimiter for an indexing sub-expression.
+    pub fn index() -> Option<Self> {
+        Some(Self {
+            token_kind: TokenKind::Symbol(Symbol::CloseBracket),
+            stage: Stage::IndexEnd,
+            required: true,
+        })
+    }
+    /// Construct a delimiter for an indexing sub-expression.
+    pub fn function_call() -> Option<Self> {
+        Some(Self {
+            token_kind: TokenKind::Symbol(Symbol::CloseParen),
+            stage: Stage::CallEnd,
+            required: true,
+        })
+    }
+    /// Construct a delimiter for the middle expression of a ternary if-expression.
+    pub fn ternary() -> Option<Self> {
+        Some(Self {
+            token_kind: TokenKind::Keyword(Keyword::Else),
+            stage: Stage::TernaryElse,
+            required: true,
+        })
+    }
 
-    let (expr, state) = expression(Fixity::none(), state)?;
-
-    recognise_token!(state, TokenKind::Structure(s) if *s == Structure::Newline => s)
-        .add_stage(Stage::ProgramEnd)
-        .map(|(_, _)| expr)
+    /// Returns `true` if this delimiter expects a token of the same kind as the token that was
+    /// provided.
+    pub fn accepts_token(&self, token: &Token) -> bool {
+        token.kind == self.token_kind
+    }
 }
 
-fn expression(left_fix: Fixity, state: ParserState) -> ParseResult<Expr> {
-    let (tk, state) = expect_token(state).add_stage(Stage::ExprStart)?;
-
-    let (lhs, state) = match tk.kind {
-        TokenKind::Identifier(id) => (Expr::Identifier(id), state),
-        TokenKind::Literal(l) => (Expr::Literal(l.to_syntax_node()), state),
-        TokenKind::Keyword(Keyword::True) => {
-            (Expr::Literal(syntax_tree::Literal::Boolean(true)), state)
-        }
-        TokenKind::Keyword(Keyword::False) => {
-            (Expr::Literal(syntax_tree::Literal::Boolean(false)), state)
-        }
-        TokenKind::Symbol(Symbol::OpenParen) => {
-            let (lhs, state) = expression(Fixity::none(), state)?;
-            let (_, state) =
-                expect_symbol(Symbol::CloseParen, state).add_stage(Stage::ParenExprEnd)?;
-            (lhs, state)
-        }
-        TokenKind::Symbol(Symbol::Minus) => un_expr(UnOp::Negate, state)?,
-        TokenKind::Keyword(Keyword::Not) => un_expr(UnOp::Not, state)?,
-        _ => return failure(Stage::ExprStart, Reason::UnexpectedToken(tk)),
-    };
-
-    pratt_parse(lhs, left_fix, state)
+pub trait OptionalDelimiter {
+    fn for_subexpr(&self) -> Self;
 }
 
-fn un_expr(op: UnOp, state: ParserState) -> ParseResult<Expr> {
-    let fixity = Fixity::for_unop(op);
-    let (rhs, state) = expression(fixity, state)?;
-
-    let un_expr = UnExpr { op, rhs };
-    success(Expr::Unary(Box::new(un_expr)), state)
+impl OptionalDelimiter for Option<Delimiter> {
+    fn for_subexpr(&self) -> Self {
+        self.as_ref().map(|delimiter| Delimiter {
+            token_kind: delimiter.token_kind.clone(),
+            stage: delimiter.stage,
+            required: false,
+        })
+    }
 }
 
-fn pratt_parse(mut lhs: Expr, prev_fix: Fixity, mut state: ParserState) -> ParseResult<Expr> {
-    loop {
-        // Look for the next operator that's coming up
-        let op = match state.next() {
-            None => return success(lhs, state),
-            Some((token, _)) => {
-                // Handle a valid binary operation
-                if let Some(op) = as_n_ary_op(&token.kind) {
-                    op
-                }
-                // Handle a valid end of expression
-                // TODO: Lift this into a parameter specifying which token may end the expression.
-                else if matches!(
-                    token.kind,
-                    TokenKind::Structure(Structure::Newline)
-                        | TokenKind::Symbol(Symbol::CloseParen)
-                        | TokenKind::Symbol(Symbol::CloseBracket)
-                        | TokenKind::Keyword(Keyword::Else)
-                ) {
-                    return success(lhs, state);
-                }
-                // Anything else is an error
-                else {
-                    return failure(Stage::BinExprEnd, Reason::UnexpectedToken(token));
-                }
+impl<'a> Parser<'a> {
+    fn parse_internal(&mut self) -> Result<Expr, ParseError> {
+        let expr = self.expression(Fixity::none(), Delimiter::newline())?;
+
+        Ok(expr)
+    }
+
+    fn expression(
+        &mut self,
+        left_fix: Fixity,
+        delimiter: Option<Delimiter>,
+    ) -> Result<Expr, ParseError> {
+        let token = self.next().add_stage(Stage::ExprStart)?;
+
+        let lhs = match &token.kind {
+            TokenKind::Identifier(id) => (Expr::Identifier(id.clone())),
+            TokenKind::Literal(l) => (Expr::Literal(l.to_syntax_node())),
+            TokenKind::Keyword(Keyword::True) => Expr::Literal(Literal::Boolean(true)),
+            TokenKind::Keyword(Keyword::False) => Expr::Literal(Literal::Boolean(false)),
+            TokenKind::Symbol(Symbol::OpenParen) => {
+                self.expression(Fixity::none(), Delimiter::parentheses())?
             }
+            TokenKind::Symbol(Symbol::Minus) => {
+                self.un_expr(UnOp::Negate, delimiter.for_subexpr())?
+            }
+            TokenKind::Keyword(Keyword::Not) => self.un_expr(UnOp::Not, delimiter.for_subexpr())?,
+            _ => return failure(Stage::ExprStart, Reason::UnexpectedToken(token.clone())),
         };
 
-        let cur_fix = Fixity::for_n_ary_op(op);
-        if prev_fix.precedes_rhs(&cur_fix) {
-            return success(lhs, state);
-        }
+        let expr = self.pratt_parse(lhs, left_fix, delimiter.for_subexpr())?;
 
-        // Only advance the state once we're sure we'll use the operator.
-        state = state.advance();
+        self.satisfy_delimiter(delimiter)?;
+        Ok(expr)
+    }
 
-        match op {
-            NAryOp::Binary(bin) => {
-                let (rhs, next) = expression(cur_fix, state)?;
-                state = next;
+    /// Parse a unary expression using the provided unary operator
+    fn un_expr(&mut self, op: UnOp, delimiter: Option<Delimiter>) -> Result<Expr, ParseError> {
+        let rhs = self.expression(Fixity::for_unop(op), delimiter)?;
 
-                if bin == BinOp::Index {
-                    let (_, next) =
-                        expect_symbol(Symbol::CloseBracket, state).add_stage(Stage::IndexEnd)?;
-                    state = next;
+        let un_expr = UnExpr { op, rhs };
+        Ok(Expr::Unary(Box::new(un_expr)))
+    }
+
+    fn pratt_parse(
+        &mut self,
+        mut lhs: Expr,
+        prev_fix: Fixity,
+        delimiter: Option<Delimiter>,
+    ) -> Result<Expr, ParseError> {
+        loop {
+            // Look for the next operator that's coming up
+            let op = match self.peek() {
+                None => return Ok(lhs),
+                Some(token) => {
+                    match (token.kind.as_n_ary_op(), &delimiter) {
+                        // Process a valid binary operator
+                        (Some(op), _) => op,
+                        // Process a recognised expression delimiter
+                        (_, Some(delim)) if delim.accepts_token(token) => return Ok(lhs),
+                        // Anything else is an error
+                        _ => {
+                            let stage = delimiter.map(|d| d.stage).unwrap_or(Stage::BinExprEnd);
+                            return failure(stage, Reason::UnexpectedToken(token.clone()));
+                        }
+                    }
                 }
-                let bin_expr = BinExpr { lhs, op: bin, rhs };
-                lhs = Expr::Binary(Box::new(bin_expr));
+            };
+
+            let cur_fix = Fixity::for_n_ary_op(op);
+            if prev_fix.precedes_rhs(&cur_fix) {
+                return Ok(lhs);
             }
-            NAryOp::Ternary(TerOp::If) => {
-                let (mhs, next) = expression(Fixity::none(), state)?;
 
-                let (_, next) =
-                    expect_keyword(Keyword::Else, next).add_stage(Stage::TernaryElse)?;
+            // Only advance the parser once we're sure we'll use the operator.
+            self.next().unwrap();
 
-                let (rhs, next) = expression(cur_fix, next)?;
-                state = next;
+            match op {
+                NAryOp::Binary(bin) => {
+                    let rhs = if bin == BinOp::Index {
+                        self.expression(cur_fix, Delimiter::index())?
+                    } else if bin == BinOp::FunctionCall {
+                        self.expression(cur_fix, Delimiter::function_call())?
+                    } else {
+                        self.expression(cur_fix, delimiter.for_subexpr())?
+                    };
+                    let bin_expr = BinExpr { lhs, op: bin, rhs };
+                    lhs = Expr::Binary(Box::new(bin_expr));
+                }
+                NAryOp::Ternary(TerOp::If) => {
+                    let mhs = self.expression(Fixity::none(), Delimiter::ternary())?;
 
-                let ter_expr = TerExpr {
-                    lhs,
-                    op: TerOp::If,
-                    mhs,
-                    rhs,
-                };
-                lhs = Expr::Ternary(Box::new(ter_expr));
+                    let rhs = self.expression(cur_fix, delimiter.for_subexpr())?;
+
+                    let ter_expr = TerExpr {
+                        lhs,
+                        op: TerOp::If,
+                        mhs,
+                        rhs,
+                    };
+                    lhs = Expr::Ternary(Box::new(ter_expr));
+                }
             }
+        }
+    }
+
+    fn satisfy_delimiter(&mut self, delimiter: Option<Delimiter>) -> Result<(), ParseError> {
+        match delimiter {
+            Some(delim) if delim.required => self
+                .expect(delim.token_kind)
+                .add_stage(delim.stage)
+                .map(|_| ()),
+            _ => Ok(()),
         }
     }
 }
 
-fn as_n_ary_op(kind: &TokenKind) -> Option<NAryOp> {
-    recognise!(kind, TokenKind::Symbol(s) => s)
-        .and_then(|&s| {
-            Some(match s {
+impl TokenKind {
+    fn as_n_ary_op(&self) -> Option<NAryOp> {
+        let op = match self {
+            TokenKind::Keyword(Keyword::If) => NAryOp::Ternary(TerOp::If),
+            TokenKind::Keyword(kw) => NAryOp::Binary(match kw {
+                Keyword::Or => BinOp::Or,
+                Keyword::And => BinOp::And,
+                Keyword::Is => BinOp::Is,
+                _ => return None,
+            }),
+            TokenKind::Symbol(s) => NAryOp::Binary(match s {
                 Symbol::Plus => BinOp::Add,
                 Symbol::Minus => BinOp::Subtract,
                 Symbol::Asterisk => BinOp::Multiply,
@@ -167,30 +220,14 @@ fn as_n_ary_op(kind: &TokenKind) -> Option<NAryOp> {
                 Symbol::Eq => BinOp::Equal,
                 Symbol::Neq => BinOp::NotEqual,
                 Symbol::OpenBracket => BinOp::Index,
+                Symbol::OpenParen => BinOp::FunctionCall,
                 Symbol::Period => BinOp::MemberAccess,
                 _ => return None,
-            })
-        })
-        .map(NAryOp::Binary)
-        .or_else(|| {
-            recognise!(kind, TokenKind::Keyword(k) => k).and_then(|&k| {
-                Some(match k {
-                    Keyword::Or => NAryOp::Binary(BinOp::Or),
-                    Keyword::And => NAryOp::Binary(BinOp::And),
-                    Keyword::Is => NAryOp::Binary(BinOp::Is),
-                    Keyword::If => NAryOp::Ternary(TerOp::If),
-                    _ => return None,
-                })
-            })
-        })
-}
-
-fn expect_symbol(symbol: Symbol, state: ParserState) -> Fallible<Symbol> {
-    recognise_token!(state, TokenKind::Symbol(s) if *s == symbol => s)
-}
-
-fn expect_keyword(keyword: Keyword, state: ParserState) -> Fallible<Keyword> {
-    recognise_token!(state, TokenKind::Keyword(k) if *k == keyword => k)
+            }),
+            _ => return None,
+        };
+        Some(op)
+    }
 }
 
 #[cfg(test)]
@@ -230,7 +267,13 @@ mod tests {
         let tokens = lex(source).unwrap();
         let error = parse(&tokens).unwrap_err();
 
-        assert_eq!(expected_stage, error.stage());
+        assert_eq!(
+            expected_stage,
+            error.stage(),
+            "Expected an error in {:?}, but found {:?}",
+            expected_stage,
+            error.stage()
+        );
     }
 
     #[test]
@@ -301,6 +344,21 @@ mod tests {
     #[test]
     fn unclosed_ternary_fails() {
         assert_fails("a if b > 10 or True", Stage::TernaryElse);
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn nested_ternary_is_right_associative() {
+        assert_parses!(
+            "a if p1 else b if p2 else c",
+            "(a if p1 else (b if p2 else c))"
+        );
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn unclosed_binary_fails() {
+        assert_fails("a or", Stage::ExprStart);
     }
 
     /// ChocoPy Language Reference: 4.1

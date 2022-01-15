@@ -1,5 +1,7 @@
 use std::fmt::{self, Display};
 
+pub struct Program {}
+
 #[derive(Debug)]
 pub enum Expr {
     Literal(Literal),
@@ -73,6 +75,7 @@ impl Display for BinExpr {
         match self.op {
             BinOp::MemberAccess => write!(f, "({}{}{})", self.lhs, self.op, self.rhs),
             BinOp::Index => write!(f, "{}[{}]", self.lhs, self.rhs),
+            BinOp::FunctionCall => write!(f, "{}({})", self.lhs, self.rhs),
             _ => write!(f, "({} {} {})", self.lhs, self.op, self.rhs),
         }
     }
@@ -94,6 +97,7 @@ pub enum BinOp {
     NotEqual,
     MemberAccess,
     Index,
+    FunctionCall,
     // Keywords
     Or,
     And,
@@ -119,6 +123,7 @@ impl Display for BinOp {
             BinOp::Or => "or",
             BinOp::And => "and",
             BinOp::Is => "is",
+            BinOp::FunctionCall => "()",
         };
         f.write_str(ch)
     }

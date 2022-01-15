@@ -57,7 +57,7 @@ impl Fixity {
             | BinOp::Is => (Assoc::None, 5),
             BinOp::Add | BinOp::Subtract => (Assoc::Left, 6),
             BinOp::Multiply | BinOp::IntDiv | BinOp::Remainder => (Assoc::Left, 7),
-            BinOp::MemberAccess | BinOp::Index => (Assoc::Left, 9),
+            BinOp::MemberAccess | BinOp::Index | BinOp::FunctionCall => (Assoc::Left, 9),
         };
         Self { assoc, precedence }
     }
