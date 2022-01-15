@@ -1,9 +1,7 @@
 use crate::parser::syntax_tree::BinExpr;
 
 pub fn compile(expression: BinExpr) -> Program {
-    let program = Program::new();
-
-    program
+    Program::new()
 }
 
 #[derive(Default)]
@@ -14,11 +12,10 @@ pub struct Program {
 
 impl Program {
     pub fn new() -> Self {
-        let mut program = Self {
+        Self {
             text: Section::new(".text".to_string()),
             data: Section::new(".data".to_string()),
-        };
-        program
+        }
     }
 }
 

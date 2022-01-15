@@ -81,7 +81,7 @@ impl<'s> Lexer<'s> {
     fn run(mut self) -> Result<Vec<Token>, Vec<LexError>> {
         while self.line() {}
 
-        if self.errors.len() > 0 {
+        if !self.errors.is_empty() {
             Err(self.errors)
         } else {
             Ok(self.tokens)
@@ -236,7 +236,9 @@ impl<'s> Lexer<'s> {
     fn consume_indentation(&mut self) -> Result<(), LexError> {
         for level in 0..self.indent_level {
             match self.lexer.peek() {
-                Some('\t') => self.lexer.advance(),
+                Some('\t') => {
+                    self.lexer.next();
+                }
                 Some(' ') => return Err(self.make_error(1, ErrorType::IndentationError)),
                 _ => {
                     self.emit_dedents_to(level);
@@ -402,7 +404,7 @@ impl<'s> Lexer<'s> {
 
         let unknown_token = lexer.consume_while(|ch| !ch.is_whitespace());
 
-        if unknown_token.len() > 0 {
+        if !unknown_token.is_empty() {
             Some(self.make_error(1, ErrorType::UnknownToken))
         } else {
             None

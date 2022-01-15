@@ -3,8 +3,6 @@ use std::{
     ops::Range,
 };
 
-use thiserror::Error;
-
 use crate::parser::syntax_tree;
 
 #[derive(Clone, Debug)]

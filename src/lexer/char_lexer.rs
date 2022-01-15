@@ -45,15 +45,10 @@ impl<'a> CharLexer<'a> {
     /// or [`None`] if the lexer cannot advance any further.
     pub fn try_next(&mut self) -> Option<char> {
         let next = self.chars.next();
-        if let Some(_) = next {
+        if next.is_some() {
             self.position += 1;
         }
         next
-    }
-
-    /// Advances the lexer by one character and discards it.
-    pub fn advance(&mut self) {
-        self.next();
     }
 
     /// Returns the next character without consuming it.

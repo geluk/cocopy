@@ -18,7 +18,7 @@ impl<'a> ParserState<'a> {
     }
 
     pub fn next(self) -> ParseOption<'a, Token> {
-        if self.tokens.len() < 1 {
+        if self.tokens.is_empty() {
             None
         } else {
             Some((
@@ -54,6 +54,15 @@ pub struct ParseError {
     reason: Reason,
 }
 
+impl ParseError {
+    pub fn stage(&self) -> Stage {
+        self.stage
+    }
+    pub fn reason(&self) -> &Reason {
+        &self.reason
+    }
+}
+
 impl PositionalError for ParseError {
     fn range(&self) -> Range<usize> {
         match &self.reason {
@@ -65,7 +74,9 @@ impl PositionalError for ParseError {
     fn describe(&self) -> String {
         format!(
             "{} when parsing {} ({:?})",
-            self.reason, self.stage, self.stage
+            self.reason(),
+            self.stage(),
+            self.stage()
         )
     }
 }
@@ -78,7 +89,7 @@ pub enum Reason {
     UnexpectedEndOfInput,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     /// The end of a complete program.
     ProgramEnd,
@@ -91,6 +102,8 @@ pub enum Stage {
     ParenExprEnd,
     /// The end of an index expression.
     IndexEnd,
+    /// The 'else' keyword of a ternary expression
+    TernaryElse,
 }
 impl Display for Stage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -100,6 +113,7 @@ impl Display for Stage {
             Stage::ParenExprEnd => "the end of a parenthesised expression",
             Stage::IndexEnd => "the end of an index expression",
             Stage::ProgramEnd => "the end of the program",
+            Stage::TernaryElse => "a ternary if-expression",
         })
     }
 }

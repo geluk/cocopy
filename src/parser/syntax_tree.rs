@@ -4,8 +4,9 @@ use std::fmt::{self, Display};
 pub enum Expr {
     Literal(Literal),
     Identifier(String),
-    BinExpr(Box<BinExpr>),
-    UnExpr(Box<UnExpr>),
+    Unary(Box<UnExpr>),
+    Binary(Box<BinExpr>),
+    Ternary(Box<TerExpr>),
 }
 
 impl Display for Expr {
@@ -13,8 +14,9 @@ impl Display for Expr {
         match self {
             Expr::Literal(lit) => write!(f, "{}", lit),
             Expr::Identifier(id) => write!(f, "{}", id),
-            Expr::BinExpr(bin) => write!(f, "{}", bin),
-            Expr::UnExpr(un) => write!(f, "{}", un),
+            Expr::Binary(bin) => write!(f, "{}", bin),
+            Expr::Unary(un) => write!(f, "{}", un),
+            Expr::Ternary(un) => write!(f, "{}", un),
         }
     }
 }
@@ -122,7 +124,23 @@ impl Display for BinOp {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
+pub struct TerExpr {
+    pub lhs: Expr,
+    pub op: TerOp,
+    pub mhs: Expr,
+    pub rhs: Expr,
+}
+
+impl Display for TerExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.op {
+            TerOp::If => write!(f, "({} if {} else {})", self.lhs, self.mhs, self.rhs),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerOp {
     If,
 }

@@ -1,6 +1,7 @@
 use crate::lexer::tokens::*;
 
 use super::combinator::*;
+use super::fixity::Fixity;
 use super::syntax_tree::{self, *};
 
 /// Tries to recognise a pattern, returning the expression wrapped in an [`Option`]
@@ -25,65 +26,15 @@ macro_rules! recognise_token {
     }};
 }
 
-pub fn parse(token_stream: &Vec<Token>) -> Result<Expr, ParseError> {
+pub fn parse(token_stream: &[Token]) -> Result<Expr, ParseError> {
     parse_internal(token_stream)
 }
 
-pub type Precedence = u8;
-
-#[derive(Debug, Clone)]
-struct Fixity {
-    assoc: Assoc,
-    precedence: Precedence,
-}
-
+/// An N-ary operator, with N > 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Assoc {
-    Left,
-    None,
-    Right,
-}
-
-impl Fixity {
-    fn none() -> Self {
-        Self {
-            assoc: Assoc::None,
-            precedence: 0,
-        }
-    }
-
-    fn for_unop(op: UnOp) -> Self {
-        let (assoc, precedence) = match op {
-            UnOp::Not => (Assoc::None, 4),
-            UnOp::Negate => (Assoc::None, 8),
-        };
-        Self { assoc, precedence }
-    }
-
-    fn for_binop(op: BinOp) -> Self {
-        let (assoc, precedence) = match op {
-            BinOp::Or => (Assoc::Left, 2),
-            BinOp::And => (Assoc::Left, 3),
-            BinOp::LessThan
-            | BinOp::GreaterThan
-            | BinOp::LessThanEqual
-            | BinOp::GreaterThanEqual
-            | BinOp::Equal
-            | BinOp::NotEqual
-            | BinOp::Is => (Assoc::None, 5),
-            BinOp::Add | BinOp::Subtract => (Assoc::Left, 6),
-            BinOp::Multiply | BinOp::IntDiv | BinOp::Remainder => (Assoc::Left, 7),
-            BinOp::MemberAccess | BinOp::Index => (Assoc::Left, 9),
-        };
-        Self { assoc, precedence }
-    }
-
-    fn for_terop(op: TerOp) -> Self {
-        let (assoc, precedence) = match op {
-            TerOp::If => (Assoc::Right, 1),
-        };
-        Self { assoc, precedence }
-    }
+pub enum NAryOp {
+    Binary(BinOp),
+    Ternary(TerOp),
 }
 
 fn parse_internal(tokens: &[Token]) -> Result<Expr, ParseError> {
@@ -127,7 +78,7 @@ fn un_expr(op: UnOp, state: ParserState) -> ParseResult<Expr> {
     let (rhs, state) = expression(fixity, state)?;
 
     let un_expr = UnExpr { op, rhs };
-    success(Expr::UnExpr(Box::new(un_expr)), state)
+    success(Expr::Unary(Box::new(un_expr)), state)
 }
 
 fn pratt_parse(mut lhs: Expr, prev_fix: Fixity, mut state: ParserState) -> ParseResult<Expr> {
@@ -137,15 +88,17 @@ fn pratt_parse(mut lhs: Expr, prev_fix: Fixity, mut state: ParserState) -> Parse
             None => return success(lhs, state),
             Some((token, _)) => {
                 // Handle a valid binary operation
-                if let Some(op) = as_bin_op(&token.kind) {
+                if let Some(op) = as_n_ary_op(&token.kind) {
                     op
                 }
                 // Handle a valid end of expression
+                // TODO: Lift this into a parameter specifying which token may end the expression.
                 else if matches!(
                     token.kind,
                     TokenKind::Structure(Structure::Newline)
                         | TokenKind::Symbol(Symbol::CloseParen)
                         | TokenKind::Symbol(Symbol::CloseBracket)
+                        | TokenKind::Keyword(Keyword::Else)
                 ) {
                     return success(lhs, state);
                 }
@@ -156,31 +109,49 @@ fn pratt_parse(mut lhs: Expr, prev_fix: Fixity, mut state: ParserState) -> Parse
             }
         };
 
-        let cur_fix = Fixity::for_binop(op);
-
-        if cur_fix.precedence < prev_fix.precedence {
-            return success(lhs, state);
-        } else if cur_fix.precedence == prev_fix.precedence && prev_fix.assoc == Assoc::Left {
+        let cur_fix = Fixity::for_n_ary_op(op);
+        if prev_fix.precedes_rhs(&cur_fix) {
             return success(lhs, state);
         }
 
         // Only advance the state once we're sure we'll use the operator.
         state = state.advance();
 
-        let (rhs, next) = expression(cur_fix, state)?;
-        state = next;
+        match op {
+            NAryOp::Binary(bin) => {
+                let (rhs, next) = expression(cur_fix, state)?;
+                state = next;
 
-        if op == BinOp::Index {
-            let (_, next) = expect_symbol(Symbol::CloseBracket, next).add_stage(Stage::IndexEnd)?;
-            state = next;
+                if bin == BinOp::Index {
+                    let (_, next) =
+                        expect_symbol(Symbol::CloseBracket, state).add_stage(Stage::IndexEnd)?;
+                    state = next;
+                }
+                let bin_expr = BinExpr { lhs, op: bin, rhs };
+                lhs = Expr::Binary(Box::new(bin_expr));
+            }
+            NAryOp::Ternary(TerOp::If) => {
+                let (mhs, next) = expression(Fixity::none(), state)?;
+
+                let (_, next) =
+                    expect_keyword(Keyword::Else, next).add_stage(Stage::TernaryElse)?;
+
+                let (rhs, next) = expression(cur_fix, next)?;
+                state = next;
+
+                let ter_expr = TerExpr {
+                    lhs,
+                    op: TerOp::If,
+                    mhs,
+                    rhs,
+                };
+                lhs = Expr::Ternary(Box::new(ter_expr));
+            }
         }
-
-        let bin_expr = BinExpr { lhs, op, rhs };
-        lhs = Expr::BinExpr(Box::new(bin_expr));
     }
 }
 
-fn as_bin_op(kind: &TokenKind) -> Option<BinOp> {
+fn as_n_ary_op(kind: &TokenKind) -> Option<NAryOp> {
     recognise!(kind, TokenKind::Symbol(s) => s)
         .and_then(|&s| {
             Some(match s {
@@ -200,12 +171,14 @@ fn as_bin_op(kind: &TokenKind) -> Option<BinOp> {
                 _ => return None,
             })
         })
+        .map(NAryOp::Binary)
         .or_else(|| {
             recognise!(kind, TokenKind::Keyword(k) => k).and_then(|&k| {
                 Some(match k {
-                    Keyword::Or => BinOp::Or,
-                    Keyword::And => BinOp::And,
-                    Keyword::Is => BinOp::Is,
+                    Keyword::Or => NAryOp::Binary(BinOp::Or),
+                    Keyword::And => NAryOp::Binary(BinOp::And),
+                    Keyword::Is => NAryOp::Binary(BinOp::Is),
+                    Keyword::If => NAryOp::Ternary(TerOp::If),
                     _ => return None,
                 })
             })
@@ -214,6 +187,10 @@ fn as_bin_op(kind: &TokenKind) -> Option<BinOp> {
 
 fn expect_symbol(symbol: Symbol, state: ParserState) -> Fallible<Symbol> {
     recognise_token!(state, TokenKind::Symbol(s) if *s == symbol => s)
+}
+
+fn expect_keyword(keyword: Keyword, state: ParserState) -> Fallible<Keyword> {
+    recognise_token!(state, TokenKind::Keyword(k) if *k == keyword => k)
 }
 
 #[cfg(test)]
@@ -247,6 +224,13 @@ mod tests {
                 $source, pretty
             )
         }};
+    }
+
+    fn assert_fails(source: &str, expected_stage: Stage) {
+        let tokens = lex(source).unwrap();
+        let error = parse(&tokens).unwrap_err();
+
+        assert_eq!(expected_stage, error.stage());
     }
 
     #[test]
@@ -302,6 +286,21 @@ mod tests {
     #[test]
     fn index() {
         assert_parses!("a[b] and c", "(a[b] and c)");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn ternary_if() {
+        assert_parses!(
+            "a if b > 10 or True else c",
+            "(a if ((b > 10) or True) else c)"
+        );
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn unclosed_ternary_fails() {
+        assert_fails("a if b > 10 or True", Stage::TernaryElse);
     }
 
     /// ChocoPy Language Reference: 4.1
