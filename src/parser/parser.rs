@@ -40,42 +40,69 @@ pub enum NAryOp {
 fn parse_internal(tokens: &[Token]) -> Result<Expr, ParseError> {
     let state = ParserState::new(tokens);
 
-    let (expr, state) = expression(Fixity::none(), state)?;
+    let (expr, state) = expression(Fixity::none())(state)?;
 
     recognise_token!(state, TokenKind::Structure(s) if *s == Structure::Newline => s)
         .add_stage(Stage::ProgramEnd)
         .map(|(_, _)| expr)
 }
 
-fn expression(left_fix: Fixity, state: ParserState) -> ParseResult<Expr> {
-    let (tk, state) = expect_token(state).add_stage(Stage::ExprStart)?;
+fn expression(left_fix: Fixity) -> impl Fn(ParserState) -> ParseResult<Expr> {
+    move |state| {
+        let (tk, state) = annotate(Stage::ExprStart, token())(state)?;
 
-    let (lhs, state) = match tk.kind {
-        TokenKind::Identifier(id) => (Expr::Identifier(id), state),
-        TokenKind::Literal(l) => (Expr::Literal(l.to_syntax_node()), state),
-        TokenKind::Keyword(Keyword::True) => {
-            (Expr::Literal(syntax_tree::Literal::Boolean(true)), state)
-        }
-        TokenKind::Keyword(Keyword::False) => {
-            (Expr::Literal(syntax_tree::Literal::Boolean(false)), state)
-        }
-        TokenKind::Symbol(Symbol::OpenParen) => {
-            let (lhs, state) = expression(Fixity::none(), state)?;
-            let (_, state) =
-                expect_symbol(Symbol::CloseParen, state).add_stage(Stage::ParenExprEnd)?;
-            (lhs, state)
-        }
-        TokenKind::Symbol(Symbol::Minus) => un_expr(UnOp::Negate, state)?,
-        TokenKind::Keyword(Keyword::Not) => un_expr(UnOp::Not, state)?,
-        _ => return failure(Stage::ExprStart, Reason::UnexpectedToken(tk)),
-    };
+        let (lhs, state) = match tk.kind {
+            TokenKind::Identifier(id) => (Expr::Identifier(id), state),
+            TokenKind::Literal(l) => (Expr::Literal(l.to_syntax_node()), state),
+            TokenKind::Keyword(Keyword::True) => {
+                (Expr::Literal(syntax_tree::Literal::Boolean(true)), state)
+            }
+            TokenKind::Keyword(Keyword::False) => {
+                (Expr::Literal(syntax_tree::Literal::Boolean(false)), state)
+            }
+            TokenKind::Symbol(Symbol::OpenParen) => {
+                let (lhs, state) = expression(Fixity::none())(state)?;
+                let (_, state) =
+                    expect_symbol(Symbol::CloseParen, state).add_stage(Stage::ParenExprEnd)?;
+                (lhs, state)
+            }
+            TokenKind::Symbol(Symbol::Minus) => un_expr(UnOp::Negate, state)?,
+            TokenKind::Keyword(Keyword::Not) => un_expr(UnOp::Not, state)?,
+            _ => return failure(Stage::ExprStart, Reason::UnexpectedToken(tk)),
+        };
 
-    pratt_parse(lhs, left_fix, state)
+        pratt_parse(lhs, left_fix.clone(), state)
+    }
+}
+
+fn expression_start(token: Token) -> impl FnOnce(ParserState) -> ParseResult<Expr> {
+    move |state| {
+        let t = match token.kind {
+            TokenKind::Identifier(id) => success_p(Expr::Identifier(id)),
+            TokenKind::Literal(l) => success_p(Expr::Literal(l.to_syntax_node())),
+            TokenKind::Keyword(Keyword::True) => {
+                success_p(Expr::Literal(syntax_tree::Literal::Boolean(true)))
+            }
+            TokenKind::Keyword(Keyword::False) => {
+                success_p(Expr::Literal(syntax_tree::Literal::Boolean(false)))
+            }
+            TokenKind::Symbol(Symbol::OpenParen) => {
+                delimited(expression(Fixity::none()), move |state| {
+                    expect_symbol(Symbol::CloseParen, state).add_stage(Stage::ParenExprEnd)
+                })
+            }
+            TokenKind::Symbol(Symbol::Minus) => un_expr(UnOp::Negate, state)?,
+            TokenKind::Keyword(Keyword::Not) => un_expr(UnOp::Not, state)?,
+            _ => return failure(Stage::ExprStart, Reason::UnexpectedToken(token)),
+        }(state)?;
+
+        Ok(t)
+    }
 }
 
 fn un_expr(op: UnOp, state: ParserState) -> ParseResult<Expr> {
     let fixity = Fixity::for_unop(op);
-    let (rhs, state) = expression(fixity, state)?;
+    let (rhs, state) = expression(fixity)(state)?;
 
     let un_expr = UnExpr { op, rhs };
     success(Expr::Unary(Box::new(un_expr)), state)
@@ -119,7 +146,7 @@ fn pratt_parse(mut lhs: Expr, prev_fix: Fixity, mut state: ParserState) -> Parse
 
         match op {
             NAryOp::Binary(bin) => {
-                let (rhs, next) = expression(cur_fix, state)?;
+                let (rhs, next) = expression(cur_fix)(state)?;
                 state = next;
 
                 if bin == BinOp::Index {
@@ -131,12 +158,12 @@ fn pratt_parse(mut lhs: Expr, prev_fix: Fixity, mut state: ParserState) -> Parse
                 lhs = Expr::Binary(Box::new(bin_expr));
             }
             NAryOp::Ternary(TerOp::If) => {
-                let (mhs, next) = expression(Fixity::none(), state)?;
+                let (mhs, next) = expression(Fixity::none())(state)?;
 
                 let (_, next) =
                     expect_keyword(Keyword::Else, next).add_stage(Stage::TernaryElse)?;
 
-                let (rhs, next) = expression(cur_fix, next)?;
+                let (rhs, next) = expression(cur_fix)(next)?;
                 state = next;
 
                 let ter_expr = TerExpr {
@@ -186,11 +213,13 @@ fn as_n_ary_op(kind: &TokenKind) -> Option<NAryOp> {
 }
 
 fn expect_symbol(symbol: Symbol, state: ParserState) -> Fallible<Symbol> {
-    recognise_token!(state, TokenKind::Symbol(s) if *s == symbol => s)
+    map(expect(|t| t.kind == TokenKind::Symbol(symbol)), |_| symbol)(state)
 }
 
 fn expect_keyword(keyword: Keyword, state: ParserState) -> Fallible<Keyword> {
-    recognise_token!(state, TokenKind::Keyword(k) if *k == keyword => k)
+    map(expect(|t| t.kind == TokenKind::Keyword(keyword)), |_| {
+        keyword
+    })(state)
 }
 
 #[cfg(test)]
