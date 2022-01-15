@@ -132,7 +132,7 @@ impl<'a, O> AnnotateStage for Fallible<'a, O> {
     }
 }
 
-pub fn success<'a, O, E>(value: O, state: ParserState<'a>) -> Result<(O, ParserState<'a>), E> {
+pub fn success<O, E>(value: O, state: ParserState) -> Result<(O, ParserState), E> {
     Ok((value, state))
 }
 

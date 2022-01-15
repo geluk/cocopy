@@ -1,6 +1,6 @@
 use crate::parser::syntax_tree::BinExpr;
 
-pub fn compile(expression: BinExpr) -> Program {
+pub fn compile(_expression: BinExpr) -> Program {
     Program::new()
 }
 
