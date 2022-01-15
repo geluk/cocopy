@@ -5,18 +5,10 @@ use std::{iter::Peekable, str::Chars};
 /// Since it only holds an iterator and a position, this type is very
 /// lightweight, making it easy to clone in order to handle branching
 /// and `LL(k)` lookahead.
+#[derive(Clone)]
 pub struct CharLexer<'a> {
     chars: Peekable<Chars<'a>>,
     position: usize,
-}
-
-impl<'a> Clone for CharLexer<'a> {
-    fn clone(&self) -> Self {
-        Self {
-            chars: self.chars.clone(),
-            position: self.position,
-        }
-    }
 }
 
 impl<'a> CharLexer<'a> {
@@ -27,11 +19,6 @@ impl<'a> CharLexer<'a> {
             chars: source.chars().peekable(),
             position: 0,
         }
-    }
-
-    /// Returns a clone of the internal character iterator.
-    pub fn iter(&self) -> Peekable<Chars<'a>> {
-        self.chars.clone()
     }
 
     /// Reads the next character.
@@ -81,6 +68,8 @@ impl<'a> CharLexer<'a> {
         }
     }
 
+    /// Consumes characters while `P(char)` evaluates to `true`.
+    /// Returns a [`String`] containing the consumed characters.
     pub fn consume_while<P>(&mut self, mut predicate: P) -> String
     where
         Self: Sized,

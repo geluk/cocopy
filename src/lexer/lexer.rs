@@ -262,11 +262,7 @@ impl<'s> Lexer<'s> {
     /// returns the token, wrapped in an [`Option`]. If it's something else,
     /// returns [`None`].
     fn keyword(&self) -> Option<Token> {
-        let text: String = self
-            .lexer
-            .iter()
-            .take_while(char::is_ascii_alphabetic)
-            .collect();
+        let text: String = self.lexer.clone().consume_while(char::is_ascii_alphabetic);
 
         let keyword = match text.as_str() {
             // Values
@@ -317,15 +313,14 @@ impl<'s> Lexer<'s> {
     /// returns the token, wrapped in an [`Option`]. If it's something else,
     /// returns [`None`].
     fn identifier(&self) -> Option<Token> {
-        let mut iter = self.lexer.iter();
+        let mut clone = self.lexer.clone();
 
         // The first character of an identifier may not be a digit.
-        iter.peek()
-            .filter(|&&c| c.is_ascii_alphabetic() || c == '_')?;
+        clone
+            .peek()
+            .filter(|&c| c.is_ascii_alphabetic() || c == '_')?;
 
-        let id: String = iter
-            .take_while(|&c| c.is_ascii_alphanumeric() || c == '_')
-            .collect();
+        let id: String = clone.consume_while(|&c| c.is_ascii_alphanumeric() || c == '_');
 
         Some(self.make_sized_token(id.len(), TokenKind::Identifier(id)))
     }
