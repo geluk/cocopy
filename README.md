@@ -12,8 +12,8 @@ reference. In addition, I'd like to experiment with some additional features,whi
   - [x] Symbols
   - [x] Structure
     - [x] Newline
-    - [x] Tab-based indents/dedents
-    - [ ] Space-based indents/dedents (postponed for now)
+    - [x] Tab-based indentation
+    - [ ] Space-based indentation (postponed for now)
   - [x] Identifiers
   - [x] Integer literals
   - [ ] String literals
@@ -23,13 +23,22 @@ reference. In addition, I'd like to experiment with some additional features,whi
 
 ## Syntax:
 
+- [x] Variables
+  - [x] Type annotations
+- [ ] Functions
+  - [ ] Function body
+  - [ ] `global`
+  - [ ] `nonlocal`
+- [ ] Classes
+  - [ ] Class body
 - [x] Expressions
   - [x] Literal
+  - [x] Identifier
   - [x] Unary
   - [x] Binary
   - [x] Ternary
   - [x] Operator precedence and associativity
-- [x] Variable definitions
+  - [ ] Handle assignment targets differently from binary expressions
 - [ ] Statements
   - [x] Expression evaluation
   - [x] Assignment
@@ -38,10 +47,9 @@ reference. In addition, I'd like to experiment with some additional features,whi
   - [ ] `for`
   - [x] `pass`
   - [x] `return`
-- [x] Contextual error reporting
+- [x] Literals
 - [ ] Blocks
-- [ ] Functions
-- [ ] Classes
+- [x] Contextual error reporting
 
 ## Type rules:
 
@@ -60,7 +68,7 @@ reference. In addition, I'd like to experiment with some additional features,whi
 
 # Additional reading
 
+- [ChocoPy language reference](./chocopy_language_reference.pdf)
 - [The ChocoPy website](https://chocopy.org/)
 - [My First Language Frontend with LLVM](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
 - [Write You a Haskell](http://dev.stephendiehl.com/fun/)
--
