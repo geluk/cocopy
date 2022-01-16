@@ -19,8 +19,7 @@ Lexical structure:
 
 Syntax:
 
-- Ternary operators
-- Statements
+- Control-flow statements (if, while, for)
 - Type annotations
 - Blocks
 - Functions

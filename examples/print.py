@@ -1,1 +1,1 @@
-print(999)
+hoi.print(999)
