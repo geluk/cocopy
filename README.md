@@ -32,3 +32,10 @@ Type rules:
 Operational semantics:
 
 - Everything
+
+# Additional reading
+
+- [The ChocoPy website](https://chocopy.org/)
+- [My First Language Frontend with LLVM](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
+- [Write You a Haskell](http://dev.stephendiehl.com/fun/)
+-
