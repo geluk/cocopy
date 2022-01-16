@@ -8,104 +8,121 @@ use super::{
     syntax_tree::*,
 };
 
-pub fn parse(token_stream: &[Token]) -> Result<Expr, ParseError> {
-    Parser::new(token_stream).parse_internal()
-}
-
-/// An N-ary operator, with N > 1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NAryOp {
-    Binary(BinOp),
-    Ternary(TerOp),
-}
-
-struct Delimiter {
-    token_kind: TokenKind,
-    stage: Stage,
-    required: bool,
-}
-impl Delimiter {
-    /// Construct a delimiter for an expression surrounded by parentheses.
-    pub fn parentheses() -> Option<Self> {
-        Some(Self {
-            token_kind: TokenKind::Symbol(Symbol::CloseParen),
-            stage: Stage::ParenExprEnd,
-            required: true,
-        })
-    }
-    /// Construct a delimiter for an expression terminated by a newline.
-    pub fn newline() -> Option<Self> {
-        Some(Self {
-            token_kind: TokenKind::Structure(Structure::Newline),
-            stage: Stage::ProgramEnd,
-            required: true,
-        })
-    }
-    /// Construct a delimiter for an indexing sub-expression.
-    pub fn index() -> Option<Self> {
-        Some(Self {
-            token_kind: TokenKind::Symbol(Symbol::CloseBracket),
-            stage: Stage::IndexEnd,
-            required: true,
-        })
-    }
-    /// Construct a delimiter for an indexing sub-expression.
-    pub fn function_call() -> Option<Self> {
-        Some(Self {
-            token_kind: TokenKind::Symbol(Symbol::CloseParen),
-            stage: Stage::CallEnd,
-            required: true,
-        })
-    }
-    /// Construct a delimiter for the middle expression of a ternary if-expression.
-    pub fn ternary() -> Option<Self> {
-        Some(Self {
-            token_kind: TokenKind::Keyword(Keyword::Else),
-            stage: Stage::TernaryElse,
-            required: true,
-        })
-    }
-
-    /// Returns `true` if this delimiter expects a token of the same kind as the token that was
-    /// provided.
-    pub fn accepts_token(&self, token: &Token) -> bool {
-        token.kind == self.token_kind
-    }
-}
-
-pub trait OptionalDelimiter {
-    fn for_subexpr(&self) -> Self;
-}
-
-impl OptionalDelimiter for Option<Delimiter> {
-    fn for_subexpr(&self) -> Self {
-        self.as_ref().map(|delimiter| Delimiter {
-            token_kind: delimiter.token_kind.clone(),
-            stage: delimiter.stage,
-            required: false,
-        })
-    }
+pub fn parse(token_stream: &[Token]) -> Result<Program, ParseError> {
+    Parser::new(token_stream).parse()
 }
 
 impl<'a> Parser<'a> {
-    fn parse_internal(&mut self) -> Result<Expr, ParseError> {
-        let expr = self.expression(Fixity::none(), Delimiter::newline())?;
-
-        Ok(expr)
+    fn parse(&mut self) -> Result<Program, ParseError> {
+        self.program()
     }
 
-    fn expression(
-        &mut self,
-        left_fix: Fixity,
-        delimiter: Option<Delimiter>,
-    ) -> Result<Expr, ParseError> {
-        let token = self.next().add_stage(Stage::ExprStart)?;
+    /// Parse a complete program (a single ChocoPy file).
+    fn program(&mut self) -> Result<Program, ParseError> {
+        let mut program = Program::new();
+
+        while let Some(var_def) = self.recognise_parser(Self::var_def) {
+            program.add_var_def(var_def);
+        }
+
+        while self.has_next() {
+            let stmt = self.statement()?;
+            program.add_statement(stmt);
+        }
+
+        Ok(program)
+    }
+
+    /// Parse a variable definition. Variable definitions are only allowed at the top of the file,
+    /// and they may only be initialised with a literal.
+    fn var_def(&mut self) -> Result<VarDef, ParseError> {
+        const ST: Stage = Stage::VarDef;
+        let name = self.recognise_identifier().add_stage(ST)?.clone();
+
+        self.recognise_symbol(Symbol::Colon).add_stage(ST)?;
+        let type_spec = self.type_specification()?;
+        self.recognise_symbol(Symbol::Assign).add_stage(ST)?;
+
+        let next = self.next().add_stage(ST)?;
+        let value = match &next.kind {
+            TokenKind::Literal(l) => l.to_syntax_node(),
+            TokenKind::Keyword(Keyword::True) => Literal::Boolean(true),
+            TokenKind::Keyword(Keyword::False) => Literal::Boolean(false),
+            _ => return failure(Stage::VarDef, Reason::UnexpectedToken(next.clone())),
+        };
+        self.recognise_structure(Structure::Newline).add_stage(ST)?;
+
+        Ok(VarDef {
+            name,
+            type_spec,
+            value,
+        })
+    }
+
+    /// Parse a statement. A statement could be an expression evaluation, a variable assignment,
+    /// control flow, or a `pass` or `return` statement.
+    fn statement(&mut self) -> Result<Statement, ParseError> {
+        // If we encounter a `pass` keyword, we can immediately emit it and finish the statement.
+        if self.recognise_keyword(Keyword::Pass).is_ok() {
+            self.recognise_structure(Structure::Newline)
+                .add_stage(Stage::Statement)?;
+            return Ok(Statement::Pass);
+        }
+        // The same applies if we encounter a `return` keyword.
+        if let Ok(_) = self.recognise_keyword(Keyword::Return) {
+            let return_type = if self.recognise_structure(Structure::Newline).is_ok() {
+                None
+            } else {
+                Some(self.toplevel_expression()?)
+            };
+            return Ok(Statement::Return(return_type));
+        }
+        // TODO: The same can be said for `if`, `while`, and `for`.
+
+        // At this point, we have two options left. We could either encounter an assignment,
+        // or we could encounter an expression evaluation. There is no easy way to find out which
+        // one we need to parse without significant lookahead, so we'll try both parsers and return
+        // the result of the one that parsed the most.
+        self.alt(
+            |p| Self::assign_statement(p).map(Statement::Assign),
+            |p| Self::toplevel_expression(p).map(Statement::Evaluate),
+        )
+    }
+
+    /// Parse a variable assignment statement.
+    fn assign_statement(&mut self) -> Result<Assign, ParseError> {
+        let target = self.expression(Fixity::none(), Delimiter::assign())?;
+        let value = self.toplevel_expression()?;
+        Ok(Assign { target, value })
+    }
+
+    fn type_specification(&mut self) -> Result<TypeSpec, ParseError> {
+        if self.recognise_symbol(Symbol::OpenBracket).is_ok() {
+            let inner_array = self.type_specification()?;
+
+            self.recognise_symbol(Symbol::CloseBracket)
+                .add_stage(Stage::TypeSpec)?;
+
+            Ok(TypeSpec::Array(Box::new(inner_array)))
+        } else {
+            let type_name = self.recognise_identifier().add_stage(Stage::TypeSpec)?;
+            Ok(TypeSpec::Type(type_name))
+        }
+    }
+
+    fn toplevel_expression(&mut self) -> Result<Expr, ParseError> {
+        self.expression(Fixity::none(), Delimiter::newline())
+    }
+
+    fn expression(&mut self, left_fix: Fixity, delimiter: Delimiter) -> Result<Expr, ParseError> {
+        let token = self.next().add_stage(Stage::Expr)?;
 
         let lhs = match &token.kind {
             TokenKind::Identifier(id) => (Expr::Identifier(id.clone())),
             TokenKind::Literal(l) => (Expr::Literal(l.to_syntax_node())),
             TokenKind::Keyword(Keyword::True) => Expr::Literal(Literal::Boolean(true)),
             TokenKind::Keyword(Keyword::False) => Expr::Literal(Literal::Boolean(false)),
+            TokenKind::Keyword(Keyword::None) => Expr::Literal(Literal::None),
             TokenKind::Symbol(Symbol::OpenParen) => {
                 self.expression(Fixity::none(), Delimiter::parentheses())?
             }
@@ -113,7 +130,7 @@ impl<'a> Parser<'a> {
                 self.un_expr(UnOp::Negate, delimiter.for_subexpr())?
             }
             TokenKind::Keyword(Keyword::Not) => self.un_expr(UnOp::Not, delimiter.for_subexpr())?,
-            _ => return failure(Stage::ExprStart, Reason::UnexpectedToken(token.clone())),
+            _ => return failure(Stage::Expr, Reason::UnexpectedToken(token.clone())),
         };
 
         let expr = self.pratt_parse(lhs, left_fix, delimiter.for_subexpr())?;
@@ -123,7 +140,7 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse a unary expression using the provided unary operator
-    fn un_expr(&mut self, op: UnOp, delimiter: Option<Delimiter>) -> Result<Expr, ParseError> {
+    fn un_expr(&mut self, op: UnOp, delimiter: Delimiter) -> Result<Expr, ParseError> {
         let rhs = self.expression(Fixity::for_unop(op), delimiter)?;
 
         let un_expr = UnExpr { op, rhs };
@@ -134,7 +151,7 @@ impl<'a> Parser<'a> {
         &mut self,
         mut lhs: Expr,
         prev_fix: Fixity,
-        delimiter: Option<Delimiter>,
+        delimiter: Delimiter,
     ) -> Result<Expr, ParseError> {
         loop {
             // Look for the next operator that's coming up
@@ -145,11 +162,13 @@ impl<'a> Parser<'a> {
                         // Process a valid binary operator
                         (Some(op), _) => op,
                         // Process a recognised expression delimiter
-                        (_, Some(delim)) if delim.accepts_token(token) => return Ok(lhs),
+                        (_, delim) if delim.accepts_token(token) => return Ok(lhs),
                         // Anything else is an error
                         _ => {
-                            let stage = delimiter.map(|d| d.stage).unwrap_or(Stage::BinExprEnd);
-                            return failure(stage, Reason::UnexpectedToken(token.clone()));
+                            return failure(
+                                delimiter.stage(),
+                                Reason::UnexpectedToken(token.clone()),
+                            );
                         }
                     }
                 }
@@ -192,14 +211,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn satisfy_delimiter(&mut self, delimiter: Option<Delimiter>) -> Result<(), ParseError> {
-        match delimiter {
-            Some(delim) if delim.required => self
-                .expect(delim.token_kind)
-                .add_stage(delim.stage)
-                .map(|_| ()),
-            _ => Ok(()),
+    fn satisfy_delimiter(&mut self, delimiter: Delimiter) -> Result<(), ParseError> {
+        if delimiter.required() {
+            self.recognise(delimiter.token_kind().clone())
+                .add_stage(delimiter.stage())?;
         }
+        Ok(())
     }
 }
 
@@ -242,10 +259,10 @@ mod tests {
 
     use super::*;
 
-    macro_rules! assert_parses {
-        ($source:expr, $expected:expr) => {{
+    macro_rules! assert_parses_with {
+        ($target:ident, $source:expr, $expected:expr) => {{
             let tokens = lex($source).unwrap();
-            let expr = match parse(&tokens) {
+            let expr = match Parser::new(&tokens).$target() {
                 Ok(expr) => expr,
                 Err(err) => {
                     panic!(
@@ -269,78 +286,106 @@ mod tests {
         }};
     }
 
-    fn assert_fails(source: &str, expected_stage: Stage) {
-        let tokens = lex(source).unwrap();
-        let error = parse(&tokens).unwrap_err();
-
-        assert_eq!(
-            expected_stage,
-            error.stage(),
-            "Expected an error in {:?}, but found {:?}",
-            expected_stage,
-            error.stage()
-        );
+    macro_rules! assert_expr_parses {
+        ($source:expr, $expected:expr) => {{
+            assert_parses_with!(toplevel_expression, $source, $expected)
+        }};
     }
 
+    macro_rules! assert_fails_with {
+        ($target:ident, $source:expr, $expected_stage:expr) => {{
+            let tokens = lex($source).unwrap();
+            let error = Parser::new(&tokens).$target().unwrap_err();
+
+            assert_eq!(
+                $expected_stage,
+                error.stage(),
+                "Expected error stage to be {:?}, but was {:?}",
+                $expected_stage,
+                error.stage()
+            );
+        }};
+    }
+
+    macro_rules! assert_expr_fails {
+        ($source:expr, $expected:expr) => {{
+            assert_fails_with!(toplevel_expression, $source, $expected)
+        }};
+    }
+
+    // =============
+    // # EXPRESSIONS
+    // =============
+
+    /// ChocoPy Language Reference: 4.1
     #[test]
     fn simple_expression() {
-        assert_parses!("1 + 1000", "(1 + 1000)");
+        assert_expr_parses!("1 + 1000", "(1 + 1000)");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
     fn or_is_left_associative() {
-        assert_parses!("True or False or True", "((True or False) or True)");
+        assert_expr_parses!("True or False or True", "((True or False) or True)");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
     fn and_is_left_associative() {
-        assert_parses!("a and b and c", "((a and b) and c)");
+        assert_expr_parses!("a and b and c", "((a and b) and c)");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
     fn add_sub_are_left_associative() {
-        assert_parses!("a + b + c", "((a + b) + c)");
-        assert_parses!("a - b - c", "((a - b) - c)");
-        assert_parses!("a + b - c", "((a + b) - c)");
-        assert_parses!("a - b + c", "((a - b) + c)");
+        assert_expr_parses!("a + b + c", "((a + b) + c)");
+        assert_expr_parses!("a - b - c", "((a - b) - c)");
+        assert_expr_parses!("a + b - c", "((a + b) - c)");
+        assert_expr_parses!("a - b + c", "((a - b) + c)");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
     fn mult_intdiv_rem_are_left_associative() {
-        assert_parses!("a * b * c", "((a * b) * c)");
-        assert_parses!("a // b // c", "((a // b) // c)");
-        assert_parses!("a % b % c", "((a % b) % c)");
+        assert_expr_parses!("a * b * c", "((a * b) * c)");
+        assert_expr_parses!("a // b // c", "((a // b) // c)");
+        assert_expr_parses!("a % b % c", "((a % b) % c)");
 
-        assert_parses!("a * b % c", "((a * b) % c)");
-        assert_parses!("a % b * c", "((a % b) * c)");
+        assert_expr_parses!("a * b % c", "((a * b) % c)");
+        assert_expr_parses!("a % b * c", "((a % b) * c)");
 
-        assert_parses!("a // b % c", "((a // b) % c)");
-        assert_parses!("a % b // c", "((a % b) // c)");
+        assert_expr_parses!("a // b % c", "((a // b) % c)");
+        assert_expr_parses!("a % b // c", "((a % b) // c)");
 
-        assert_parses!("a // b * c", "((a // b) * c)");
-        assert_parses!("a * b // c", "((a * b) // c)");
+        assert_expr_parses!("a // b * c", "((a // b) * c)");
+        assert_expr_parses!("a * b // c", "((a * b) // c)");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
     fn member_access() {
-        assert_parses!("a.b and c", "((a.b) and c)");
+        assert_expr_parses!("a.b and c", "((a.b) and c)");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
     fn index() {
-        assert_parses!("a[b] and c", "(a[b] and c)");
+        assert_expr_parses!("a[b] and c", "((a[b]) and c)");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn index_and_member_access_are_left_associative() {
+        assert_expr_parses!("a.b.c", "((a.b).c)");
+        assert_expr_parses!("a[b][c]", "((a[b])[c])");
+        assert_expr_parses!("a.b[c]", "((a.b)[c])");
+        assert_expr_parses!("a[b].c", "((a[b]).c)");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
     fn ternary_if() {
-        assert_parses!(
+        assert_expr_parses!(
             "a if b > 10 or True else c",
             "(a if ((b > 10) or True) else c)"
         );
@@ -348,14 +393,8 @@ mod tests {
 
     /// ChocoPy Language Reference: 4.1
     #[test]
-    fn unclosed_ternary_fails() {
-        assert_fails("a if b > 10 or True", Stage::TernaryElse);
-    }
-
-    /// ChocoPy Language Reference: 4.1
-    #[test]
-    fn nested_ternary_is_right_associative() {
-        assert_parses!(
+    fn ternary_if_is_right_associative() {
+        assert_expr_parses!(
             "a if p1 else b if p2 else c",
             "(a if p1 else (b if p2 else c))"
         );
@@ -363,19 +402,85 @@ mod tests {
 
     /// ChocoPy Language Reference: 4.1
     #[test]
-    fn unclosed_binary_fails() {
-        assert_fails("a or", Stage::ExprStart);
-    }
-
-    /// ChocoPy Language Reference: 4.1
-    #[test]
-    fn combined_operators() {
-        assert_parses!("1 + 10 + 9", "((1 + 10) + 9)");
+    fn unclosed_ternary_fails() {
+        assert_expr_fails!("a if b > 10 or True", Stage::TernaryElse);
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
     fn combined_unop() {
-        assert_parses!("a + not 9999 and 9", "((a + (not 9999)) and 9)");
+        assert_expr_parses!("a + not 9999 and 9", "((a + (not 9999)) and 9)");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn unclosed_binary_fails() {
+        assert_expr_fails!("a or", Stage::Expr);
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn combined_operators() {
+        assert_expr_parses!("1 + 10 + 9", "((1 + 10) + 9)");
+    }
+
+    // =============
+    // # DEFINITIONS
+    // =============
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn var_def() {
+        assert_parses_with!(var_def, "a:int=10", "a : int = 10");
+    }
+
+    // ============
+    // # STATEMENTS
+    // ============
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn return_statement() {
+        assert_parses_with!(statement, "return", "return\n");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn return_value_statement() {
+        assert_parses_with!(statement, "return 10", "return 10\n");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn pass_statement() {
+        assert_parses_with!(statement, "pass", "pass\n");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn assign_statement() {
+        assert_parses_with!(
+            statement,
+            "a = 10 if hello[99].c else something(10)",
+            "a = (10 if ((hello[99]).c) else (something(10)))\n"
+        );
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn evaluation_statement() {
+        assert_parses_with!(statement, "a.b.c(10)", "(((a.b).c)(10))\n");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn invalid_assign_statement() {
+        assert_fails_with!(statement, "a = 10 or", Stage::Expr);
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn invalid_evaluation_statement() {
+        assert_fails_with!(statement, "a + 10 +", Stage::Expr);
     }
 }

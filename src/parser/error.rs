@@ -50,31 +50,39 @@ pub enum Reason {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
     /// The end of a complete program.
-    ProgramEnd,
+    StatementEnd,
     /// The start of an expression.
-    ExprStart,
-    /// The end of a binary expression. May be followed by another binary operator in the case of
-    /// compound expressions (a + b + c).
-    BinExprEnd,
+    Expr,
     /// The end of a parenthesised expression.
     ParenExprEnd,
     /// The end of an index expression.
     IndexEnd,
     /// The 'else' keyword of a ternary expression
     TernaryElse,
-    /// The 'else' keyword of a ternary expression
-    CallEnd,
+    /// A a parameter list
+    ParameterList,
+    /// A variable definition
+    VarDef,
+    /// A type specification
+    TypeSpec,
+    /// A statement
+    Statement,
+    /// An assignment target
+    AssignTarget,
 }
 impl fmt::Display for Stage {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str(match self {
-            Stage::ExprStart => "the beginning of an expression",
-            Stage::BinExprEnd => "an expression",
+            Stage::Expr => "an expression",
             Stage::ParenExprEnd => "the end of a parenthesised expression",
             Stage::IndexEnd => "the end of an index expression",
-            Stage::ProgramEnd => "the end of the program",
+            Stage::StatementEnd => "the end of a statement",
             Stage::TernaryElse => "a ternary if-expression",
-            Stage::CallEnd => "a parameter list",
+            Stage::ParameterList => "a parameter list",
+            Stage::VarDef => "a variable definition",
+            Stage::TypeSpec => "a type annotation",
+            Stage::Statement => "a statement",
+            Stage::AssignTarget => "an assignment target",
         })
     }
 }
