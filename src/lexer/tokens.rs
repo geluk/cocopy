@@ -3,17 +3,20 @@ use std::{
     ops::Range,
 };
 
-use crate::parser::syntax_tree;
+use crate::{
+    parser::syntax_tree,
+    span::{Bytes, Span},
+};
 
 #[derive(Clone, Debug)]
 pub struct Token {
-    pub source: Range<usize>,
+    pub source: Span,
     pub kind: TokenKind,
 }
 
 impl Token {
-    pub fn length(&self) -> usize {
-        self.source.end - self.source.start
+    pub fn length(&self) -> Bytes {
+        self.source.length()
     }
 }
 

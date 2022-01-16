@@ -1,5 +1,7 @@
 use std::{iter::Peekable, str::Chars};
 
+use crate::span::Bytes;
+
 /// Abstraction over a peekable char iterator with position information.
 ///
 /// Since it only holds an iterator and a position, this type is very
@@ -8,7 +10,7 @@ use std::{iter::Peekable, str::Chars};
 #[derive(Clone)]
 pub struct CharLexer<'a> {
     chars: Peekable<Chars<'a>>,
-    position: usize,
+    byte_position: Bytes,
 }
 
 impl<'a> CharLexer<'a> {
@@ -17,7 +19,7 @@ impl<'a> CharLexer<'a> {
     pub fn new(source: &'a str) -> Self {
         Self {
             chars: source.chars().peekable(),
-            position: 0,
+            byte_position: Bytes::new(0),
         }
     }
 
@@ -32,8 +34,8 @@ impl<'a> CharLexer<'a> {
     /// or [`None`] if the lexer cannot advance any further.
     pub fn try_next(&mut self) -> Option<char> {
         let next = self.chars.next();
-        if next.is_some() {
-            self.position += 1;
+        if let Some(ch) = next {
+            self.byte_position += ch.len_utf8();
         }
         next
     }
@@ -44,9 +46,9 @@ impl<'a> CharLexer<'a> {
         self.chars.peek().copied()
     }
 
-    /// Retrieves the position of the lexer.
-    pub fn position(&self) -> usize {
-        self.position
+    /// Retrieves the byte position of the lexer.
+    pub fn byte_position(&self) -> Bytes {
+        self.byte_position
     }
 
     /// Peeks at the next character, and consumes it if it matches the provided character.
@@ -62,8 +64,8 @@ impl<'a> CharLexer<'a> {
     }
 
     /// Consumes `count` characters. Panics if less than `count` characters could be consumed.
-    pub fn consume(&mut self, count: usize) {
-        for _ in 0..count {
+    pub fn consume(&mut self, count: Bytes) {
+        for _ in 0..count.into() {
             self.next();
         }
     }

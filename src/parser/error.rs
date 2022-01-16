@@ -2,7 +2,11 @@ use std::{fmt, ops::Range};
 
 use thiserror::Error;
 
-use crate::{error::PositionalError, lexer::tokens::Token};
+use crate::{
+    error::PositionalError,
+    lexer::tokens::Token,
+    span::{Bytes, Span},
+};
 
 /// A parsing error, indicating both the parsing stage in which the error was encoutered
 /// and the cause for the error.
@@ -22,10 +26,10 @@ impl ParseError {
 }
 
 impl PositionalError for ParseError {
-    fn range(&self) -> Range<usize> {
+    fn range(&self) -> Span {
         match &self.reason {
-            Reason::UnexpectedToken(tok) => tok.source.clone(),
-            Reason::UnexpectedEndOfInput => 0..0,
+            Reason::UnexpectedToken(tok) => tok.source,
+            Reason::UnexpectedEndOfInput => Span::new(Bytes::new(0), Bytes::new(0)),
         }
     }
 

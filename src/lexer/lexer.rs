@@ -6,7 +6,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::error::PositionalError;
+use crate::{error::PositionalError, span::*};
 
 use super::{char_lexer::CharLexer, tokens::*};
 
@@ -26,13 +26,13 @@ pub enum ErrorType {
 
 #[derive(Error, Debug)]
 pub struct LexError {
-    pub range: Range<usize>,
+    pub range: Span,
     pub error_type: ErrorType,
 }
 
 impl LexError {
-    pub fn length(&self) -> usize {
-        self.range.end - self.range.start
+    pub fn length(&self) -> Bytes {
+        self.range.length()
     }
 }
 
@@ -40,14 +40,16 @@ impl Display for LexError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_fmt(format_args!(
             "Lexer error ({:?}) at {} - {}",
-            self.error_type, self.range.start, self.range.end
+            self.error_type,
+            self.range.start(),
+            self.range.end()
         ))
     }
 }
 
 impl PositionalError for LexError {
-    fn range(&self) -> Range<usize> {
-        self.range.clone()
+    fn range(&self) -> Span {
+        self.range
     }
 
     fn describe(&self) -> String {
@@ -93,7 +95,6 @@ impl<'s> Lexer<'s> {
     fn line(&mut self) -> bool {
         // If this line is empty, skip past it.
         if self.try_consume_empty_line() {
-            println!("Consuming empty line");
             return true;
         }
 
@@ -114,7 +115,6 @@ impl<'s> Lexer<'s> {
 
         // If we can consume a newline now, we successfully parsed the line.
         if self.try_consume_newline() {
-            println!("Consuming newline");
             return true;
         }
 
@@ -129,11 +129,9 @@ impl<'s> Lexer<'s> {
         // Emit 'virtual' newline and dedents here
         // to ensure our token stream is well-formed.
         if had_tokens {
-            println!("Emitting final newline");
             self.insert_unsized_newline();
         }
         if self.indent_level > 0 {
-            println!("Emitting remaining dedents");
             self.emit_dedents_to(0);
         }
 
@@ -411,10 +409,10 @@ impl<'s> Lexer<'s> {
     }
 
     fn make_offset_error(&self, offset: isize, length: usize, error_type: ErrorType) -> LexError {
-        let position: usize = (self.lexer.position() as isize + offset) as usize;
+        let position = self.lexer.byte_position() + offset;
 
         LexError {
-            range: position..position + length,
+            range: Span::new(position, position + length),
             error_type,
         }
     }
@@ -428,10 +426,10 @@ impl<'s> Lexer<'s> {
     /// Constructs a token of size `length` and [`TokenKind`] `kind`,
     /// Offset by `offset` characters from the lexer's current position.
     fn make_offset_token(&self, offset: isize, length: usize, kind: TokenKind) -> Token {
-        let position: usize = (self.lexer.position() as isize + offset) as usize;
+        let position = self.lexer.byte_position() + offset;
 
         Token {
-            source: position..position + length,
+            source: Span::new(position, position + length),
             kind,
         }
     }
@@ -501,7 +499,7 @@ mod tests {
             Err(errors) => {
                 for error in errors {
                     println!("{}", error);
-                    describe_error(&error, &source);
+                    describe_error(&error.into(), &source);
                     println!();
                 }
             }
