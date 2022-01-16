@@ -1,6 +1,118 @@
 use std::fmt::{self, Display};
 
-pub struct Program {}
+#[derive(Debug)]
+pub struct Program {
+    pub var_defs: Vec<VarDef>,
+    pub statements: Vec<Statement>,
+}
+impl Program {
+    pub fn new() -> Self {
+        Self {
+            var_defs: vec![],
+            statements: vec![],
+        }
+    }
+
+    pub fn add_var_def(&mut self, var_def: VarDef) {
+        self.var_defs.push(var_def);
+    }
+
+    pub fn add_statement(&mut self, statement: Statement) {
+        self.statements.push(statement);
+    }
+}
+impl Display for Program {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for var in self.var_defs.iter() {
+            write!(f, "{}\n", var)?;
+        }
+        for stmt in self.statements.iter() {
+            write!(f, "{}", stmt)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct VarDef {
+    pub name: String,
+    pub type_spec: TypeSpec,
+    pub value: Literal,
+}
+impl Display for VarDef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} : {} = {}", self.name, self.type_spec, self.value)
+    }
+}
+
+#[derive(Debug)]
+pub struct Block {
+    pub statements: Vec<Statement>,
+}
+impl Block {
+    pub fn new() -> Self {
+        Self { statements: vec![] }
+    }
+}
+
+#[derive(Debug)]
+pub struct If {
+    pub expression: Expr,
+    pub block: Block,
+    pub elifs: Vec<Elif>,
+    pub else_block: Option<Block>,
+}
+
+#[derive(Debug)]
+pub struct Elif {
+    pub expression: Expr,
+    pub block: Block,
+}
+
+#[derive(Debug)]
+pub enum TypeSpec {
+    Type(String),
+    Array(Box<TypeSpec>),
+}
+impl Display for TypeSpec {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TypeSpec::Type(id) => f.write_str(id),
+            TypeSpec::Array(inner) => write!(f, "[{}]", inner),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum Statement {
+    Pass,
+    Evaluate(Expr),
+    Return(Option<Expr>),
+    Assign(Assign),
+}
+impl Display for Statement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Statement::*;
+        match self {
+            Pass => f.write_str("pass\n"),
+            Evaluate(expr) => write!(f, "{}\n", expr),
+            Return(None) => f.write_str("return\n"),
+            Return(Some(expr)) => write!(f, "return {}\n", expr),
+            Assign(assign) => write!(f, "{}\n", assign),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Assign {
+    pub target: Expr,
+    pub value: Expr,
+}
+impl Display for Assign {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} = {}", self.target, self.value)
+    }
+}
 
 #[derive(Debug)]
 pub enum Expr {
@@ -13,12 +125,13 @@ pub enum Expr {
 
 impl Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Expr::*;
         match self {
-            Expr::Literal(lit) => write!(f, "{}", lit),
-            Expr::Identifier(id) => write!(f, "{}", id),
-            Expr::Binary(bin) => write!(f, "{}", bin),
-            Expr::Unary(un) => write!(f, "{}", un),
-            Expr::Ternary(un) => write!(f, "{}", un),
+            Literal(lit) => write!(f, "{}", lit),
+            Identifier(id) => write!(f, "{}", id),
+            Binary(bin) => write!(f, "{}", bin),
+            Unary(un) => write!(f, "{}", un),
+            Ternary(un) => write!(f, "{}", un),
         }
     }
 }
@@ -27,14 +140,17 @@ impl Display for Expr {
 pub enum Literal {
     Integer(i32),
     Boolean(bool),
+    None,
 }
 
 impl Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use Literal::*;
         match self {
-            Literal::Integer(i) => write!(f, "{}", i),
-            Literal::Boolean(true) => write!(f, "True"),
-            Literal::Boolean(false) => write!(f, "False"),
+            Integer(i) => write!(f, "{}", i),
+            Boolean(true) => write!(f, "True"),
+            Boolean(false) => write!(f, "False"),
+            None => write!(f, "None"),
         }
     }
 }
@@ -74,8 +190,8 @@ impl Display for BinExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.op {
             BinOp::MemberAccess => write!(f, "({}{}{})", self.lhs, self.op, self.rhs),
-            BinOp::Index => write!(f, "{}[{}]", self.lhs, self.rhs),
-            BinOp::FunctionCall => write!(f, "{}({})", self.lhs, self.rhs),
+            BinOp::Index => write!(f, "({}[{}])", self.lhs, self.rhs),
+            BinOp::FunctionCall => write!(f, "({}({}))", self.lhs, self.rhs),
             _ => write!(f, "({} {} {})", self.lhs, self.op, self.rhs),
         }
     }
@@ -106,24 +222,25 @@ pub enum BinOp {
 
 impl Display for BinOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use BinOp::*;
         let ch = match self {
-            BinOp::Add => "+",
-            BinOp::Subtract => "-",
-            BinOp::Multiply => "*",
-            BinOp::IntDiv => "//",
-            BinOp::Remainder => "%",
-            BinOp::LessThan => "<",
-            BinOp::GreaterThan => ">",
-            BinOp::LessThanEqual => "<=",
-            BinOp::GreaterThanEqual => ">=",
-            BinOp::Equal => "==",
-            BinOp::NotEqual => "!=",
-            BinOp::MemberAccess => ".",
-            BinOp::Index => "[]",
-            BinOp::Or => "or",
-            BinOp::And => "and",
-            BinOp::Is => "is",
-            BinOp::FunctionCall => "()",
+            Add => "+",
+            Subtract => "-",
+            Multiply => "*",
+            IntDiv => "//",
+            Remainder => "%",
+            LessThan => "<",
+            GreaterThan => ">",
+            LessThanEqual => "<=",
+            GreaterThanEqual => ">=",
+            Equal => "==",
+            NotEqual => "!=",
+            MemberAccess => ".",
+            Index => "[]",
+            Or => "or",
+            And => "and",
+            Is => "is",
+            FunctionCall => "()",
         };
         f.write_str(ch)
     }
