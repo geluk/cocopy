@@ -21,6 +21,8 @@ impl<'a> Parser<'a> {
     fn program(&mut self) -> Result<Program, ParseError> {
         let mut program = Program::new();
 
+        // TODO: Be smarter about this. If parsing a var_def fails,
+        // it will try to parse a statement instead.
         while let Some(var_def) = self.recognise_parser(Self::var_def) {
             program.add_var_def(var_def);
         }
@@ -222,6 +224,7 @@ impl<'a> Parser<'a> {
 
 impl TokenKind {
     fn as_n_ary_op(&self) -> Option<NAryOp> {
+        use Symbol::*;
         let op = match self {
             TokenKind::Keyword(Keyword::If) => NAryOp::Ternary(TerOp::If),
             TokenKind::Keyword(kw) => NAryOp::Binary(match kw {
@@ -231,20 +234,20 @@ impl TokenKind {
                 _ => return None,
             }),
             TokenKind::Symbol(s) => NAryOp::Binary(match s {
-                Symbol::Plus => BinOp::Add,
-                Symbol::Minus => BinOp::Subtract,
-                Symbol::Asterisk => BinOp::Multiply,
-                Symbol::DoubleSlash => BinOp::IntDiv,
-                Symbol::Percent => BinOp::Remainder,
-                Symbol::Lt => BinOp::LessThan,
-                Symbol::Gt => BinOp::GreaterThan,
-                Symbol::Lte => BinOp::LessThanEqual,
-                Symbol::Gte => BinOp::GreaterThanEqual,
-                Symbol::Eq => BinOp::Equal,
-                Symbol::Neq => BinOp::NotEqual,
-                Symbol::OpenBracket => BinOp::Index,
-                Symbol::OpenParen => BinOp::FunctionCall,
-                Symbol::Period => BinOp::MemberAccess,
+                Plus => BinOp::Add,
+                Minus => BinOp::Subtract,
+                Asterisk => BinOp::Multiply,
+                DoubleSlash => BinOp::IntDiv,
+                Percent => BinOp::Remainder,
+                Lt => BinOp::LessThan,
+                Gt => BinOp::GreaterThan,
+                Lte => BinOp::LessThanEqual,
+                Gte => BinOp::GreaterThanEqual,
+                Eq => BinOp::Equal,
+                Neq => BinOp::NotEqual,
+                OpenBracket => BinOp::Index,
+                OpenParen => BinOp::FunctionCall,
+                Period => BinOp::MemberAccess,
                 _ => return None,
             }),
             _ => return None,
