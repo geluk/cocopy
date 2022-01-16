@@ -1,9 +1,13 @@
 use std::cmp::Ordering;
 
-use super::{
-    syntax_tree::{BinOp, TerOp, UnOp},
-    NAryOp,
-};
+use super::syntax_tree::{BinOp, TerOp, UnOp};
+
+/// An N-ary operator, with N > 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NAryOp {
+    Binary(BinOp),
+    Ternary(TerOp),
+}
 
 pub type Precedence = u8;
 

@@ -1,6 +1,12 @@
 use crate::lexer::tokens::{Keyword, Structure, Symbol, Token, TokenKind};
 
-use super::{error::*, fixity::Fixity, parser_base::*, syntax_tree::*};
+use super::{
+    delimiter::*,
+    error::*,
+    fixity::{Fixity, NAryOp},
+    parser_base::*,
+    syntax_tree::*,
+};
 
 pub fn parse(token_stream: &[Token]) -> Result<Expr, ParseError> {
     Parser::new(token_stream).parse_internal()
