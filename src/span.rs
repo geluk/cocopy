@@ -38,7 +38,7 @@ impl Add<isize> for Bytes {
     type Output = Self;
 
     fn add(self, rhs: isize) -> Self::Output {
-        Self(self.0 + rhs as usize)
+        Self((self.0 as isize + rhs) as usize)
     }
 }
 impl Sub<Bytes> for Bytes {
