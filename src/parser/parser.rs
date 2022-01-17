@@ -1,4 +1,7 @@
-use crate::lexer::tokens::{Keyword, Structure, Symbol, Token, TokenKind};
+use crate::{
+    lexer::tokens::{Keyword, Structure, Symbol, Token, TokenKind},
+    span::Bytes,
+};
 
 use super::{
     delimiter::*,
@@ -38,6 +41,7 @@ impl<'a> Parser<'a> {
     /// Parse a variable definition. Variable definitions are only allowed at the top of the file,
     /// and they may only be initialised with a literal.
     fn var_def(&mut self) -> Result<VarDef, ParseError> {
+        let start = self.position();
         const ST: Stage = Stage::VarDef;
         let name = self.recognise_identifier().add_stage(ST)?.clone();
 
@@ -58,17 +62,22 @@ impl<'a> Parser<'a> {
             name,
             type_spec,
             value,
+            span: self.span_from(start),
         })
     }
 
     /// Parse a statement. A statement could be an expression evaluation, a variable assignment,
     /// control flow, or a `pass` or `return` statement.
     fn statement(&mut self) -> Result<Statement, ParseError> {
+        let start = self.position();
         // If we encounter a `pass` keyword, we can immediately emit it and finish the statement.
         if self.recognise_keyword(Keyword::Pass).is_ok() {
             self.recognise_structure(Structure::Newline)
                 .add_stage(Stage::Statement)?;
-            return Ok(Statement::Pass);
+            return Ok(Statement {
+                stmt_type: StmtKind::Pass,
+                span: self.span_from(start),
+            });
         }
         // The same applies if we encounter a `return` keyword.
         if let Ok(_) = self.recognise_keyword(Keyword::Return) {
@@ -77,7 +86,10 @@ impl<'a> Parser<'a> {
             } else {
                 Some(self.toplevel_expression()?)
             };
-            return Ok(Statement::Return(return_type));
+            return Ok(Statement {
+                stmt_type: StmtKind::Return(return_type),
+                span: self.span_from(start),
+            });
         }
         // TODO: The same can be said for `if`, `while`, and `for`.
 
@@ -85,17 +97,26 @@ impl<'a> Parser<'a> {
         // or we could encounter an expression evaluation. There is no easy way to find out which
         // one we need to parse without significant lookahead, so we'll try both parsers and return
         // the result of the one that parsed the most.
-        self.alt(
-            |p| Self::assign_statement(p).map(Statement::Assign),
-            |p| Self::toplevel_expression(p).map(Statement::Evaluate),
-        )
+        let stmt_type = self.alt(
+            |p| Self::assign_statement(p).map(StmtKind::Assign),
+            |p| Self::toplevel_expression(p).map(StmtKind::Evaluate),
+        )?;
+        Ok(Statement {
+            stmt_type,
+            span: self.span_from(start),
+        })
     }
 
     /// Parse a variable assignment statement.
     fn assign_statement(&mut self) -> Result<Assign, ParseError> {
+        let start = self.position();
         let target = self.expression(Fixity::none(), Delimiter::assign())?;
         let value = self.toplevel_expression()?;
-        Ok(Assign { target, value })
+        Ok(Assign {
+            target,
+            value,
+            span: self.span_from(start),
+        })
     }
 
     fn type_specification(&mut self) -> Result<TypeSpec, ParseError> {
@@ -118,36 +139,53 @@ impl<'a> Parser<'a> {
     }
 
     fn expression(&mut self, left_fix: Fixity, delimiter: Delimiter) -> Result<Expr, ParseError> {
-        let token = self.next().add_stage(Stage::Expr)?;
+        let start = self.position();
+        // This clone seems to be necessary because of the mutable borrow of &self.
+        let token = self.next().add_stage(Stage::Expr)?.clone();
+
+        let make = |expr_type: ExprKind| Expr::new(expr_type, self.span_from(start));
 
         let lhs = match &token.kind {
-            TokenKind::Identifier(id) => (Expr::Identifier(id.clone())),
-            TokenKind::Literal(l) => (Expr::Literal(l.to_syntax_node())),
-            TokenKind::Keyword(Keyword::True) => Expr::Literal(Literal::Boolean(true)),
-            TokenKind::Keyword(Keyword::False) => Expr::Literal(Literal::Boolean(false)),
-            TokenKind::Keyword(Keyword::None) => Expr::Literal(Literal::None),
+            TokenKind::Identifier(id) => make(ExprKind::Identifier(id.clone())),
+            TokenKind::Literal(l) => make(ExprKind::Literal(l.to_syntax_node())),
+            TokenKind::Keyword(Keyword::True) => make(ExprKind::Literal(Literal::Boolean(true))),
+            TokenKind::Keyword(Keyword::False) => make(ExprKind::Literal(Literal::Boolean(false))),
+            TokenKind::Keyword(Keyword::None) => make(ExprKind::Literal(Literal::None)),
             TokenKind::Symbol(Symbol::OpenParen) => {
                 self.expression(Fixity::none(), Delimiter::parentheses())?
             }
             TokenKind::Symbol(Symbol::Minus) => {
-                self.un_expr(UnOp::Negate, delimiter.for_subexpr())?
+                self.un_expr(UnOp::Negate, delimiter.for_subexpr(), start)?
             }
-            TokenKind::Keyword(Keyword::Not) => self.un_expr(UnOp::Not, delimiter.for_subexpr())?,
-            _ => return failure(Stage::Expr, Reason::UnexpectedToken(token.clone())),
+            TokenKind::Keyword(Keyword::Not) => {
+                self.un_expr(UnOp::Not, delimiter.for_subexpr(), start)?
+            }
+            _ => return failure(Stage::Expr, Reason::UnexpectedToken(token)),
         };
 
-        let expr = self.pratt_parse(lhs, left_fix, delimiter.for_subexpr())?;
+        let expr_type = self.pratt_parse(lhs, left_fix, delimiter.for_subexpr(), start)?;
 
         self.satisfy_delimiter(delimiter)?;
-        Ok(expr)
+        Ok(Expr {
+            expr_type,
+            span: self.span_from(start),
+        })
     }
 
     /// Parse a unary expression using the provided unary operator
-    fn un_expr(&mut self, op: UnOp, delimiter: Delimiter) -> Result<Expr, ParseError> {
+    fn un_expr(
+        &mut self,
+        op: UnOp,
+        delimiter: Delimiter,
+        start: Bytes,
+    ) -> Result<Expr, ParseError> {
         let rhs = self.expression(Fixity::for_unop(op), delimiter)?;
 
         let un_expr = UnExpr { op, rhs };
-        Ok(Expr::Unary(Box::new(un_expr)))
+        Ok(Expr::new(
+            ExprKind::Unary(Box::new(un_expr)),
+            self.span_from(start),
+        ))
     }
 
     fn pratt_parse(
@@ -155,17 +193,19 @@ impl<'a> Parser<'a> {
         mut lhs: Expr,
         prev_fix: Fixity,
         delimiter: Delimiter,
-    ) -> Result<Expr, ParseError> {
+        start: Bytes,
+    ) -> Result<ExprKind, ParseError> {
         loop {
             // Look for the next operator that's coming up
             let op = match self.peek() {
-                None => return Ok(lhs),
+                // TODO: Check if we should produce the entire expression instead
+                None => return Ok(lhs.expr_type),
                 Some(token) => {
                     match (token.kind.as_n_ary_op(), &delimiter) {
                         // Process a valid binary operator
                         (Some(op), _) => op,
                         // Process a recognised expression delimiter
-                        (_, delim) if delim.accepts_token(token) => return Ok(lhs),
+                        (_, delim) if delim.accepts_token(token) => return Ok(lhs.expr_type),
                         // Anything else is an error
                         _ => {
                             return failure(
@@ -179,7 +219,7 @@ impl<'a> Parser<'a> {
 
             let cur_fix = Fixity::for_n_ary_op(op);
             if prev_fix.precedes_rhs(&cur_fix) {
-                return Ok(lhs);
+                return Ok(lhs.expr_type);
             }
 
             // Only advance the parser once we're sure we'll use the operator.
@@ -195,7 +235,7 @@ impl<'a> Parser<'a> {
                         self.expression(cur_fix, delimiter.for_subexpr())?
                     };
                     let bin_expr = BinExpr { lhs, op: bin, rhs };
-                    lhs = Expr::Binary(Box::new(bin_expr));
+                    lhs = Expr::new(ExprKind::Binary(Box::new(bin_expr)), self.span_from(start));
                 }
                 NAryOp::Ternary(TerOp::If) => {
                     let mhs = self.expression(Fixity::none(), Delimiter::ternary())?;
@@ -208,7 +248,7 @@ impl<'a> Parser<'a> {
                         mhs,
                         rhs,
                     };
-                    lhs = Expr::Ternary(Box::new(ter_expr));
+                    lhs = Expr::new(ExprKind::Ternary(Box::new(ter_expr)), self.span_from(start));
                 }
             }
         }

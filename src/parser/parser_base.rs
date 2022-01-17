@@ -1,12 +1,16 @@
 use std::{iter::Peekable, slice::Iter};
 
 use super::error::*;
-use crate::lexer::tokens::*;
+use crate::{
+    lexer::tokens::*,
+    span::{Bytes, Span},
+};
 
 #[derive(Clone)]
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, Token>>,
     token_position: usize,
+    end_position: Bytes,
 }
 
 impl<'a> Parser<'a> {
@@ -14,6 +18,7 @@ impl<'a> Parser<'a> {
         Self {
             tokens: tokens.iter().peekable(),
             token_position: 0,
+            end_position: Bytes::new(0),
         }
     }
 
@@ -21,6 +26,7 @@ impl<'a> Parser<'a> {
         match self.tokens.next() {
             Some(token) => {
                 self.token_position += 1;
+                self.end_position = token.source.end();
                 Ok(token)
             }
             None => Err(Reason::UnexpectedEndOfInput),
@@ -33,6 +39,17 @@ impl<'a> Parser<'a> {
 
     pub fn has_next(&mut self) -> bool {
         self.peek().is_some()
+    }
+
+    pub fn position(&mut self) -> Bytes {
+        match self.tokens.peek() {
+            Some(t) => t.source.start(),
+            _ => self.end_position,
+        }
+    }
+
+    pub fn span_from(&self, start: Bytes) -> Span {
+        Span::new(start, self.end_position)
     }
 
     /// Tries to read a token of the given kind. If the token does not match, the parser is not
@@ -68,6 +85,7 @@ impl<'a> Parser<'a> {
 
         match &next.kind {
             TokenKind::Identifier(id) => {
+                // TODO: Is it possible to get rid of this clone and return a reference?
                 let id = id.clone();
                 self.next().unwrap();
                 Ok(id)

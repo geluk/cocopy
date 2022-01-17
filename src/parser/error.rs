@@ -29,7 +29,9 @@ impl PositionalError for ParseError {
     fn range(&self) -> Span {
         match &self.reason {
             Reason::UnexpectedToken(tok) => tok.source,
+            // TODO: Add position information to reason so we don't have to repeat ourselves here.
             Reason::UnexpectedEndOfInput => Span::new(Bytes::new(0), Bytes::new(0)),
+            Reason::UnknownType(_) => Span::new(Bytes::new(0), Bytes::new(0)),
         }
     }
 
@@ -49,6 +51,8 @@ pub enum Reason {
     UnexpectedToken(Token),
     #[error("unexpected end of input")]
     UnexpectedEndOfInput,
+    #[error("unknown type: {0}")]
+    UnknownType(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

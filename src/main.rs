@@ -47,8 +47,6 @@ pub fn compile(source: &str) -> Result<(), CompileErrors> {
 
 pub fn describe_error(err: &CompileError, content: &str) {
     let context = source_map::find_line(content, err.range().start());
-    let err_start = err.range().start();
-    let ctx_start = context.range().start();
     let padding = err.range().start() - context.range().start();
 
     fn pad_char(ch: char, times: usize) -> String {

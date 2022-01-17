@@ -3,6 +3,8 @@ use std::{
     str::FromStr,
 };
 
+use crate::span::Span;
+
 use super::error::Reason;
 
 #[derive(Debug)]
@@ -43,6 +45,7 @@ pub struct VarDef {
     pub name: String,
     pub type_spec: TypeSpec,
     pub value: Literal,
+    pub span: Span,
 }
 impl Display for VarDef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -52,7 +55,7 @@ impl Display for VarDef {
 
 #[derive(Debug)]
 pub struct Block {
-    pub statements: Vec<Statement>,
+    pub statements: Vec<StmtKind>,
 }
 impl Block {
     pub fn new() -> Self {
@@ -62,7 +65,7 @@ impl Block {
 
 #[derive(Debug)]
 pub struct If {
-    pub expression: Expr,
+    pub expression: ExprKind,
     pub block: Block,
     pub elifs: Vec<Elif>,
     pub else_block: Option<Block>,
@@ -70,7 +73,7 @@ pub struct If {
 
 #[derive(Debug)]
 pub struct Elif {
-    pub expression: Expr,
+    pub expression: ExprKind,
     pub block: Block,
 }
 
@@ -102,17 +105,27 @@ impl FromStr for TypeSpec {
         })
     }
 }
+#[derive(Debug)]
+pub struct Statement {
+    pub span: Span,
+    pub stmt_type: StmtKind,
+}
+impl Display for Statement {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.stmt_type)
+    }
+}
 
 #[derive(Debug)]
-pub enum Statement {
+pub enum StmtKind {
     Pass,
     Evaluate(Expr),
     Return(Option<Expr>),
     Assign(Assign),
 }
-impl Display for Statement {
+impl Display for StmtKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Statement::*;
+        use StmtKind::*;
         match self {
             Pass => f.write_str("pass\n"),
             Evaluate(expr) => write!(f, "{}\n", expr),
@@ -127,15 +140,31 @@ impl Display for Statement {
 pub struct Assign {
     pub target: Expr,
     pub value: Expr,
+    pub span: Span,
 }
 impl Display for Assign {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} = {}", self.target, self.value)
     }
 }
+#[derive(Debug)]
+pub struct Expr {
+    pub expr_type: ExprKind,
+    pub span: Span,
+}
+impl Expr {
+    pub fn new(expr_type: ExprKind, span: Span) -> Self {
+        Self { expr_type, span }
+    }
+}
+impl Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.expr_type)
+    }
+}
 
 #[derive(Debug)]
-pub enum Expr {
+pub enum ExprKind {
     Literal(Literal),
     Identifier(String),
     Unary(Box<UnExpr>),
@@ -143,9 +172,9 @@ pub enum Expr {
     Ternary(Box<TerExpr>),
 }
 
-impl Display for Expr {
+impl Display for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Expr::*;
+        use ExprKind::*;
         match self {
             Literal(lit) => write!(f, "{}", lit),
             Identifier(id) => write!(f, "{}", id),

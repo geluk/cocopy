@@ -27,6 +27,11 @@ impl AddAssign<usize> for Bytes {
         *self = Self(self.0 + rhs)
     }
 }
+impl AddAssign<Bytes> for Bytes {
+    fn add_assign(&mut self, rhs: Bytes) {
+        *self = Self(self.0 + rhs.0)
+    }
+}
 impl Add<usize> for Bytes {
     type Output = Self;
 
@@ -39,6 +44,13 @@ impl Add<isize> for Bytes {
 
     fn add(self, rhs: isize) -> Self::Output {
         Self((self.0 as isize + rhs) as usize)
+    }
+}
+impl Add<Bytes> for Bytes {
+    type Output = Self;
+
+    fn add(self, rhs: Bytes) -> Self::Output {
+        Self(self.0 + rhs.0)
     }
 }
 impl Sub<Bytes> for Bytes {
@@ -110,9 +122,6 @@ impl Span {
 
 impl Debug for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("Span")
-            .field(&self.start)
-            .field(&self.end)
-            .finish()
+        write!(f, "{}..{}", self.start, self.end)
     }
 }
