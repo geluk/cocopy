@@ -27,7 +27,7 @@ fn main() -> Result<()> {
 
 pub fn compile(source: &str) -> Result<(), CompileErrors> {
     let tokens = lexer::lex(source)?;
-    for token in tokens.iter() {
+    for token in &tokens {
         println!("{:#?}", token);
         println!("{:#?}", token.source.lookup(source));
     }

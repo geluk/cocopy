@@ -1,4 +1,9 @@
-use std::fmt::{self, Display};
+use std::{
+    fmt::{self, Display},
+    str::FromStr,
+};
+
+use super::error::Reason;
 
 #[derive(Debug)]
 pub struct Program {
@@ -23,10 +28,10 @@ impl Program {
 }
 impl Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for var in self.var_defs.iter() {
+        for var in &self.var_defs {
             write!(f, "{}\n", var)?;
         }
-        for stmt in self.statements.iter() {
+        for stmt in &self.statements {
             write!(f, "{}", stmt)?;
         }
         Ok(())
@@ -69,17 +74,32 @@ pub struct Elif {
     pub block: Block,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TypeSpec {
-    Type(String),
+    None,
+    Int,
+    Bool,
     Array(Box<TypeSpec>),
 }
 impl Display for TypeSpec {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            TypeSpec::Type(id) => f.write_str(id),
+            TypeSpec::None => f.write_str("<None>"),
+            TypeSpec::Int => f.write_str("int"),
+            TypeSpec::Bool => f.write_str("bool"),
             TypeSpec::Array(inner) => write!(f, "[{}]", inner),
         }
+    }
+}
+impl FromStr for TypeSpec {
+    type Err = Reason;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "int" => TypeSpec::Int,
+            "bool" => TypeSpec::Bool,
+            _ => return Err(Reason::UnknownType(s.to_string())),
+        })
     }
 }
 

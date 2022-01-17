@@ -108,7 +108,8 @@ impl<'a> Parser<'a> {
             Ok(TypeSpec::Array(Box::new(inner_array)))
         } else {
             let type_name = self.recognise_identifier().add_stage(Stage::TypeSpec)?;
-            Ok(TypeSpec::Type(type_name))
+            let type_spec = type_name.parse().add_stage(Stage::TypeSpec)?;
+            Ok(type_spec)
         }
     }
 
