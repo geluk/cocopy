@@ -91,7 +91,7 @@ impl<'a> CharLexer<'a> {
 
     /// Advances the lexer to the end of its input.
     pub fn finish(&mut self) {
-        while let Some(_) = self.try_next() {}
+        while self.try_next().is_some() {}
     }
 
     /// Checks if the lexer is finished.

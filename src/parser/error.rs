@@ -1,4 +1,4 @@
-use std::{fmt, ops::Range};
+use std::fmt;
 
 use thiserror::Error;
 
@@ -17,6 +17,10 @@ pub struct ParseError {
 }
 
 impl ParseError {
+    pub fn new(stage: Stage, reason: Reason) -> Self {
+        Self { stage, reason }
+    }
+
     pub fn stage(&self) -> Stage {
         self.stage
     }
@@ -110,5 +114,5 @@ impl<O> AddStage for Result<O, Reason> {
 }
 
 pub fn failure<R>(stage: Stage, reason: Reason) -> Result<R, ParseError> {
-    Err(ParseError { stage, reason })
+    Err(ParseError::new(stage, reason))
 }

@@ -31,7 +31,7 @@ impl Program {
 impl Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for var in &self.var_defs {
-            write!(f, "{}\n", var)?;
+            writeln!(f, "{}", var)?;
         }
         for stmt in &self.statements {
             write!(f, "{}", stmt)?;
@@ -108,11 +108,11 @@ impl FromStr for TypeSpec {
 #[derive(Debug)]
 pub struct Statement {
     pub span: Span,
-    pub stmt_type: StmtKind,
+    pub stmt_kind: StmtKind,
 }
 impl Display for Statement {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.stmt_type)
+        write!(f, "{}", self.stmt_kind)
     }
 }
 
@@ -128,10 +128,10 @@ impl Display for StmtKind {
         use StmtKind::*;
         match self {
             Pass => f.write_str("pass\n"),
-            Evaluate(expr) => write!(f, "{}\n", expr),
+            Evaluate(expr) => writeln!(f, "{}", expr),
             Return(None) => f.write_str("return\n"),
-            Return(Some(expr)) => write!(f, "return {}\n", expr),
-            Assign(assign) => write!(f, "{}\n", assign),
+            Return(Some(expr)) => writeln!(f, "return {}", expr),
+            Assign(assign) => writeln!(f, "{}", assign),
         }
     }
 }
@@ -216,7 +216,7 @@ impl Display for UnExpr {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnOp {
     Not,
     Negate,
@@ -314,4 +314,11 @@ impl Display for TerExpr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TerOp {
     If,
+}
+impl Display for TerOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TerOp::If => f.write_str("if"),
+        }
+    }
 }

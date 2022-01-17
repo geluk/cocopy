@@ -1,7 +1,4 @@
-use std::{
-    fmt::{self, Display},
-    ops::Range,
-};
+use std::fmt::{self, Display};
 
 use crate::{
     parser::syntax_tree,

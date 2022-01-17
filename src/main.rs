@@ -10,6 +10,7 @@ mod parser;
 mod pretty_print;
 mod source_map;
 mod span;
+mod type_checking;
 
 fn main() -> Result<()> {
     let args: Vec<_> = env::args().collect();
@@ -28,7 +29,7 @@ fn main() -> Result<()> {
 pub fn compile(source: &str) -> Result<(), CompileErrors> {
     let tokens = lexer::lex(source)?;
     for token in &tokens {
-        println!("{:#?}", token);
+        println!("{:?}", token);
         println!("{:#?}", token.source.lookup(source));
     }
     println!("\n==============");
@@ -36,11 +37,16 @@ pub fn compile(source: &str) -> Result<(), CompileErrors> {
     println!("==============\n");
 
     let program = parser::parse(&tokens)?;
+    println!("{:#?}\n", program);
+    println!("{}", program);
     println!("\n===============");
     println!("Parser finished");
     println!("===============\n");
-    println!("{:#?}\n", program);
-    println!("{}", program);
+
+    type_checking::verify_well_typed(&program)?;
+    println!("\n===================");
+    println!("Type checker finished");
+    println!("=====================\n");
 
     Ok(())
 }

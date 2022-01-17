@@ -5,7 +5,7 @@ pub fn find_line(source: &str, target_position: Bytes) -> LineContext {
         return LineContext {
             line_no: 1,
             range: Span::new(Bytes::new(0), Bytes::new(0)),
-            source: &"",
+            source: "",
         };
     }
 
@@ -16,7 +16,7 @@ pub fn find_line(source: &str, target_position: Bytes) -> LineContext {
     let mut position = Bytes::new(0);
     for (line_idx, line) in lines {
         let end_position = position + line.len();
-        if target_position >= position && target_position <= end_position {
+        if target_position >= position && target_position < end_position {
             return LineContext {
                 source: line,
                 range: Span::new(position, end_position),

@@ -23,6 +23,7 @@ reference. In addition, I'd like to experiment with some additional features,whi
 
 ## Syntax:
 
+- [x] Literals
 - [x] Variables
   - [x] Type annotations
 - [ ] Functions
@@ -47,13 +48,43 @@ reference. In addition, I'd like to experiment with some additional features,whi
   - [ ] `for`
   - [x] `pass`
   - [x] `return`
-- [x] Literals
 - [ ] Blocks
 - [x] Contextual error reporting
 
-## Type rules:
+## Type checking:
 
-- [ ] Everything
+- [x] Literals
+- [x] Variables
+  - [x] Initialisation
+- [ ] Statements
+  - [x] Expression evaluation
+  - [x] Assignment
+  - [ ] `if`
+  - [ ] `while`
+  - [ ] `for`
+  - [x] `pass`
+  - [ ] `return`
+- [ ] Expressions
+  - [x] Unary
+    - [x] Negate
+    - [x] Not
+  - [x] Binary
+    - [x] Arithmetic
+    - [x] Integer comparison
+    - [x] Boolean comparison
+    - [x] Boolean combination
+    - [ ] String operations
+    - [ ] `is`
+  - [ ] Ternary
+  - [ ] Object construction
+  - [ ] List display
+  - [ ] List operators
+  - [ ] Attribute access
+  - [ ] Multiple assignment
+  - [ ] Function application
+- [ ] Function definitions
+- [ ] Class definitions
+- [ ] Global environment
 
 ## Operational semantics:
 

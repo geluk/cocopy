@@ -1,7 +1,6 @@
 use std::{
     fmt::{Display, Formatter},
     num::ParseIntError,
-    ops::Range,
 };
 
 use thiserror::Error;

@@ -43,19 +43,16 @@ impl<'a> Parser<'a> {
     fn var_def(&mut self) -> Result<VarDef, ParseError> {
         let start = self.position();
         const ST: Stage = Stage::VarDef;
-        let name = self.recognise_identifier().add_stage(ST)?.clone();
+        let name = self.recognise_identifier().add_stage(ST)?;
 
         self.recognise_symbol(Symbol::Colon).add_stage(ST)?;
         let type_spec = self.type_specification()?;
         self.recognise_symbol(Symbol::Assign).add_stage(ST)?;
 
         let next = self.next().add_stage(ST)?;
-        let value = match &next.kind {
-            TokenKind::Literal(l) => l.to_syntax_node(),
-            TokenKind::Keyword(Keyword::True) => Literal::Boolean(true),
-            TokenKind::Keyword(Keyword::False) => Literal::Boolean(false),
-            _ => return failure(Stage::VarDef, Reason::UnexpectedToken(next.clone())),
-        };
+        let value = Self::as_literal(next)
+            .ok_or_else(|| ParseError::new(ST, Reason::UnexpectedToken(next.clone())))?;
+
         self.recognise_structure(Structure::Newline).add_stage(ST)?;
 
         Ok(VarDef {
@@ -75,19 +72,19 @@ impl<'a> Parser<'a> {
             self.recognise_structure(Structure::Newline)
                 .add_stage(Stage::Statement)?;
             return Ok(Statement {
-                stmt_type: StmtKind::Pass,
+                stmt_kind: StmtKind::Pass,
                 span: self.span_from(start),
             });
         }
         // The same applies if we encounter a `return` keyword.
-        if let Ok(_) = self.recognise_keyword(Keyword::Return) {
+        if self.recognise_keyword(Keyword::Return).is_ok() {
             let return_type = if self.recognise_structure(Structure::Newline).is_ok() {
                 None
             } else {
                 Some(self.toplevel_expression()?)
             };
             return Ok(Statement {
-                stmt_type: StmtKind::Return(return_type),
+                stmt_kind: StmtKind::Return(return_type),
                 span: self.span_from(start),
             });
         }
@@ -102,7 +99,7 @@ impl<'a> Parser<'a> {
             |p| Self::toplevel_expression(p).map(StmtKind::Evaluate),
         )?;
         Ok(Statement {
-            stmt_type,
+            stmt_kind: stmt_type,
             span: self.span_from(start),
         })
     }
@@ -145,22 +142,22 @@ impl<'a> Parser<'a> {
 
         let make = |expr_type: ExprKind| Expr::new(expr_type, self.span_from(start));
 
-        let lhs = match &token.kind {
-            TokenKind::Identifier(id) => make(ExprKind::Identifier(id.clone())),
-            TokenKind::Literal(l) => make(ExprKind::Literal(l.to_syntax_node())),
-            TokenKind::Keyword(Keyword::True) => make(ExprKind::Literal(Literal::Boolean(true))),
-            TokenKind::Keyword(Keyword::False) => make(ExprKind::Literal(Literal::Boolean(false))),
-            TokenKind::Keyword(Keyword::None) => make(ExprKind::Literal(Literal::None)),
-            TokenKind::Symbol(Symbol::OpenParen) => {
-                self.expression(Fixity::none(), Delimiter::parentheses())?
+        let lhs = if let Some(lit) = Self::as_literal(&token) {
+            make(ExprKind::Literal(lit))
+        } else {
+            match &token.kind {
+                TokenKind::Identifier(id) => make(ExprKind::Identifier(id.clone())),
+                TokenKind::Symbol(Symbol::OpenParen) => {
+                    self.expression(Fixity::none(), Delimiter::parentheses())?
+                }
+                TokenKind::Symbol(Symbol::Minus) => {
+                    self.un_expr(UnOp::Negate, delimiter.for_subexpr(), start)?
+                }
+                TokenKind::Keyword(Keyword::Not) => {
+                    self.un_expr(UnOp::Not, delimiter.for_subexpr(), start)?
+                }
+                _ => return failure(Stage::Expr, Reason::UnexpectedToken(token)),
             }
-            TokenKind::Symbol(Symbol::Minus) => {
-                self.un_expr(UnOp::Negate, delimiter.for_subexpr(), start)?
-            }
-            TokenKind::Keyword(Keyword::Not) => {
-                self.un_expr(UnOp::Not, delimiter.for_subexpr(), start)?
-            }
-            _ => return failure(Stage::Expr, Reason::UnexpectedToken(token)),
         };
 
         let expr_type = self.pratt_parse(lhs, left_fix, delimiter.for_subexpr(), start)?;
@@ -252,6 +249,16 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+    }
+
+    fn as_literal(token: &Token) -> Option<Literal> {
+        Some(match &token.kind {
+            TokenKind::Literal(l) => l.to_syntax_node(),
+            TokenKind::Keyword(Keyword::True) => Literal::Boolean(true),
+            TokenKind::Keyword(Keyword::False) => Literal::Boolean(false),
+            TokenKind::Keyword(Keyword::None) => Literal::None,
+            _ => return None,
+        })
     }
 
     fn satisfy_delimiter(&mut self, delimiter: Delimiter) -> Result<(), ParseError> {
