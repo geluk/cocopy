@@ -1,60 +1,10 @@
-use std::{
-    fmt::{Display, Formatter},
-    num::ParseIntError,
-};
+use std::num::ParseIntError;
 
-use thiserror::Error;
+use crate::span::*;
 
-use crate::{error::PositionalError, span::*};
-
-use super::{char_lexer::CharLexer, tokens::*};
+use super::{char_ext::*, char_lexer::*, error::*, tokens::*};
 
 type LexResult<T> = Option<Result<T, LexError>>;
-
-#[derive(Debug, Error)]
-pub enum ErrorType {
-    #[error("Indentation error")]
-    IndentationError,
-    #[error("Invalid integer literal: {0}")]
-    IntegerLiteral(String),
-    #[error("Integer literals for positive numbers may not start with a zero")]
-    IntegerLiteralZeroes,
-    #[error("Invalid symbol")]
-    UnknownToken,
-}
-
-#[derive(Error, Debug)]
-pub struct LexError {
-    pub range: Span,
-    pub error_type: ErrorType,
-}
-
-impl LexError {
-    pub fn length(&self) -> Bytes {
-        self.range.length()
-    }
-}
-
-impl Display for LexError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_fmt(format_args!(
-            "Lexer error ({:?}) at {} - {}",
-            self.error_type,
-            self.range.start(),
-            self.range.end()
-        ))
-    }
-}
-
-impl PositionalError for LexError {
-    fn range(&self) -> Span {
-        self.range
-    }
-
-    fn describe(&self) -> String {
-        self.to_string()
-    }
-}
 
 struct Lexer<'s> {
     lexer: CharLexer<'s>,
@@ -126,7 +76,7 @@ impl<'s> Lexer<'s> {
         }
 
         // Emit 'virtual' newline and dedents here
-        // to ensure our token stream is well-formed.
+        // to ensure the token stream is well-formed.
         if had_tokens {
             self.insert_unsized_newline();
         }
@@ -148,6 +98,7 @@ impl<'s> Lexer<'s> {
         }
     }
 
+    // Insert a zero-length newline token at the current position.
     fn insert_unsized_newline(&mut self) {
         let newline = self.make_sized_token(0, TokenKind::Structure(Structure::Newline));
         self.tokens.push(newline);
@@ -186,11 +137,12 @@ impl<'s> Lexer<'s> {
         }
     }
 
-    /// Advances the lexer to the next line, returning a [`String`] containing
-    /// the characters that were read.
+    /// Advances the lexer to the next line (or the end of the file, whichever
+    /// comes first), returning a [`String`] containing the characters that were
+    /// read.
     fn advance_to_next_line(&mut self) -> String {
         let read = self.lexer.consume_while(CharExt::is_not_linebreak);
-        // try_next because we may be at the end of input
+        // try_next because we may be at the end of input.
         self.lexer.try_next();
         read
     }
@@ -366,9 +318,9 @@ impl<'s> Lexer<'s> {
     }
 
     /// Checks the next token without consuming it.
-    /// If it is not an integer literal, returns [`Ok(None)`],
-    /// If it is an invalid literal, returns an error.
-    /// If it is a valid literal, returns
+    /// If it is not an integer literal, returns [`None`],
+    /// If it is an invalid literal, returns an error, wrapped in [`Some(Err())`]
+    /// If it is a valid literal, returns it, wrapped in [`Some(Ok())`]
     fn integer_literal(&self) -> LexResult<Token> {
         let mut lexer = self.lexer.clone();
 
@@ -387,8 +339,73 @@ impl<'s> Lexer<'s> {
         Some(parse_result)
     }
 
+    /// Checks the next token without consuming it.
+    /// If it is not a string literal, returns [`None`],
+    /// If it is an invalid literal, returns an error, wrapped in [`Some(Err())`]
+    /// If it is a valid literal, returns it, wrapped in [`Some(Ok())`]
     fn string_literal(&self) -> LexResult<Token> {
-        None // TODO
+        let mut lexer = self.lexer.clone();
+
+        if !lexer.recognise('"') {
+            return None;
+        }
+        let mut str_value = String::new();
+        let mut raw_value = "\"".to_string();
+        let mut saw_escape = false;
+        let mut saw_invalid_char = false;
+        loop {
+            match (saw_escape, lexer.try_next()) {
+                // End of input
+                (_, None) => {
+                    return Some(Err(
+                        self.make_error(raw_value.len(), ErrorType::UnterminatedStringLiteral)
+                    ))
+                }
+                // Unexpected line break
+                (_, Some(ch)) if ch.is_linebreak() => {
+                    return Some(Err(
+                        self.make_error(raw_value.len(), ErrorType::StringLiteral(raw_value))
+                    ));
+                }
+                (false, Some(ch)) => {
+                    raw_value.push(ch);
+                    match ch {
+                        '\\' => {
+                            saw_escape = true;
+                        }
+                        '"' => {
+                            break;
+                        }
+
+                        _ => {
+                            str_value.push(ch);
+                        }
+                    }
+                }
+                (true, Some(ch)) => {
+                    saw_escape = false;
+                    raw_value.push(ch);
+                    str_value.push(match ch {
+                        '"' => '"',
+                        'n' => '\n',
+                        't' => '\t',
+                        '\\' => '\\',
+                        ch => {
+                            saw_invalid_char = true;
+                            ch
+                        }
+                    });
+                }
+            }
+        }
+        Some(if saw_invalid_char {
+            Err(self.make_error(raw_value.len(), ErrorType::StringLiteral(raw_value)))
+        } else {
+            Ok(self.make_sized_token(
+                raw_value.len(),
+                TokenKind::Literal(Literal::String(str_value)),
+            ))
+        })
     }
 
     fn unknown_token(&self) -> Option<LexError> {
@@ -431,22 +448,6 @@ impl<'s> Lexer<'s> {
             source: Span::new(position, position + length),
             kind,
         }
-    }
-}
-
-trait CharExt {
-    fn is_non_newline_whitespace(&self) -> bool;
-
-    fn is_not_linebreak(&self) -> bool;
-}
-
-impl CharExt for char {
-    fn is_non_newline_whitespace(&self) -> bool {
-        self.is_whitespace() && *self != '\n' && *self != '\r'
-    }
-
-    fn is_not_linebreak(&self) -> bool {
-        *self != '\n' && *self != '\r'
     }
 }
 
@@ -513,34 +514,6 @@ mod tests {
     #[test]
     fn lex_true() {
         assert_token_lexes("True", TokenKind::Keyword(Keyword::True))
-    }
-
-    #[test]
-    fn integer_literal_number() {
-        assert_token_lexes("123", TokenKind::Literal(Literal::Integer(123)))
-    }
-
-    #[test]
-    fn integer_literal_zero() {
-        assert_token_lexes("0", TokenKind::Literal(Literal::Integer(0)))
-    }
-
-    #[test]
-    fn integer_literal_i32_max() {
-        assert_token_lexes(
-            "2147483647",
-            TokenKind::Literal(Literal::Integer(2147483647)),
-        )
-    }
-
-    #[test]
-    fn integer_literal_above_i32_max_fails() {
-        assert_lex_fails("2147483648")
-    }
-
-    #[test]
-    fn integer_literal_nonzero_starts_with_zero_fails() {
-        assert_lex_fails("01")
     }
 
     /// ChocoPy Language Reference: 3.1.1
@@ -689,6 +662,106 @@ mod tests {
     #[test]
     fn identifier_may_not_contain_non_ascii_alphabetic() {
         assert_lex_fails("`hoi abc")
+    }
+
+    /// ChocoPy Language Reference: 3.4.1
+    #[test]
+    fn string_literals_are_enclosed_by_double_quotes() {
+        assert_token_lexes(
+            r#""abc""#,
+            TokenKind::Literal(Literal::String("abc".to_string())),
+        )
+    }
+
+    /// ChocoPy Language Reference: 3.4.1
+    #[test]
+    fn string_literals_may_contain_escaped_quotes() {
+        assert_token_lexes(
+            r#""A \"quoted\" word""#,
+            TokenKind::Literal(Literal::String(r#"A "quoted" word"#.to_string())),
+        )
+    }
+
+    /// ChocoPy Language Reference: 3.4.1
+    #[test]
+    fn string_literals_may_contain_escaped_backslash() {
+        assert_token_lexes(
+            r#""C:\\Program Files\\ChocoPy""#,
+            TokenKind::Literal(Literal::String(r#"C:\Program Files\ChocoPy"#.to_string())),
+        )
+    }
+
+    /// ChocoPy Language Reference: 3.4.1
+    #[test]
+    fn string_literals_may_contain_escaped_newline() {
+        assert_token_lexes(
+            r#""one\ntwo\nthree\n""#,
+            TokenKind::Literal(Literal::String("one\ntwo\nthree\n".to_string())),
+        )
+    }
+
+    /// Not part of the ChocoPy specification
+    #[test]
+    #[ignore = "ChocoPy does not support carriage return escapes"]
+    fn string_literals_may_contain_escaped_carriage_return() {
+        assert_token_lexes(
+            r#""one\rtwo\rthree\r""#,
+            TokenKind::Literal(Literal::String("one\rtwo\rthree\r".to_string())),
+        )
+    }
+
+    /// ChocoPy Language Reference: 3.4.1
+    #[test]
+    fn string_literals_may_contain_escaped_tab() {
+        assert_token_lexes(
+            r#""one\ttwo\tthree\t""#,
+            TokenKind::Literal(Literal::String("one\ttwo\tthree\t".to_string())),
+        )
+    }
+
+    /// ChocoPy Language Reference: 3.4.1
+    #[test]
+    fn string_literals_must_be_closed() {
+        assert_lex_fails(r#""abc"#)
+    }
+
+    /// ChocoPy Language Reference: 3.4.1
+    #[test]
+    fn string_literals_may_not_contain_unknown_escapes() {
+        assert_lex_fails(r#""abc\odef""#)
+    }
+
+    /// ChocoPy Language Reference: 3.4.2
+    #[test]
+    fn integer_literal_number() {
+        assert_token_lexes("123", TokenKind::Literal(Literal::Integer(123)))
+    }
+
+    /// ChocoPy Language Reference: 3.4.2
+    #[test]
+    fn integer_literal_zero() {
+        assert_token_lexes("0", TokenKind::Literal(Literal::Integer(0)))
+    }
+
+    /// ChocoPy Language Reference: 3.4.2
+    #[test]
+    fn integer_literal_i32_max() {
+        assert_token_lexes(
+            "2147483647",
+            TokenKind::Literal(Literal::Integer(2147483647)),
+        )
+    }
+
+    /// ChocoPy Language Reference: 3.4.2
+    #[test]
+    fn integer_literal_above_i32_max_fails() {
+        assert_lex_fails("2147483648")
+    }
+
+    /// ChocoPy Language Reference: 3.4.2
+    #[test]
+    fn integer_literal_nonzero_starts_with_zero_fails() {
+        assert_lex_fails("01")
     }
 
     #[test]
