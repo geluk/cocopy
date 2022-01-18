@@ -25,10 +25,25 @@ impl<'a> Parser<'a> {
     fn program(&mut self) -> Result<Program, ParseError> {
         let mut program = Program::new();
 
-        // TODO: Be smarter about this. If parsing a var_def fails,
-        // it will try to parse a statement instead.
-        while let Some(var_def) = self.recognise_parser(Self::var_def) {
-            program.add_var_def(var_def);
+        while self.has_next() {
+            // Keep parsing var_defs...
+            if let Some(var_def) = self.recognise_parser(Self::var_def) {
+                program.add_var_def(var_def);
+            }
+            // ... until we encounter an error. Then try a statement...
+            else if let Some(stmt) = self.recognise_parser(Self::statement) {
+                // If that succeeds, add it. From now on, recognise only statements.
+                program.add_statement(stmt);
+                break;
+            }
+            // ... and if that doesn't work either, return the longest parse error.
+            else {
+                self.alt(
+                    |p1| p1.var_def().map(|_| ()),
+                    |p2| p2.statement().map(|_| ()),
+                )?;
+                unreachable!("Compiler state borxed! (failed to reproduce parse error)")
+            }
         }
 
         while self.has_next() {
@@ -44,7 +59,7 @@ impl<'a> Parser<'a> {
     fn var_def(&mut self) -> Result<VarDef, ParseError> {
         let start = self.position();
         const ST: Stage = Stage::VarDef;
-        let name = self.recognise_identifier().add_stage(ST)?;
+        let (name, _) = self.recognise_identifier().add_stage(ST)?;
 
         self.recognise_symbol(Symbol::Colon).add_stage(ST)?;
         let type_spec = self.type_specification()?;
@@ -117,21 +132,24 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse a type specification.
     fn type_specification(&mut self) -> Result<TypeSpec, ParseError> {
         if self.recognise_symbol(Symbol::OpenBracket).is_ok() {
-            let inner_array = self.type_specification()?;
+            let inner_type = self.type_specification()?;
 
             self.recognise_symbol(Symbol::CloseBracket)
                 .add_stage(Stage::TypeSpec)?;
 
-            Ok(TypeSpec::Array(Box::new(inner_array)))
+            Ok(TypeSpec::Array(Box::new(inner_type)))
         } else {
-            let type_name = self.recognise_identifier().add_stage(Stage::TypeSpec)?;
-            let type_spec = type_name.parse().add_stage(Stage::TypeSpec)?;
-            Ok(type_spec)
+            let (type_name, token) = self.recognise_identifier().add_stage(Stage::TypeSpec)?;
+            type_name.parse().map_err(|_| {
+                ParseError::new(Stage::TypeSpec, Reason::UnknownType(type_name, token))
+            })
         }
     }
 
+    /// Parse a top-level expression, delimited by a newline.
     fn toplevel_expression(&mut self) -> Result<Expr, ParseError> {
         self.expression(Fixity::none(), Delimiter::newline())
     }
@@ -170,7 +188,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parse a unary expression using the provided unary operator
+    /// Parse a unary expression using the provided unary operator.
     fn un_expr(
         &mut self,
         op: UnOp,
@@ -482,8 +500,14 @@ mod tests {
 
     /// ChocoPy Language Reference: 4.1
     #[test]
-    fn var_def() {
+    fn var_def_int() {
         assert_parses_with!(var_def, "a:int=10", "a : int = 10");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn var_def_bool() {
+        assert_parses_with!(var_def, "a : bool = 10", "a : bool = 10");
     }
 
     // ============

@@ -81,15 +81,14 @@ impl<'a> Parser<'a> {
         Ok(structure)
     }
 
-    pub fn recognise_identifier(&mut self) -> Result<String, Reason> {
+    pub fn recognise_identifier(&mut self) -> Result<(String, Token), Reason> {
         let next = self.peek().ok_or(Reason::UnexpectedEndOfInput)?;
 
         match &next.kind {
             TokenKind::Identifier(id) => {
-                // TODO: Is it possible to get rid of this clone and return a reference?
-                let id = id.clone();
+                let (id, next) = (id.clone(), next.clone());
                 self.next().unwrap();
-                Ok(id)
+                Ok((id, next))
             }
             _ => Err(Reason::UnexpectedToken(next.clone())),
         }

@@ -36,7 +36,7 @@ impl From<ParseError> for CompileError {
                 Reason::UnexpectedToken(tok) => tok.source,
                 // TODO: Add position information to reason so we don't have to repeat ourselves here.
                 Reason::UnexpectedEndOfInput => Span::zero(),
-                Reason::UnknownType(_) => Span::zero(),
+                Reason::UnknownType(_, tok) => tok.source,
             },
         )
     }
@@ -50,10 +50,10 @@ pub enum Reason {
     #[error("unexpected end of input")]
     UnexpectedEndOfInput,
     #[error("unknown type: {0}")]
-    UnknownType(String),
+    UnknownType(String, Token),
 }
 
-/// Indicates where parsing failed.
+/// Indicates in which parsing stage the parser failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum Stage {
     #[error("the end of a statement")]

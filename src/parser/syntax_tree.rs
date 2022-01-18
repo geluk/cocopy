@@ -96,13 +96,13 @@ impl Display for TypeSpec {
     }
 }
 impl FromStr for TypeSpec {
-    type Err = Reason;
+    type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
             "int" => TypeSpec::Int,
             "bool" => TypeSpec::Bool,
-            _ => return Err(Reason::UnknownType(s.to_string())),
+            _ => return Err(()),
         })
     }
 }
