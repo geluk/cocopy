@@ -181,11 +181,13 @@ impl<'a> Parser<'a> {
 
         let expr_type = self.pratt_parse(lhs, left_fix, delimiter.for_subexpr(), start)?;
 
-        self.satisfy_delimiter(delimiter)?;
-        Ok(Expr {
-            expr_type,
-            span: self.span_from(start),
-        })
+        let mut span = self.span_from(start);
+        self.satisfy_delimiter(&delimiter)?;
+        if delimiter.include_in_span() {
+            span = self.span_from(start);
+        }
+
+        Ok(Expr { expr_type, span })
     }
 
     /// Parse a unary expression using the provided unary operator.
@@ -280,7 +282,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn satisfy_delimiter(&mut self, delimiter: Delimiter) -> Result<(), ParseError> {
+    fn satisfy_delimiter(&mut self, delimiter: &Delimiter) -> Result<(), ParseError> {
         if delimiter.may_consume() {
             self.recognise(delimiter.token_kind().clone())
                 .add_stage(delimiter.stage())?;

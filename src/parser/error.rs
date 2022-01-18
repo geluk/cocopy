@@ -49,7 +49,7 @@ pub enum Reason {
     UnexpectedToken(Token),
     #[error("unexpected end of input")]
     UnexpectedEndOfInput,
-    #[error("unknown type: {0}")]
+    #[error("unknown type '{0}'")]
     UnknownType(String, Token),
 }
 

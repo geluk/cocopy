@@ -6,8 +6,6 @@ use std::{
 
 use crate::span::Span;
 
-use super::error::Reason;
-
 #[derive(Debug)]
 pub struct Program {
     pub var_defs: Vec<VarDef>,

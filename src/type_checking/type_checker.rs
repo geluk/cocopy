@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{parser::syntax_tree::*, span::Span};
+use crate::parser::syntax_tree::*;
 
 use super::{bin_op_checker::BinOpChecker, error::*};
 
@@ -35,6 +35,7 @@ impl<'a> TypeChecker<'a> {
         type_errors
     }
 
+    /// Check variable definitions and write them to the global environment.
     fn assign_var_defs(&mut self) -> Vec<TypeError> {
         let mut type_errors = vec![];
         for var_def in &self.program.var_defs {
@@ -51,6 +52,7 @@ impl<'a> TypeChecker<'a> {
         type_errors
     }
 
+    /// Verify that all statements are well-typed.
     fn check_statements(&self) -> Vec<TypeError> {
         self.program
             .statements
@@ -59,6 +61,7 @@ impl<'a> TypeChecker<'a> {
             .collect()
     }
 
+    /// Verify that a statement is well-typed.
     fn check_statement(&self, statement: &Statement) -> Result<(), Vec<TypeError>> {
         match &statement.stmt_kind {
             StmtKind::Pass => (),
@@ -71,6 +74,7 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
 
+    /// Verify that assignment to a variable is well-typed.
     fn check_assign_stmt(&self, assign: &Assign) -> Result<(), Vec<TypeError>> {
         let expr_type = self.check_expression(&assign.value)?;
 
@@ -85,21 +89,19 @@ impl<'a> TypeChecker<'a> {
         Ok(())
     }
 
+    /// Verify that an expression is well-typed.
     fn check_expression(&self, expression: &Expr) -> Result<TypeSpec, Vec<TypeError>> {
         let span = expression.span;
         match &expression.expr_type {
             ExprKind::Literal(l) => Ok(self.check_literal(l)),
-            ExprKind::Identifier(id) => self
-                .global_environment
-                .lookup(id)
-                .add_span(span)
-                .map_err(Into::into),
+            ExprKind::Identifier(id) => Ok(self.global_environment.lookup(id).add_span(span)?),
             ExprKind::Unary(un) => self.check_unary(un),
             ExprKind::Binary(bin) => self.check_binary(bin),
-            ExprKind::Ternary(ter) => self.check_ternary(ter, span),
+            ExprKind::Ternary(ter) => self.check_ternary(ter),
         }
     }
 
+    /// Verify that a unary expression is well-typed.
     fn check_unary(&self, un: &UnExpr) -> Result<TypeSpec, Vec<TypeError>> {
         let expr_type = self.check_expression(&un.rhs)?;
 
@@ -110,28 +112,44 @@ impl<'a> TypeChecker<'a> {
         })
     }
 
+    /// Verify that a binary expression is well-typed. This may produce multiple errors, if
+    /// evaluating both the left-hand side and the right-hand side results in type errors.
     fn check_binary(&self, bin: &BinExpr) -> Result<TypeSpec, Vec<TypeError>> {
-        let lhs = self.check_expression(&bin.lhs);
-        let rhs = self.check_expression(&bin.rhs);
-
-        let (lhs, rhs) = match (lhs, rhs) {
-            // If evaluating both the LHS and RHS of an expression results in type errors,
-            // we can combine both errors and return them.
-            (Err(mut e1), Err(mut e2)) => {
-                e1.append(&mut e2);
-                return Err(e1);
-            }
-            // If evaluation results in one type error, bubble it.
-            (l, r) => (l?, r?),
-        };
+        let (lhs, rhs) = self
+            .check_expression(&bin.lhs)
+            .concat_result(self.check_expression(&bin.rhs))?;
 
         BinOpChecker::check(bin, lhs, rhs)
     }
 
-    fn check_ternary(&self, ter: &TerExpr, _span: Span) -> Result<TypeSpec, Vec<TypeError>> {
-        let _lhs = self.check_expression(&ter.lhs)?;
+    fn check_ternary(&self, ter: &TerExpr) -> Result<TypeSpec, Vec<TypeError>> {
+        let ((lhs, mhs), rhs) = self
+            .check_expression(&ter.lhs)
+            .concat_result(self.check_expression(&ter.mhs))
+            .concat_result(self.check_expression(&ter.rhs))?;
 
-        todo!();
+        match ter.op {
+            TerOp::If => {
+                let mut errors = vec![];
+                if mhs != TypeSpec::Bool {
+                    errors.push(TypeError::new(
+                        TypeErrorKind::TernaryIfCondition(mhs),
+                        ter.mhs.span,
+                    ));
+                }
+                if lhs != rhs {
+                    errors.push(TypeError::new(
+                        TypeErrorKind::TernaryIfBranchMismatch(lhs.clone(), rhs),
+                        ter.lhs.span.extend_to(ter.rhs.span),
+                    ));
+                }
+                if errors.is_empty() {
+                    Ok(lhs)
+                } else {
+                    Err(errors)
+                }
+            }
+        }
     }
 
     fn check_assignment(target: &TypeSpec, value: &TypeSpec) -> Result<(), TypeErrorKind> {

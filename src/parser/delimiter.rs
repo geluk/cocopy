@@ -7,6 +7,7 @@ pub struct Delimiter {
     token_kind: TokenKind,
     stage: Stage,
     may_consume: bool,
+    include_in_span: bool,
 }
 impl Delimiter {
     /// Construct a delimiter for an expression surrounded by parentheses: `(x)`.
@@ -15,6 +16,7 @@ impl Delimiter {
             token_kind: TokenKind::Symbol(Symbol::CloseParen),
             stage: Stage::ParenExprEnd,
             may_consume: true,
+            include_in_span: true,
         }
     }
     /// Construct a delimiter for an expression terminated by a newline: `x\n`.
@@ -23,6 +25,7 @@ impl Delimiter {
             token_kind: TokenKind::Structure(Structure::Newline),
             stage: Stage::StatementEnd,
             may_consume: true,
+            include_in_span: false,
         }
     }
     /// Construct a delimiter for an indexing sub-expression: `[x]`.
@@ -31,6 +34,7 @@ impl Delimiter {
             token_kind: TokenKind::Symbol(Symbol::CloseBracket),
             stage: Stage::IndexEnd,
             may_consume: true,
+            include_in_span: true, // TODO: false?
         }
     }
     /// Construct a delimiter for a function call sub-expression: `(x)`.
@@ -39,6 +43,7 @@ impl Delimiter {
             token_kind: TokenKind::Symbol(Symbol::CloseParen),
             stage: Stage::ParameterList,
             may_consume: true,
+            include_in_span: true, // TODO: false?
         }
     }
     /// Construct a delimiter for an assignment target expression: `x : int =`.
@@ -47,6 +52,7 @@ impl Delimiter {
             token_kind: TokenKind::Symbol(Symbol::Assign),
             stage: Stage::AssignTarget,
             may_consume: true,
+            include_in_span: false,
         }
     }
     /// Construct a delimiter for the middle expression of a ternary if-expression: `x if y else`.
@@ -55,6 +61,7 @@ impl Delimiter {
             token_kind: TokenKind::Keyword(Keyword::Else),
             stage: Stage::TernaryElse,
             may_consume: true,
+            include_in_span: false,
         }
     }
 
@@ -77,6 +84,12 @@ impl Delimiter {
         &self.token_kind
     }
 
+    /// Returns `true` if the delimiter token should be considered part
+    /// of the expression it delimits.
+    pub fn include_in_span(&self) -> bool {
+        self.include_in_span
+    }
+
     /// Returns `true` if the supplied token satisfies the required delimiter type.
     pub fn accepts_token(&self, token: &Token) -> bool {
         token.kind == self.token_kind
@@ -90,6 +103,7 @@ impl Delimiter {
             token_kind: self.token_kind.clone(),
             stage: self.stage,
             may_consume: false,
+            include_in_span: false, // Doesn't really matter since it won't be consumed anyway.
         }
     }
 }

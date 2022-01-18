@@ -5,7 +5,6 @@ use std::{
 };
 
 // TODO: Once we've fully migrated to `Bytes`, we should remove as many ops as we can.
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Bytes(usize);
 impl Bytes {
@@ -62,38 +61,6 @@ impl Sub<Bytes> for Bytes {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Chars(usize);
-impl Chars {
-    pub fn new(pos: usize) -> Self {
-        Self(pos)
-    }
-}
-impl Display for Chars {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-impl AddAssign<usize> for Chars {
-    fn add_assign(&mut self, rhs: usize) {
-        *self = Self(self.0 + rhs)
-    }
-}
-impl Add<usize> for Chars {
-    type Output = Self;
-
-    fn add(self, rhs: usize) -> Self::Output {
-        Self(self.0 + rhs)
-    }
-}
-impl Add<isize> for Chars {
-    type Output = Self;
-
-    fn add(self, rhs: isize) -> Self::Output {
-        Self(self.0 + rhs as usize)
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     start: Bytes,
@@ -106,6 +73,13 @@ impl Span {
 
     pub fn zero() -> Self {
         Self::new(Bytes::new(0), Bytes::new(0))
+    }
+
+    pub fn extend_to(self, other: Span) -> Self {
+        let min_start = self.start.0.min(other.start.0);
+        let max_end = self.end.0.max(other.end.0);
+
+        Self::new(Bytes::new(min_start), Bytes::new(max_end))
     }
 
     pub fn length(&self) -> Bytes {
