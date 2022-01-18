@@ -1,3 +1,4 @@
+//! Everything related to code generation.
 use crate::parser::syntax_tree::BinExpr;
 
 #[allow(dead_code)]

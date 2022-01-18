@@ -1,3 +1,4 @@
+//! Describes what tokens a parser will consider acceptable to finish a parseable token sequence.
 use crate::lexer::tokens::*;
 
 use super::error::Stage;
@@ -5,81 +6,90 @@ use super::error::Stage;
 pub struct Delimiter {
     token_kind: TokenKind,
     stage: Stage,
-    required: bool,
+    may_consume: bool,
 }
 impl Delimiter {
-    /// Construct a delimiter for an expression surrounded by parentheses.
+    /// Construct a delimiter for an expression surrounded by parentheses: `(x)`.
     pub fn parentheses() -> Self {
         Self {
             token_kind: TokenKind::Symbol(Symbol::CloseParen),
             stage: Stage::ParenExprEnd,
-            required: true,
+            may_consume: true,
         }
     }
-    /// Construct a delimiter for an expression terminated by a newline.
+    /// Construct a delimiter for an expression terminated by a newline: `x\n`.
     pub fn newline() -> Self {
         Self {
             token_kind: TokenKind::Structure(Structure::Newline),
             stage: Stage::StatementEnd,
-            required: true,
+            may_consume: true,
         }
     }
-    /// Construct a delimiter for an indexing sub-expression.
+    /// Construct a delimiter for an indexing sub-expression: `[x]`.
     pub fn index() -> Self {
         Self {
             token_kind: TokenKind::Symbol(Symbol::CloseBracket),
             stage: Stage::IndexEnd,
-            required: true,
+            may_consume: true,
         }
     }
-    /// Construct a delimiter for an indexing sub-expression.
+    /// Construct a delimiter for a function call sub-expression: `(x)`.
     pub fn function_call() -> Self {
         Self {
             token_kind: TokenKind::Symbol(Symbol::CloseParen),
             stage: Stage::ParameterList,
-            required: true,
+            may_consume: true,
         }
     }
-    /// Construct a delimiter for an assignment target expression.
+    /// Construct a delimiter for an assignment target expression: `x : int =`.
     pub fn assign() -> Self {
         Self {
             token_kind: TokenKind::Symbol(Symbol::Assign),
             stage: Stage::AssignTarget,
-            required: true,
+            may_consume: true,
         }
     }
-    /// Construct a delimiter for the middle expression of a ternary if-expression.
+    /// Construct a delimiter for the middle expression of a ternary if-expression: `x if y else`.
     pub fn ternary() -> Self {
         Self {
             token_kind: TokenKind::Keyword(Keyword::Else),
             stage: Stage::TernaryElse,
-            required: true,
+            may_consume: true,
         }
     }
 
+    /// The parsing stage in which this delimiter is used.
     pub fn stage(&self) -> Stage {
         self.stage
     }
 
-    pub fn required(&self) -> bool {
-        self.required
+    /// If true, an expression parser must consume this delimiter when finished.
+    /// If false, an expression parser may use this delimiter to determine when it should stop
+    /// parsing, but it must not consume it. This is used to allow subparsers to recognise
+    /// where they should stop parsing, while leaving the token intact so their parent parser
+    /// is able to consume it.
+    pub fn may_consume(&self) -> bool {
+        self.may_consume
     }
 
+    /// The token kind represented by this delimiter.
     pub fn token_kind(&self) -> &TokenKind {
         &self.token_kind
     }
 
-    /// Returns `true` if this delimiter expects a token of the same kind as the token that was
-    /// provided.
+    /// Returns `true` if the supplied token satisfies the required delimiter type.
     pub fn accepts_token(&self, token: &Token) -> bool {
         token.kind == self.token_kind
     }
 
+    /// Constructs a new delimiter for a subexpression parser. This delimiter will be a copy of the
+    /// current delimiter, but with [`self.may_consume`] set to `false` to indicate that the subparser
+    /// must leave the token for the parent parser to consume.
     pub fn for_subexpr(&self) -> Self {
         Self {
             token_kind: self.token_kind.clone(),
             stage: self.stage,
-            required: false,
+            may_consume: false,
         }
     }
 }

@@ -1,3 +1,4 @@
+//! High-level parsing functions for building an AST.
 use crate::{
     lexer::tokens::{Keyword, Structure, Symbol, Token, TokenKind},
     span::Bytes,
@@ -262,7 +263,7 @@ impl<'a> Parser<'a> {
     }
 
     fn satisfy_delimiter(&mut self, delimiter: Delimiter) -> Result<(), ParseError> {
-        if delimiter.required() {
+        if delimiter.may_consume() {
             self.recognise(delimiter.token_kind().clone())
                 .add_stage(delimiter.stage())?;
         }

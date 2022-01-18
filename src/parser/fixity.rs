@@ -1,3 +1,4 @@
+//! Operator associativity and precedence.
 use std::cmp::Ordering;
 
 use super::syntax_tree::{BinOp, TerOp, UnOp};

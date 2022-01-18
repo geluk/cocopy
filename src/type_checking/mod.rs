@@ -1,3 +1,4 @@
+//! Verifies that an AST is well-typed.
 mod bin_op_checker;
 mod error;
 mod type_checker;

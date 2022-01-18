@@ -1,3 +1,9 @@
+//! # CocoPy
+//!
+//! A ChocoPy compiler.
+
+#![feature(lint_reasons)]
+
 use std::{env, fs, iter};
 
 use anyhow::Result;

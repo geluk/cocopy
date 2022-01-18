@@ -1,3 +1,4 @@
+//! Abstract Syntax Tree nodes.
 use std::{
     fmt::{self, Display},
     str::FromStr,

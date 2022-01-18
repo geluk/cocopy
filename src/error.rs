@@ -1,3 +1,4 @@
+//! Traits for converting subsystem errors into generic compilation errors, and displaying them.
 use std::slice::Iter;
 
 use crate::span::*;

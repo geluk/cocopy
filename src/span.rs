@@ -1,3 +1,4 @@
+//! Contains the [`Bytes`] and [`Span`] types, which describe source code positions.
 use std::{
     fmt::{self, Debug, Display},
     ops::{Add, AddAssign, Sub},

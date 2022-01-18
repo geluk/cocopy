@@ -1,3 +1,4 @@
+//! Tokens, as produced by the lexer.
 use std::fmt::{self, Display};
 
 use crate::{
@@ -113,11 +114,14 @@ pub enum Symbol {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Literal {
     Integer(i32),
+    String(String),
 }
 impl Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Literal::Integer(i) => write!(f, "{}", i),
+            // TODO: Escape special chars
+            Literal::String(str) => write!(f, "{}", str),
         }
     }
 }
@@ -125,6 +129,9 @@ impl Literal {
     pub fn to_syntax_node(&self) -> syntax_tree::Literal {
         match self {
             Literal::Integer(i) => syntax_tree::Literal::Integer(*i),
+            Literal::String(str) => {
+                todo!("Implement conversion of string literals to syntax nodes")
+            }
         }
     }
 }

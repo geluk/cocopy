@@ -1,3 +1,4 @@
+//! Basic token parsing functions and combinators.
 use std::{iter::Peekable, slice::Iter};
 
 use super::error::*;

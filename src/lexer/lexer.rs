@@ -1,3 +1,4 @@
+//! Functionality for looking up character ranges in the source code.
 use std::num::ParseIntError;
 
 use crate::span::*;
@@ -58,8 +59,18 @@ impl<'s> Lexer<'s> {
 
         // Consume as many valid non-structural tokens as possible.
         let mut had_tokens = false;
-        while self.try_consume_token() {
-            had_tokens = true;
+        loop {
+            if self.try_consume_comment() {
+                if !had_tokens {
+                    self.advance_to_next_line();
+                    return true;
+                }
+                break;
+            } else if self.try_consume_token() {
+                had_tokens = true;
+            } else {
+                break;
+            }
         }
 
         // If we can consume a newline now, we successfully parsed the line.
@@ -168,6 +179,14 @@ impl<'s> Lexer<'s> {
                 false
             }
         }
+    }
+
+    fn try_consume_comment(&mut self) -> bool {
+        if self.lexer.peek() != Some('#') {
+            return false;
+        }
+        self.lexer.consume_while(CharExt::is_not_linebreak);
+        true
     }
 
     /// Emits as many dedents as required in order to bring the lexer back to the

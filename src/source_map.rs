@@ -1,3 +1,4 @@
+//! Functionality for looking up character ranges in the source code.
 use crate::span::{Bytes, Span};
 
 pub fn find_line(source: &str, target_position: Bytes) -> LineContext {

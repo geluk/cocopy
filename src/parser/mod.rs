@@ -1,3 +1,4 @@
+//! Converts a token stream into an abstract syntax tree.
 mod delimiter;
 mod error;
 mod fixity;

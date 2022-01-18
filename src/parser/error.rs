@@ -1,3 +1,4 @@
+//! Error handling for parsing.
 use std::fmt;
 
 use thiserror::Error;

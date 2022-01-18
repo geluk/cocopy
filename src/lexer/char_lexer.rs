@@ -1,3 +1,4 @@
+//! A lightweight, peekable character lexer with position information.
 use std::{iter::Peekable, str::Chars};
 
 use crate::span::Bytes;
