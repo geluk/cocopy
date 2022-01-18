@@ -1,22 +1,21 @@
 //! Traits for converting subsystem errors into generic compilation errors, and displaying them.
+
 use std::slice::Iter;
 
 use crate::span::*;
 
-pub trait PositionalError {
-    fn range(&self) -> Span;
-    fn describe(&self) -> String;
-
-    fn length(&self) -> Bytes {
-        self.range().length()
-    }
-}
-
+/// A generic compile error, containing a message and position information.
+/// A blanket [`From`] implementation allows any error implementing [`PositionalError`]
+/// to be converted into this type.
 pub struct CompileError {
-    range: Span,
     description: String,
+    range: Span,
 }
 impl CompileError {
+    pub fn new(description: String, range: Span) -> Self {
+        Self { description, range }
+    }
+
     pub fn range(&self) -> Span {
         self.range
     }
@@ -28,18 +27,6 @@ impl CompileError {
     }
 }
 
-impl<T> From<T> for CompileError
-where
-    T: PositionalError,
-{
-    fn from(error: T) -> Self {
-        Self {
-            description: error.describe(),
-            range: error.range(),
-        }
-    }
-}
-
 pub struct CompileErrors {
     errors: Vec<CompileError>,
 }
@@ -48,9 +35,10 @@ impl CompileErrors {
         self.errors.iter()
     }
 }
+
 impl<T> From<Vec<T>> for CompileErrors
 where
-    T: PositionalError,
+    T: Into<CompileError>,
 {
     fn from(errors: Vec<T>) -> Self {
         Self {
@@ -58,10 +46,9 @@ where
         }
     }
 }
-
 impl<T> From<T> for CompileErrors
 where
-    T: PositionalError,
+    T: Into<CompileError>,
 {
     fn from(error: T) -> Self {
         Self {

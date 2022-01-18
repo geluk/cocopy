@@ -80,7 +80,7 @@ impl<'a> TypeChecker<'a> {
 
                 Self::check_assignment(&target_type, &expr_type).add_span(assign.value.span)?;
             }
-            k => todo!("Cannot assign to {}", k),
+            k => todo!("Cannot check assignment to {}", k),
         }
         Ok(())
     }
@@ -178,7 +178,6 @@ impl Environment {
 
 #[cfg(test)]
 mod tests {
-    use crate::error::PositionalError;
     use crate::{lexer::lex, parser::parse};
 
     use super::*;
@@ -222,7 +221,7 @@ mod tests {
             let mut checker = TypeChecker::new(&prg);
             let res = checker.run();
 
-            let errors: Vec<_> = res.iter().map(|e| e.describe()).collect();
+            let errors: Vec<_> = res.iter().map(|e| e.to_string()).collect();
             assert!(
                 res.len() != 0,
                 "\n\nExpected to find one type error, but found none.\n\n"

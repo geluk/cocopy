@@ -1,22 +1,21 @@
 //! Error handling for parsing.
-use std::fmt;
-
 use thiserror::Error;
 
-use crate::{
-    error::PositionalError,
-    lexer::tokens::Token,
-    span::{Bytes, Span},
-};
+use crate::{error::CompileError, lexer::tokens::Token, span::Span};
 
-/// A parsing error, indicating both the parsing stage in which the error was encoutered
+/// Construct a parse error.
+pub fn failure<R>(stage: Stage, reason: Reason) -> Result<R, ParseError> {
+    Err(ParseError::new(stage, reason))
+}
+
+/// Indicates both the parsing stage in which the error was encoutered
 /// and the cause for the error.
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("{reason} when parsing {stage}")]
 pub struct ParseError {
     stage: Stage,
     reason: Reason,
 }
-
 impl ParseError {
     pub fn new(stage: Stage, reason: Reason) -> Self {
         Self { stage, reason }
@@ -29,27 +28,21 @@ impl ParseError {
         &self.reason
     }
 }
-
-impl PositionalError for ParseError {
-    fn range(&self) -> Span {
-        match &self.reason {
-            Reason::UnexpectedToken(tok) => tok.source,
-            // TODO: Add position information to reason so we don't have to repeat ourselves here.
-            Reason::UnexpectedEndOfInput => Span::new(Bytes::new(0), Bytes::new(0)),
-            Reason::UnknownType(_) => Span::new(Bytes::new(0), Bytes::new(0)),
-        }
-    }
-
-    fn describe(&self) -> String {
-        format!(
-            "{} when parsing {} ({:?})",
-            self.reason(),
-            self.stage(),
-            self.stage()
+impl From<ParseError> for CompileError {
+    fn from(parse_error: ParseError) -> Self {
+        Self::new(
+            parse_error.to_string(),
+            match parse_error.reason {
+                Reason::UnexpectedToken(tok) => tok.source,
+                // TODO: Add position information to reason so we don't have to repeat ourselves here.
+                Reason::UnexpectedEndOfInput => Span::zero(),
+                Reason::UnknownType(_) => Span::zero(),
+            },
         )
     }
 }
 
+/// Indicates why parsing failed.
 #[derive(Debug, Error)]
 pub enum Reason {
     #[error("unexpected {0}")]
@@ -60,60 +53,41 @@ pub enum Reason {
     UnknownType(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Indicates where parsing failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum Stage {
-    /// The end of a complete program.
+    #[error("the end of a statement")]
     StatementEnd,
-    /// The start of an expression.
+    #[error("an expression")]
     Expr,
-    /// The end of a parenthesised expression.
+    #[error("the end of a parenthesised expression")]
     ParenExprEnd,
-    /// The end of an index expression.
+    #[error("the end of an index expression")]
     IndexEnd,
-    /// The 'else' keyword of a ternary expression
+    #[error("a ternary if-expression")]
     TernaryElse,
-    /// A a parameter list
+    #[error("a parameter list")]
     ParameterList,
-    /// A variable definition
+    #[error("a variable definition")]
     VarDef,
-    /// A type specification
+    #[error("a type annotation")]
     TypeSpec,
-    /// A statement
+    #[error("a statement")]
     Statement,
-    /// An assignment target
+    #[error("an assignment target")]
     AssignTarget,
 }
-impl fmt::Display for Stage {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(match self {
-            Stage::Expr => "an expression",
-            Stage::ParenExprEnd => "the end of a parenthesised expression",
-            Stage::IndexEnd => "the end of an index expression",
-            Stage::StatementEnd => "the end of a statement",
-            Stage::TernaryElse => "a ternary if-expression",
-            Stage::ParameterList => "a parameter list",
-            Stage::VarDef => "a variable definition",
-            Stage::TypeSpec => "a type annotation",
-            Stage::Statement => "a statement",
-            Stage::AssignTarget => "an assignment target",
-        })
-    }
-}
 
+/// Allows adding a parsing stage to an error.
 pub trait AddStage {
     type Annotated;
-
+    /// Enrich the error by specifying a parsing stage.
     fn add_stage(self, stage: Stage) -> Self::Annotated;
 }
-
 impl<O> AddStage for Result<O, Reason> {
     type Annotated = Result<O, ParseError>;
 
     fn add_stage(self, stage: Stage) -> Self::Annotated {
         self.map_err(|reason| ParseError { stage, reason })
     }
-}
-
-pub fn failure<R>(stage: Stage, reason: Reason) -> Result<R, ParseError> {
-    Err(ParseError::new(stage, reason))
 }

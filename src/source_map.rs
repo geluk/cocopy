@@ -61,10 +61,6 @@ impl LineContext<'_> {
         self.source.replace(&['\r', '\n'], "")
     }
 
-    pub fn source(&self) -> &str {
-        self.source
-    }
-
     pub fn range(&self) -> Span {
         self.range
     }

@@ -1,18 +1,19 @@
 use thiserror::Error;
 
 use crate::{
-    error::PositionalError,
+    error::CompileError,
     parser::syntax_tree::{BinOp, TerOp, TypeSpec, UnOp},
     span::Span,
 };
 
+/// Construct a new error result.
 pub fn error<S>(kind: TypeErrorKind, span: Span) -> Result<S, TypeError> {
     Err(TypeError::new(kind, span))
 }
-pub fn singleton_error<S>(kind: TypeErrorKind, span: Span) -> Result<S, Vec<TypeError>> {
-    Err(vec![TypeError::new(kind, span)])
-}
-#[derive(Debug)]
+
+/// An error as produced by the type checker.
+#[derive(Debug, Error)]
+#[error("{kind}")]
 pub struct TypeError {
     kind: TypeErrorKind,
     span: Span,
@@ -23,6 +24,11 @@ impl TypeError {
     }
     pub fn kind(&self) -> &TypeErrorKind {
         &self.kind
+    }
+}
+impl From<TypeError> for CompileError {
+    fn from(type_error: TypeError) -> Self {
+        Self::new(type_error.to_string(), type_error.span)
     }
 }
 
@@ -56,16 +62,6 @@ impl<O> AddSpan for Result<O, TypeErrorKind> {
     }
 }
 
-impl PositionalError for TypeError {
-    fn range(&self) -> Span {
-        self.span
-    }
-
-    fn describe(&self) -> String {
-        format!("{}", self.kind)
-    }
-}
-
 impl From<TypeError> for Vec<TypeError> {
     fn from(type_error: TypeError) -> Self {
         vec![type_error]
@@ -74,7 +70,7 @@ impl From<TypeError> for Vec<TypeError> {
 
 /// Marks a type from which multiple errors can be collected.
 pub trait CollectErrors<E> {
-    /// Collects all erros from `Self` and transforms them into a [`Vec<E>`].
+    /// Collects all erros from `Self` into a [`Vec<E>`].
     fn collect_errors(self) -> Vec<E>;
 }
 impl<R, E> CollectErrors<E> for Result<R, Vec<E>> {

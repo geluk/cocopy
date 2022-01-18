@@ -447,7 +447,7 @@ impl<'s> Lexer<'s> {
         let position = self.lexer.byte_position() + offset;
 
         LexError {
-            range: Span::new(position, position + length),
+            span: Span::new(position, position + length),
             error_type,
         }
     }

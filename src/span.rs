@@ -104,6 +104,10 @@ impl Span {
         Self { start, end }
     }
 
+    pub fn zero() -> Self {
+        Self::new(Bytes::new(0), Bytes::new(0))
+    }
+
     pub fn length(&self) -> Bytes {
         self.end - self.start
     }
