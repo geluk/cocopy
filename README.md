@@ -7,7 +7,7 @@ reference. In addition, I'd like to experiment with some additional features,whi
 
 ## Lexical structure:
 
-- [ ] Token lexing
+- [x] Token lexing
   - [x] Keywords
   - [x] Symbols
   - [x] Structure
@@ -16,8 +16,8 @@ reference. In addition, I'd like to experiment with some additional features,whi
     - [ ] Space-based indentation (postponed for now)
   - [x] Identifiers
   - [x] Integer literals
-  - [ ] String literals
-  - [ ] Comments
+  - [x] String literals
+  - [x] Comments
 - [x] Structural normalisation (emitting final newlines and dedents)
 - [x] Source code positions
 
@@ -75,7 +75,7 @@ reference. In addition, I'd like to experiment with some additional features,whi
     - [x] Boolean combination
     - [ ] String operations
     - [ ] `is`
-  - [ ] Ternary
+  - [x] Ternary
   - [ ] Object construction
   - [ ] List display
   - [ ] List operators
