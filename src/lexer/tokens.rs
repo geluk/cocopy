@@ -129,7 +129,7 @@ impl Literal {
     pub fn to_syntax_node(&self) -> syntax_tree::Literal {
         match self {
             Literal::Integer(i) => syntax_tree::Literal::Integer(*i),
-            Literal::String(str) => {
+            Literal::String(_str) => {
                 todo!("Implement conversion of string literals to syntax nodes")
             }
         }
