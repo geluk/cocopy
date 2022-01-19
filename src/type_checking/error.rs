@@ -36,13 +36,13 @@ impl From<TypeError> for CompileError {
 pub enum TypeErrorKind {
     #[error("unknown identifier: '{0}'")]
     UnknownIdentifier(String),
-    #[error("cannot apply expression of type '{1}' to operand '{0}'")]
+    #[error("cannot apply expression of type '{1}' to operator '{0}'")]
     UnOperandType(UnOp, TypeSpec),
-    #[error("cannot apply expression of type '{1}' to operand '{0}'")]
+    #[error("cannot apply expression of type '{1}' to operator '{0}'")]
     BinOperandType(BinOp, TypeSpec),
     #[error("cannot unify true side '{0}' with false side '{1}'")]
     TernaryIfBranchMismatch(TypeSpec, TypeSpec),
-    #[error("cannot use expression of type '{0}' as the condition for a ternary if-expression")]
+    #[error("cannot use expression of type '{0}' as the condition for an if-expression")]
     TernaryIfCondition(TypeSpec),
     #[error("cannot assign expression of type 'None' to a primitive variable of type '{0}'")]
     AssignNoneToPrimitive(TypeSpec),
