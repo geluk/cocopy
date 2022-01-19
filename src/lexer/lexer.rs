@@ -525,16 +525,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn lex_false() {
-        assert_token_lexes("False", TokenKind::Keyword(Keyword::False))
-    }
-
-    #[test]
-    fn lex_true() {
-        assert_token_lexes("True", TokenKind::Keyword(Keyword::True))
-    }
-
     /// ChocoPy Language Reference: 3.1.1
     #[test]
     fn newline_style_lf() {
@@ -683,6 +673,18 @@ mod tests {
         assert_lex_fails("`hoi abc")
     }
 
+    /// ChocoPy Language Reference: 3.2
+    #[test]
+    fn false_is_a_keyword() {
+        assert_token_lexes("False", TokenKind::Keyword(Keyword::False))
+    }
+
+    /// ChocoPy Language Reference: 3.2
+    #[test]
+    fn true_is_a_keyword() {
+        assert_token_lexes("True", TokenKind::Keyword(Keyword::True))
+    }
+
     /// ChocoPy Language Reference: 3.4.1
     #[test]
     fn string_literals_are_enclosed_by_double_quotes() {
@@ -773,14 +775,28 @@ mod tests {
 
     /// ChocoPy Language Reference: 3.4.2
     #[test]
-    fn integer_literal_above_i32_max_fails() {
+    fn integer_literal_may_not_exceed_i32_max() {
         assert_lex_fails("2147483648")
     }
 
     /// ChocoPy Language Reference: 3.4.2
     #[test]
-    fn integer_literal_nonzero_starts_with_zero_fails() {
+    fn integer_literal_may_not_start_with_zero_when_nonzero() {
         assert_lex_fails("01")
+    }
+
+    /// ChocoPy Language Reference: 3.4.2
+    #[test]
+    fn symbols() {
+        assert_lexes(
+            "+-=",
+            vec![
+                TokenKind::Symbol(Symbol::Plus),
+                TokenKind::Symbol(Symbol::Minus),
+                TokenKind::Symbol(Symbol::Assign),
+                TokenKind::Structure(Structure::Newline),
+            ],
+        )
     }
 
     #[test]
