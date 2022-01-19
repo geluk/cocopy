@@ -54,7 +54,7 @@ impl<'s> Lexer<'s> {
             self.lexer.consume(error.length());
             self.errors.push(error);
             self.advance_to_next_line();
-            return !self.lexer.is_finished();
+            return !self.lexer.finished();
         }
 
         // Consume as many valid non-structural tokens as possible.
@@ -80,7 +80,7 @@ impl<'s> Lexer<'s> {
 
         // If we can't consume a newline anymore, we'd expect to be at the
         // end of the file now.
-        if !self.lexer.is_finished() {
+        if !self.lexer.finished() {
             // Based on the assumption that we've handled every possible
             // type of token in `try_consume_token()`.
             unreachable!("Failed to consume token");

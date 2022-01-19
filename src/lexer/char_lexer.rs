@@ -96,7 +96,7 @@ impl<'a> CharLexer<'a> {
     }
 
     /// Checks if the lexer is finished.
-    pub fn is_finished(&mut self) -> bool {
+    pub fn finished(&mut self) -> bool {
         self.peek().is_none()
     }
 }

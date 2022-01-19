@@ -223,12 +223,12 @@ mod tests {
     }
 
     macro_rules! assert_type_checks {
-        ($source:expr, $type_name:expr, $type_spec:expr) => {{
+        ($source:expr) => {{
             let prg = make_program!($source);
             let mut checker = TypeChecker::new(&prg);
             let res = checker.run();
 
-            let errors: Vec<_> = res.iter().map(|e| e.describe()).collect();
+            let errors: Vec<_> = res.iter().map(|e| e.to_string()).collect();
             assert!(res.is_empty(), "\n\nExpected this type check to succeed, but found the following error(s): \n{:#?}\n\n", errors);
         }};
     }
@@ -286,10 +286,23 @@ mod tests {
 
     /// ChocoPy reference: 5.2
     #[test]
+    fn valid_program_typechecks() {
+        assert_type_checks!(
+            r#"
+a: int = 10
+b: int = 9
+c: int = 0
+c = (a + a) * b
+"#
+        )
+    }
+
+    /// ChocoPy reference: 5.2
+    #[test]
     #[ignore = "TODO: should we do this in the type checker? or in the parser"]
     fn var_def_non_literal_not_allowed() {
         assert_type_error!(
-            "a : int = 10 + 1",
+            "a : int = None",
             TypeErrorKind::AssignNoneToPrimitive(TypeSpec::Bool)
         );
     }
