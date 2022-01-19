@@ -54,6 +54,8 @@ pub fn compile(source: &str) -> Result<(), CompileErrors> {
     println!("Type checker finished");
     println!("=====================\n");
 
+    codegen::generate_native(&program, "out.asm").unwrap();
+
     Ok(())
 }
 
