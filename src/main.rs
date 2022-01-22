@@ -39,20 +39,20 @@ fn main() -> Result<()> {
 
 pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
     let tokens = lexer::lex(source)?;
+    println!("\n==============");
+    println!("Lexer finished");
+    println!("==============\n");
     for token in &tokens {
         println!("{:?}", token);
         println!("{:#?}", token.source.lookup(source));
     }
-    println!("\n==============");
-    println!("Lexer finished");
-    println!("==============\n");
 
     let program = parser::parse(&tokens)?;
-    println!("{:#?}\n", program);
-    println!("{}", program);
     println!("\n===============");
     println!("Parser finished");
     println!("===============\n");
+    println!("{:#?}\n", program);
+    println!("{}", program);
 
     type_checking::verify_well_typed(&program)?;
     println!("\n=====================");
@@ -64,12 +64,12 @@ pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
 
 pub fn run_backend(program: Program) {
     let il = il::generate(&program);
-    for instr in &il {
-        println!("{}", instr);
-    }
     println!("\n======================");
     println!("IL generation finished");
     println!("======================\n");
+    for instr in &il {
+        println!("{}", instr);
+    }
 
     codegen::generate_native(&il, "out.asm").unwrap();
 }
