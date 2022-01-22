@@ -66,8 +66,8 @@ impl Section {
         self
     }
 
-    pub fn push_break(&mut self) -> &mut Self {
-        self.lines.push(Line::new_break());
+    pub fn blank(&mut self) -> &mut Self {
+        self.lines.push(Line::new_blank());
         self
     }
 }
@@ -121,7 +121,7 @@ impl Line {
     }
 
     /// Construct an empty line.
-    pub fn new_break() -> Self {
+    pub fn new_blank() -> Self {
         Self {
             dir: None,
             comment: None,

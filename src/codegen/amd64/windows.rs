@@ -23,13 +23,14 @@ fn default() -> Assembly {
         .label("main")
         .prologue()
         .ins("call", "_CRT_INIT")
-        .push_break()
+        .blank()
         .ins("lea", "rcx, [msg_ch]")
         .ins("mov", "rdx, [msg_ch]")
         .ins("call", "printf")
-        .push_break()
+        .blank()
         .ret_zero()
-        .ins("call", "ExitProcess");
+        .ins("call", "ExitProcess")
+        .blank();
 
     asm.data.ins("msg_ch", "db 'The char is %c', 13, 10, 0");
 
@@ -46,14 +47,14 @@ impl ProcedureExt for Section {
         self.ins_cmt("push", "rbp", "Store base pointer")
             .ins_cmt("mov", "rbp, rsp", "Move base pointer down")
             .ins_cmt("sub", "rsp, 32", "Create shadow space")
-            .push_break()
+            .blank()
     }
 
     fn epilogue(&mut self) -> &mut Self {
         self.ins_cmt("mov", "rsp, rbp", "Move stack pointer back up")
             .ins_cmt("pop", "rbp", "Restore previous base pointer")
             .ins_cmt("ret", "", "Return to caller")
-            .push_break()
+            .blank()
     }
 
     fn ret_zero(&mut self) -> &mut Self {
