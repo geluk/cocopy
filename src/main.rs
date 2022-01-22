@@ -26,7 +26,7 @@ fn main() -> Result<()> {
     let content = fs::read_to_string(&args[1])?;
 
     match run_frontend(&content) {
-        Ok(program) => run_backend(program),
+        Ok(program) => run_backend(program)?,
         Err(errors) => {
             for error in errors.iter() {
                 describe_error(error, &content);
@@ -62,7 +62,7 @@ pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
     Ok(program)
 }
 
-pub fn run_backend(program: Program) {
+pub fn run_backend(program: Program) -> Result<()> {
     let il = il::generate(&program);
     println!("\n======================");
     println!("IL generation finished");
@@ -71,7 +71,7 @@ pub fn run_backend(program: Program) {
         println!("{}", instr);
     }
 
-    codegen::generate_native(&il, "out.asm").unwrap();
+    codegen::generate_native(&il, "out")
 }
 
 pub fn describe_error(err: &CompileError, content: &str) {
