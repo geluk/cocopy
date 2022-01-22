@@ -1,9 +1,9 @@
 //! Native code generation for Linux x64.
 use std::fmt::{self, Display, Formatter};
 
-use crate::parser::syntax_tree::Program;
+use crate::il::Instruction;
 
-pub fn compile(_prog: &Program) -> Assembly {
+pub fn compile(_prog: &Vec<Instruction>) -> Assembly {
     Assembly::default()
 }
 

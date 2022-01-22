@@ -8,9 +8,11 @@ use std::{env, fs, iter};
 
 use anyhow::Result;
 use error::{CompileError, CompileErrors};
+use parser::syntax_tree::Program;
 
 mod codegen;
 mod error;
+mod il;
 mod lexer;
 mod parser;
 mod pretty_print;
@@ -23,16 +25,19 @@ fn main() -> Result<()> {
 
     let content = fs::read_to_string(&args[1])?;
 
-    if let Err(errors) = compile(&content) {
-        for error in errors.iter() {
-            describe_error(error, &content);
+    match run_frontend(&content) {
+        Ok(program) => run_backend(program),
+        Err(errors) => {
+            for error in errors.iter() {
+                describe_error(error, &content);
+            }
         }
     }
 
     Ok(())
 }
 
-pub fn compile(source: &str) -> Result<(), CompileErrors> {
+pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
     let tokens = lexer::lex(source)?;
     for token in &tokens {
         println!("{:?}", token);
@@ -50,13 +55,23 @@ pub fn compile(source: &str) -> Result<(), CompileErrors> {
     println!("===============\n");
 
     type_checking::verify_well_typed(&program)?;
-    println!("\n===================");
+    println!("\n=====================");
     println!("Type checker finished");
     println!("=====================\n");
 
-    codegen::generate_native(&program, "out.asm").unwrap();
+    Ok(program)
+}
 
-    Ok(())
+pub fn run_backend(program: Program) {
+    let il = il::generate(&program);
+    for instr in &il {
+        println!("{}", instr);
+    }
+    println!("\n======================");
+    println!("IL generation finished");
+    println!("======================\n");
+
+    codegen::generate_native(&il, "out.asm").unwrap();
 }
 
 pub fn describe_error(err: &CompileError, content: &str) {

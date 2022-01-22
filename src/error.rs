@@ -5,8 +5,6 @@ use std::slice::Iter;
 use crate::span::*;
 
 /// A generic compile error, containing a message and position information.
-/// A blanket [`From`] implementation allows any error implementing [`PositionalError`]
-/// to be converted into this type.
 pub struct CompileError {
     description: String,
     range: Span,
