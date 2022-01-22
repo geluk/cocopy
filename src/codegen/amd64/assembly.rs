@@ -1,4 +1,4 @@
-//! General x86 assembly definitions.
+//! General assembly definitions. Some of these are specific to NASM.
 
 use std::fmt::{self, Display, Formatter};
 

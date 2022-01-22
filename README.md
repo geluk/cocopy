@@ -109,7 +109,12 @@ reference. In addition, I'd like to experiment with some additional features,whi
 
 ## Target code generation
 
-- [ ] Everything
+- [x] Proof-of-concept
+  - [x] Generate assembly code
+  - [x] Assemble object files with `nasm`
+  - [x] Linking with `gcc` or `link.exe`
+- [ ] Convert intermediate code to assembly
+- [ ] Register allocation
 
 ## Operational semantics:
 
@@ -122,9 +127,26 @@ reference. In addition, I'd like to experiment with some additional features,whi
 - Good error reporting
 - More features?
 
+# Assembly cheat sheet
+
+| Register | Usage                                                        |
+| -------- | ------------------------------------------------------------ |
+| `rbp`    | Frame pointer, points to the base of the current stack frame |
+| `rsp`    | Stack pointer, points to the top of the current stack frame  |
+
+
 # Additional reading
 
+## ChocoPy
 - [ChocoPy language reference](./chocopy_language_reference.pdf)
 - [The ChocoPy website](https://chocopy.org/)
-- [My First Language Frontend with LLVM](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
+
+## Type checking
 - [Write You a Haskell](http://dev.stephendiehl.com/fun/)
+
+## Code generation
+- [My First Language Frontend with LLVM](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
+- [x64 software conventions (Windows)](https://docs.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170)
+- [What Every Programmer Should Know About Memory](https://people.freebsd.org/~lstewart/articles/cpumemory.pdf)
+- [ASM Tutorial](https://sonictk.github.io/asm_tutorial/)
+- [x86 instruction reference](https://www.felixcloutier.com/x86/)
