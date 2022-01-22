@@ -23,16 +23,34 @@ fn default() -> Assembly {
         .label("main")
         .prologue()
         .ins("call", "_CRT_INIT")
-        .blank()
+        .blank();
+
+    asm.text
         .ins("lea", "rcx, [msg_ch]")
         .ins("mov", "rdx, [msg_ch]")
         .ins("call", "printf")
-        .blank()
-        .ret_zero()
-        .ins("call", "ExitProcess")
         .blank();
 
-    asm.data.ins("msg_ch", "db 'The char is %c', 13, 10, 0");
+    asm.text
+        .ins("mov", "rcx, 12")
+        .ins("call", "square")
+        .ins("lea", "rcx, [msg_i]")
+        .ins("mov", "rdx, rax")
+        .ins("call", "printf")
+        .blank();
+
+    asm.text.ret_zero().ins("call", "ExitProcess").blank();
+
+    asm.text
+        .label("square")
+        .prologue()
+        .ins("mov", "rax, rcx")
+        .ins("mul", "rax")
+        .epilogue();
+
+    asm.data
+        .ins("msg_ch", "db 'The char is %c', 13, 10, 0")
+        .ins("msg_i", "db 'The integer is %i', 13, 10, 0'");
 
     asm
 }
@@ -51,7 +69,8 @@ impl ProcedureExt for Section {
     }
 
     fn epilogue(&mut self) -> &mut Self {
-        self.ins_cmt("mov", "rsp, rbp", "Move stack pointer back up")
+        self.blank()
+            .ins_cmt("mov", "rsp, rbp", "Move stack pointer back up")
             .ins_cmt("pop", "rbp", "Restore previous base pointer")
             .ins_cmt("ret", "", "Return to caller")
             .blank()
