@@ -3,9 +3,14 @@ A compiler for ChocoPy.
 My main goal is to (nearly) fully implement ChocoPy as defined in the language
 reference. In addition, I'd like to experiment with some additional features,which are described below.
 
+# General structure
+
+
+
+
 # TODO
 
-## Lexical structure:
+## Lexical structure
 
 - [x] Token lexing
   - [x] Keywords
@@ -21,7 +26,7 @@ reference. In addition, I'd like to experiment with some additional features,whi
 - [x] Structural normalisation (emitting final newlines and dedents)
 - [x] Source code positions
 
-## Syntax:
+## Syntax
 
 - [x] Literals
 - [x] Variables
@@ -51,7 +56,7 @@ reference. In addition, I'd like to experiment with some additional features,whi
 - [ ] Blocks
 - [x] Contextual error reporting
 
-## Type checking:
+## Type checking
 
 - [x] Literals
 - [x] Variables
@@ -85,6 +90,26 @@ reference. In addition, I'd like to experiment with some additional features,whi
 - [ ] Function definitions
 - [ ] Class definitions
 - [ ] Global environment
+
+## Intermediate code generation
+
+- [x] Literals
+- [ ] Statements
+  - [x] Expression evaluation
+  - [x] Assignment
+  - [ ] `if`
+  - [ ] `while`
+  - [ ] `for`
+  - [x] `pass`
+  - [ ] `return`
+- Expressions
+  - [x] Literal
+  - [x] Identifier
+  - [x] Binary
+
+## Target code generation
+
+- [ ] Everything
 
 ## Operational semantics:
 
