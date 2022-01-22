@@ -3,9 +3,27 @@ A compiler for ChocoPy.
 My main goal is to (nearly) fully implement ChocoPy as defined in the language
 reference. In addition, I'd like to experiment with some additional features,which are described below.
 
+# Running the compiler
+
+Build the compiler first:
+```
+cargo build --release
+```
+
+Specify the source file as the first argument:
+
+```
+./target/release/cocopy ./examples/simple_add_program.py
+```
+
+This generates an `out.obj` file, assembled for your platform.
+Use a linker to link this file into an executable.
+
+On Linux, you can use `gcc`.
+on Windows, you can use `link.exe`, using the `build_win64.ps1` script.
+
+
 # General structure
-
-
 
 
 # TODO

@@ -50,7 +50,7 @@ fn default() -> Assembly {
 
     asm.data
         .ins("msg_ch", "db 'The char is %c', 13, 10, 0")
-        .ins("msg_i", "db 'The integer is %i', 13, 10, 0'");
+        .ins("msg_i", "db 'The integer is %i', 13, 10, 0");
 
     asm
 }
