@@ -41,11 +41,13 @@ fn generate_assembly<P: AsRef<Path>>(prog: &Vec<Instruction>, asm_path: P) -> Re
 }
 
 fn assemble<P: AsRef<Path>>(assembly: P) -> Result<()> {
+    let asm_name = assembly.as_ref().to_str().unwrap();
     let output = Command::new("./lib/nasm-2.15.05/nasm.exe")
-        .args(["-f", "win64", assembly.as_ref().to_str().unwrap()])
+        .args(["-f", "win64", asm_name])
         .output()?;
 
     println!("{}", String::from_utf8(output.stdout)?);
+    println!("{}", String::from_utf8(output.stderr)?);
 
     Ok(())
 }
