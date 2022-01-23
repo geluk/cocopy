@@ -219,7 +219,7 @@ impl<T: Display> Display for Line<T> {
             (None, None) => Ok(()),
             (None, Some(cmt)) => write!(f, "                                {}", cmt),
             (Some(dir), None) => {
-                write!(f, "{}", dir.to_string())
+                write!(f, "{}", dir)
             }
             (Some(dir), Some(cmt)) => {
                 write!(f, "{:32}; {}", dir.to_string(), cmt)
@@ -266,7 +266,7 @@ impl Display for Instr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
     Reg(Register),
-    Lit(usize),
+    Lit(i128),
     Id(Str),
 }
 impl Display for Operand {

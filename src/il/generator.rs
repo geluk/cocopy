@@ -68,8 +68,8 @@ impl Tac {
 
     fn lower_literal(&self, lit: Literal) -> Value {
         match lit {
-            Literal::Integer(i) => Value::Lit(i as TargetSize),
-            Literal::Boolean(b) => Value::Lit(b as TargetSize),
+            Literal::Integer(i) => Value::Const(i as TargetSize),
+            Literal::Boolean(b) => Value::Const(b as TargetSize),
             Literal::None => todo!(),
         }
     }

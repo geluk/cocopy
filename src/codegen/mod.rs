@@ -22,14 +22,14 @@ enum Os {
 #[allow(dead_code)]
 pub fn generate_llvm() {}
 
-pub fn generate_native<P: AsRef<Path>>(prog: &Vec<Instruction>, out_dir: P) -> Result<()> {
+pub fn generate_native<P: AsRef<Path>>(prog: Vec<Instruction>, out_dir: P) -> Result<()> {
     let out_dir = PathBuf::from(out_dir.as_ref());
 
     let os = determine_os()?;
 
     clean_artifacts_dir(&out_dir)?;
 
-    let mut asm_path = out_dir.clone();
+    let mut asm_path = out_dir;
     asm_path.push("out.asm");
 
     generate_assembly(prog, &asm_path, os)?;
@@ -46,7 +46,7 @@ fn determine_os() -> Result<Os> {
     })
 }
 
-fn generate_assembly<P: AsRef<Path>>(prog: &Vec<Instruction>, asm_path: P, os: Os) -> Result<()> {
+fn generate_assembly<P: AsRef<Path>>(prog: Vec<Instruction>, asm_path: P, os: Os) -> Result<()> {
     let assembly = match os {
         Os::Linux => amd64::linux::compile(prog),
         Os::Windows => amd64::windows::compile(prog),

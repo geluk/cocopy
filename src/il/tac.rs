@@ -43,15 +43,15 @@ impl Display for Name {
 
 #[derive(Debug)]
 pub enum Value {
-    /// A literal, specified in the target size of the destination platform.
-    Lit(TargetSize),
+    /// A constant, specified in the target size of the destination platform.
+    Const(TargetSize),
     /// A name, representing either a temporary name or a variable in the source program.
     Name(Name),
 }
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Value::Lit(lit) => write!(f, "{}", lit),
+            Value::Const(lit) => write!(f, "{}", lit),
             Value::Name(name) => write!(f, "{}", name),
         }
     }

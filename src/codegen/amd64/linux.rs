@@ -9,7 +9,7 @@ use Op::*;
 use Operand::*;
 use Register::*;
 
-pub fn compile(_prog: &Vec<Instruction>) -> Assembly {
+pub fn compile(_prog: Vec<Instruction>) -> Assembly {
     default()
 }
 

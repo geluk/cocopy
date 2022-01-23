@@ -74,7 +74,7 @@ pub fn run_backend(program: Program) -> Result<()> {
         println!("{}", instr);
     }
 
-    codegen::generate_native(&il, "out")
+    codegen::generate_native(il, "out")
 }
 
 pub fn describe_error(err: &CompileError, content: &str) {
