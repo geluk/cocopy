@@ -3,7 +3,7 @@ use crate::ast::untyped::*;
 use super::{name_generator::*, tac::*};
 
 pub fn generate(program: &Program) -> Vec<Instruction> {
-    Tac::lower_program(program)
+    Tac::generate(program)
 }
 
 struct Tac {
@@ -11,7 +11,7 @@ struct Tac {
     name_generator: NameGenerator,
 }
 impl Tac {
-    fn lower_program(program: &Program) -> Vec<Instruction> {
+    fn generate(program: &Program) -> Vec<Instruction> {
         let mut tac = Self {
             instructions: vec![],
             name_generator: NameGenerator::new(),
@@ -101,7 +101,7 @@ mod tests {
         ($source:expr, $il:expr) => {{
             let tokens = lex($source).unwrap();
             let program = parse(&tokens).unwrap();
-            let instrs = Tac::lower_program(&program);
+            let instrs = Tac::generate(&program);
 
             let instr_lines: Vec<_> = instrs.iter().map(|i| i.to_string()).collect();
 

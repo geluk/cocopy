@@ -22,7 +22,7 @@ impl Display for Instruction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Name {
     Name(String),
     Temp(String),
