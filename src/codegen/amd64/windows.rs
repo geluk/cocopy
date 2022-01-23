@@ -1,16 +1,19 @@
 //! Native code generation for 64-bit Windows.
 
-use crate::il::*;
+use crate::{
+    codegen::amd64::x86::{Op, Register},
+    il::*,
+};
 
 use super::assembly::*;
 
-pub fn compile(_prog: &Vec<Instruction>) -> Assembly {
-    default()
-}
+use Op::*;
+use Operand::*;
+use Register::*;
 
-fn default() -> Assembly {
+pub fn compile(prog: &Vec<Instruction>) -> Assembly {
     use Decl::*;
-    let mut asm = Assembly::new();
+    let mut asm = make_assembly();
 
     asm.push_decl(Bits(64))
         .push_decl(Default("rel"))
@@ -20,63 +23,86 @@ fn default() -> Assembly {
         .push_decl(Extern("printf"));
 
     asm.text
-        .label("main")
-        .prologue()
-        .ins("call", "_CRT_INIT")
+        .main
+        .body
+        .push(Op::Call, vec![Id("_CRT_INIT")])
         .blank();
 
     asm.text
-        .ins("lea", "rcx, [msg_ch]")
-        .ins("mov", "rdx, [msg_ch]")
-        .ins("call", "printf")
+        .main
+        .body
+        .push(Lea, vec![Reg(RCX), Id("[msg_ch]")])
+        .push(Mov, vec![Reg(RDX), Id("[msg_ch]")])
+        .push(Call, vec![Id("printf")])
         .blank();
 
     asm.text
-        .ins("mov", "rcx, 12")
-        .ins("call", "square")
-        .ins("lea", "rcx, [msg_i]")
-        .ins("mov", "rdx, rax")
-        .ins("call", "printf")
+        .main
+        .body
+        .push(Mov, vec![Reg(RCX), Lit(12)])
+        .push(Call, vec![Id("square")])
+        .push(Lea, vec![Reg(RCX), Id("[msg_i]")])
+        .push(Mov, vec![Reg(RDX), Reg(RAX)])
+        .push(Call, vec![Id("printf")])
         .blank();
 
-    asm.text.ret_zero().ins("call", "ExitProcess").blank();
-
     asm.text
-        .label("square")
-        .prologue()
-        .ins("mov", "rax, rcx")
-        .ins("mul", "rax")
-        .epilogue();
+        .main
+        .body
+        .ret_zero()
+        .push(Call, vec![Id("ExitProcess")]);
+
+    let mut square = procedure("square");
+    square
+        .body
+        .push(Mov, vec![Reg(RAX), Reg(RCX)])
+        .push(Mul, vec![Reg(RAX)]);
+    asm.text.procedures.push(square);
 
     asm.data
-        .ins("msg_ch", "db 'The char is %c', 13, 10, 0")
-        .ins("msg_i", "db 'The integer is %i', 13, 10, 0");
+        .db("msg_ch", "'The char is %c', 13, 10, 0")
+        .db("msg_i", "'The integer is %i', 13, 10, 0");
 
     asm
 }
 
-pub trait ProcedureExt {
-    fn prologue(&mut self) -> &mut Self;
-    fn epilogue(&mut self) -> &mut Self;
+fn make_assembly() -> Assembly {
+    Assembly::new(procedure("main"))
+}
+
+fn procedure(name: Str) -> Procedure {
+    Procedure::new(name, prologue(), epilogue())
+}
+
+fn prologue() -> Block {
+    let mut prologue = Block::new();
+
+    prologue
+        .push_cmt(Push, vec![Reg(RBP)], "Store base pointer")
+        .push_cmt(Mov, vec![Reg(RBP), Reg(RSP)], "Move base pointer down")
+        .push_cmt(Sub, vec![Reg(RSP), Lit(32)], "Create shadow space")
+        .blank();
+
+    prologue
+}
+
+fn epilogue() -> Block {
+    let mut epilogue = Block::new();
+    epilogue
+        .blank()
+        .push_cmt(Mov, vec![Reg(RSP), Reg(RBP)], "Move stack pointer back up")
+        .push_cmt(Pop, vec![Reg(RBP)], "Restore previous base pointer")
+        .push_cmt(Ret, vec![], "Return to caller");
+
+    epilogue
+}
+
+trait BodyExt {
     fn ret_zero(&mut self) -> &mut Self;
 }
-impl ProcedureExt for Section {
-    fn prologue(&mut self) -> &mut Self {
-        self.ins_cmt("push", "rbp", "Store base pointer")
-            .ins_cmt("mov", "rbp, rsp", "Move base pointer down")
-            .ins_cmt("sub", "rsp, 32", "Create shadow space")
-            .blank()
-    }
-
-    fn epilogue(&mut self) -> &mut Self {
-        self.blank()
-            .ins_cmt("mov", "rsp, rbp", "Move stack pointer back up")
-            .ins_cmt("pop", "rbp", "Restore previous base pointer")
-            .ins_cmt("ret", "", "Return to caller")
-            .blank()
-    }
-
+impl BodyExt for Block {
     fn ret_zero(&mut self) -> &mut Self {
-        self.ins_cmt("xor", "rax, rax", "Return zero")
+        self.push_cmt(Xor, vec![Reg(RAX), Reg(RAX)], "Return zero");
+        self
     }
 }

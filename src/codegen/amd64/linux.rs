@@ -3,6 +3,11 @@
 use crate::il::Instruction;
 
 use super::assembly::*;
+use super::x86::*;
+
+use Op::*;
+use Operand::*;
+use Register::*;
 
 pub fn compile(_prog: &Vec<Instruction>) -> Assembly {
     default()
@@ -10,31 +15,43 @@ pub fn compile(_prog: &Vec<Instruction>) -> Assembly {
 
 fn default() -> Assembly {
     use Decl::*;
-    let mut asm = Assembly::new();
+    let mut asm = make_assembly();
 
     asm.push_decl(Extern("printf")).push_decl(Global("main"));
 
     asm.text
-        .label("main")
-        .ins_cmt("push", "rbp", "Create stack frame, aligning on 16 bytes")
-        .ins("mov", "rdi, fmt_int")
-        .ins("mov", "rsi, -10")
-        .ins("call", "printf")
-        .ins_cmt("pop", "rbp", "Pop stack")
-        .ins_cmt("mov", "rax, 0", "Set return value to 0")
-        .ins("ret", "");
+        .main
+        .body
+        .push(Mov, vec![Reg(RDI), Id("fmt_int")])
+        .push(Mov, vec![Reg(RSI), Lit(101)])
+        .push(Call, vec![Id("printf")])
+        .push(Mov, vec![Reg(RAX), Lit(0)]);
 
-    asm.data.ins("fmt_int", "db '%i', 0");
+    asm.data.db("fmt_int", "'%i', 0");
 
     asm
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn make_assembly() -> Assembly {
+    Assembly::new(procedure("main"))
+}
 
-    #[test]
-    pub fn default_creates_assembly() {
-        Assembly::default();
-    }
+fn procedure(name: Str) -> Procedure {
+    Procedure::new(name, prologue(), epilogue())
+}
+
+fn prologue() -> Block {
+    let mut prologue = Block::new();
+    prologue.push_cmt(Push, vec![Reg(RBP)], "Store base pointer");
+
+    prologue
+}
+
+fn epilogue() -> Block {
+    let mut epilogue = Block::new();
+    epilogue
+        .push_cmt(Pop, vec![Reg(RBP)], "Restore previous base pointer")
+        .push_cmt(Ret, vec![], "Return to caller");
+
+    epilogue
 }
