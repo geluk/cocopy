@@ -126,6 +126,10 @@ on Windows, you can use `link.exe`, using the `build_win64.ps1` script.
   - [x] Identifier
   - [x] Binary
 
+## Optimisation passes
+
+- [ ] Everything
+
 ## Target code generation
 
 - [x] Proof-of-concept
@@ -133,7 +137,13 @@ on Windows, you can use `link.exe`, using the `build_win64.ps1` script.
   - [x] Assemble object files with `nasm`
   - [x] Linking with `gcc` or `link.exe`
 - [ ] Convert intermediate code to assembly
+  - [x] Integer arithmetic
+  - [ ] Everything else
 - [ ] Register allocation
+  - [x] Naive register allocation
+  - [ ] Store on stack when registers are exhausted
+  - [ ] Reuse registers after final reference
+  - [ ] Free registers when required by a different operation
 
 ## Operational semantics:
 
