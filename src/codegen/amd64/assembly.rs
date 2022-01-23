@@ -159,9 +159,14 @@ impl Block {
         self
     }
 
-    pub fn push_cmt(&mut self, op: Op, operands: Vec<Operand>, comment: Str) -> &mut Self {
+    pub fn push_cmt<S: Into<String>>(
+        &mut self,
+        op: Op,
+        operands: Vec<Operand>,
+        comment: S,
+    ) -> &mut Self {
         self.lines
-            .push(Line::new_cmt(Instr::new(op, operands), comment));
+            .push(Line::new_cmt(Instr::new(op, operands), comment.into()));
         self
     }
 
@@ -182,7 +187,7 @@ impl Display for Block {
 /// A line of assembly, with an instruction and optional comment.
 pub struct Line<T> {
     dir: Option<T>,
-    comment: Option<Str>,
+    comment: Option<String>,
 }
 impl<T> Line<T> {
     /// Construct a new line without comment.
@@ -193,7 +198,7 @@ impl<T> Line<T> {
         }
     }
     /// Construct a new line with a comment.
-    pub fn new_cmt(dir: T, comment: Str) -> Self {
+    pub fn new_cmt(dir: T, comment: String) -> Self {
         Self {
             dir: Some(dir),
             comment: Some(comment),
@@ -210,7 +215,7 @@ impl<T> Line<T> {
 }
 impl<T: Display> Display for Line<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match (&self.dir, self.comment) {
+        match (&self.dir, self.comment.as_ref()) {
             (None, None) => Ok(()),
             (None, Some(cmt)) => write!(f, "                                {}", cmt),
             (Some(dir), None) => {
