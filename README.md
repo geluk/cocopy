@@ -108,6 +108,7 @@ on Windows, you can use `link.exe`, using the `build_win64.ps1` script.
 - [ ] Function definitions
 - [ ] Class definitions
 - [ ] Global environment
+- [ ] Overload resolution
 
 ## Intermediate code generation
 
@@ -166,5 +167,5 @@ on Windows, you can use `link.exe`, using the `build_win64.ps1` script.
 - [My First Language Frontend with LLVM](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
 - [x64 software conventions (Windows)](https://docs.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170)
 - [What Every Programmer Should Know About Memory](https://people.freebsd.org/~lstewart/articles/cpumemory.pdf)
-- [ASM Tutorial](https://sonictk.github.io/asm_tutorial/)
+- [Understanding Windows x64 Assembly](https://sonictk.github.io/asm_tutorial/)
 - [x86 instruction reference](https://www.felixcloutier.com/x86/)
