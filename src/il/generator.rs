@@ -113,7 +113,7 @@ mod tests {
     fn simple_program() {
         assert_generates!(
             "a:int = 10\na = a + (100 + 1)",
-            vec!["a = 10", "t1 = 100 + 1", "t2 = a + %t1", "a = %t2",]
+            vec!["a = 10", "%t1 = 100 + 1", "%t2 = a + %t1", "a = %t2",]
         )
     }
 }
