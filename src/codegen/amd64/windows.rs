@@ -29,7 +29,7 @@ pub fn compile(prog: Vec<Instruction>) -> Assembly {
         .push(Op::Call, vec![Id("_CRT_INIT")])
         .blank();
 
-    compile_tac(prog, &mut asm);
+    compile_tac(prog, &mut asm.text.main);
 
     asm.text
         .main
@@ -47,7 +47,7 @@ pub fn compile(prog: Vec<Instruction>) -> Assembly {
     asm
 }
 
-fn compile_tac(prog: Vec<Instruction>, asm: &mut Assembly) {
+fn compile_tac(prog: Vec<Instruction>, proc: &mut Procedure) {
     let mut allocator = RegisterAllocator::new();
     let mut final_tgt = None;
     for instr in prog {
@@ -58,10 +58,7 @@ fn compile_tac(prog: Vec<Instruction>, asm: &mut Assembly) {
                 final_tgt.replace(target.clone());
                 let value = get_operand(value, &mut allocator);
 
-                asm.text
-                    .main
-                    .body
-                    .push_cmt(Mov, vec![target, value], comment);
+                proc.body.push_cmt(Mov, vec![target, value], comment);
             }
             Instruction::Bin(tgt, op, left, right) => {
                 let target = Reg(allocator.lookup(tgt));
@@ -71,24 +68,16 @@ fn compile_tac(prog: Vec<Instruction>, asm: &mut Assembly) {
                 let right = get_operand(right, &mut allocator);
 
                 // Store
-                asm.text.main.body.push_cmt(
-                    Mov,
-                    vec![target, left],
-                    format!("<store> {}", comment),
-                );
+                proc.body
+                    .push_cmt(Mov, vec![target, left], format!("<store> {}", comment));
                 // Apply
-                asm.text.main.body.push_cmt(
-                    op,
-                    vec![target, right],
-                    format!("<apply> {}", comment),
-                );
+                proc.body
+                    .push_cmt(op, vec![target, right], format!("<apply> {}", comment));
             }
         }
     }
     if let Some(tgt) = final_tgt {
-        asm.text
-            .main
-            .body
+        proc.body
             .blank()
             .push_cmt(Lea, vec![Reg(RCX), Id("[msg_i]")], "arg0: printf template")
             .push_cmt(Mov, vec![Reg(RDX), tgt], "arg1: calculation outcome")

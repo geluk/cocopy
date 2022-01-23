@@ -6,7 +6,7 @@ use super::x86::{Op, Register};
 
 pub type Str = &'static str;
 
-/// A complete assembly file.
+/// A complete assembly file, containing declarations and sections.
 pub struct Assembly {
     declarations: Vec<Decl>,
     pub text: Text,
@@ -38,12 +38,12 @@ impl Display for Assembly {
     }
 }
 
-/// An assembly section, such as `.text` or `.data`.
+/// A section of assembly code, such as `.text` or `.data`.
 pub trait Section {
     fn name(&self) -> Str;
 }
 
-/// A `.data` section.
+/// A `.data` section. For now, only directives are supported.
 pub struct Data {
     lines: Vec<Line<Directive>>,
 }
@@ -73,7 +73,8 @@ impl Display for Data {
     }
 }
 
-/// A section of assembly code, such as `.text` or `.data`.
+/// A `.text` section. Contains a single main procedure,
+/// and may contain any number of additional procedures.
 pub struct Text {
     pub main: Procedure,
     pub procedures: Vec<Procedure>,
@@ -104,6 +105,7 @@ impl Display for Text {
     }
 }
 
+/// An assembly procedure, marked by a label and optionally surrounded by a prologue and epilogue.
 pub struct Procedure {
     pub name: Str,
     pub prologue: Block,
@@ -129,6 +131,7 @@ impl Display for Procedure {
     }
 }
 
+/// A declaration, used to provide hints to the assembler.
 pub enum Decl {
     Bits(usize),
     Default(Str),
@@ -146,6 +149,7 @@ impl Display for Decl {
     }
 }
 
+/// A block of assembly code.
 pub struct Block {
     lines: Vec<Line<Instr>>,
 }
@@ -184,23 +188,24 @@ impl Display for Block {
     }
 }
 
-/// A line of assembly, with an instruction and optional comment.
+/// A line of assembly, consisting of an optional instruction and optional comment.
+/// When the instruction is [`None`], an empty line is emitted.
 pub struct Line<T> {
-    dir: Option<T>,
+    line: Option<T>,
     comment: Option<String>,
 }
 impl<T> Line<T> {
     /// Construct a new line without comment.
     pub fn new(dir: T) -> Self {
         Self {
-            dir: Some(dir),
+            line: Some(dir),
             comment: None,
         }
     }
     /// Construct a new line with a comment.
     pub fn new_cmt(dir: T, comment: String) -> Self {
         Self {
-            dir: Some(dir),
+            line: Some(dir),
             comment: Some(comment),
         }
     }
@@ -208,14 +213,14 @@ impl<T> Line<T> {
     /// Construct an empty line.
     pub fn new_blank() -> Self {
         Self {
-            dir: None,
+            line: None,
             comment: None,
         }
     }
 }
 impl<T: Display> Display for Line<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match (&self.dir, self.comment.as_ref()) {
+        match (&self.line, self.comment.as_ref()) {
             (None, None) => Ok(()),
             (None, Some(cmt)) => write!(f, "                                {}", cmt),
             (Some(dir), None) => {
@@ -228,6 +233,7 @@ impl<T: Display> Display for Line<T> {
     }
 }
 
+/// A directive as used in the `.text` section. Currently, only `db` is supported.
 pub enum Directive {
     Db(Str, Str),
 }
@@ -239,6 +245,7 @@ impl Display for Directive {
     }
 }
 
+/// A single instruction, consisting of an operator and zero or more operands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Instr {
     operator: Op,
@@ -263,10 +270,14 @@ impl Display for Instr {
     }
 }
 
+/// An operand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Operand {
+    /// A register
     Reg(Register),
+    /// An immediate value
     Lit(i128),
+    /// An identifier
     Id(Str),
 }
 impl Display for Operand {
