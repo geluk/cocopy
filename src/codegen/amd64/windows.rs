@@ -106,6 +106,8 @@ fn get_operand(value: Value, allocator: &mut RegisterAllocator) -> Operand {
 fn translate_binop(op: BinOp) -> Op {
     match op {
         BinOp::Add => Add,
+        BinOp::Multiply => Imul,
+        BinOp::Subtract => Sub,
         _ => todo!("Unknown operation"),
     }
 }
@@ -115,7 +117,7 @@ fn square() -> Procedure {
     square
         .body
         .push(Mov, vec![Reg(RAX), Reg(RCX)])
-        .push(Mul, vec![Reg(RAX)]);
+        .push(Imul, vec![Reg(RAX)]);
     square
 }
 
