@@ -2,7 +2,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use crate::parser::syntax_tree::BinOp;
+use crate::ast::untyped::BinOp;
 
 pub type TargetSize = isize;
 

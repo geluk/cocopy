@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::parser::syntax_tree::TypeSpec;
+use crate::ast::TypeSpec;
 
 pub fn get_types() -> HashMap<String, TypeSpec> {
     let mut type_map = HashMap::new();

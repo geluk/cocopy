@@ -1,10 +1,9 @@
-//! Abstract Syntax Tree nodes.
-use std::{
-    fmt::{self, Display},
-    str::FromStr,
-};
+//! Untyped Abstract Syntax Tree nodes.
+use std::fmt::{self, Display};
 
 use crate::span::Span;
+
+use super::TypeSpec;
 
 #[derive(Debug)]
 pub struct Program {
@@ -76,42 +75,6 @@ pub struct Elif {
     pub block: Block,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TypeSpec {
-    None,
-    Int,
-    Bool,
-    Array(Box<TypeSpec>),
-    Function(Vec<TypeSpec>, Box<TypeSpec>),
-}
-impl Display for TypeSpec {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TypeSpec::None => f.write_str("<None>"),
-            TypeSpec::Int => f.write_str("int"),
-            TypeSpec::Bool => f.write_str("bool"),
-            TypeSpec::Array(inner) => write!(f, "[{}]", inner),
-            TypeSpec::Function(params, ret) => {
-                f.write_str("(")?;
-                for param in params {
-                    write!(f, "{}", param)?;
-                }
-                write!(f, ") -> {}", ret)
-            }
-        }
-    }
-}
-impl FromStr for TypeSpec {
-    type Err = ();
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(match s {
-            "int" => TypeSpec::Int,
-            "bool" => TypeSpec::Bool,
-            _ => return Err(()),
-        })
-    }
-}
 #[derive(Debug)]
 pub struct Statement {
     pub span: Span,

@@ -1,4 +1,4 @@
-use crate::parser::syntax_tree::*;
+use crate::ast::{untyped::*, TypeSpec};
 
 use super::error::*;
 

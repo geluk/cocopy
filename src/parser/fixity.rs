@@ -1,7 +1,7 @@
 //! Operator associativity and precedence.
 use std::cmp::Ordering;
 
-use super::syntax_tree::{BinOp, TerOp, UnOp};
+use crate::ast::untyped::{BinOp, TerOp, UnOp};
 
 /// An N-ary operator, with N > 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

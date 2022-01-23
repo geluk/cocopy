@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
-use crate::{builtins, parser::syntax_tree::*};
+use crate::{
+    ast::{untyped::*, TypeSpec},
+    builtins,
+};
 
 use super::{bin_op_checker::BinOpChecker, error::*};
 

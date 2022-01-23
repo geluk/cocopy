@@ -7,9 +7,11 @@
 use std::{env, fs, iter};
 
 use anyhow::Result;
-use error::{CompileError, CompileErrors};
-use parser::syntax_tree::Program;
 
+use ast::untyped::Program;
+use error::{CompileError, CompileErrors};
+
+mod ast;
 mod builtins;
 mod codegen;
 mod error;

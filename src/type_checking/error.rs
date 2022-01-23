@@ -1,8 +1,11 @@
 use thiserror::Error;
 
 use crate::{
+    ast::{
+        untyped::{BinOp, UnOp},
+        TypeSpec,
+    },
     error::CompileError,
-    parser::syntax_tree::{BinOp, TypeSpec, UnOp},
     span::Span,
 };
 

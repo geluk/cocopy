@@ -1,5 +1,6 @@
 //! High-level parsing functions for building an AST.
 use crate::{
+    ast::{untyped::*, TypeSpec},
     lexer::tokens::{Keyword, Structure, Symbol, Token, TokenKind},
     span::Bytes,
 };
@@ -9,7 +10,6 @@ use super::{
     error::*,
     fixity::{Fixity, NAryOp},
     parser_base::*,
-    syntax_tree::*,
 };
 
 pub fn parse(token_stream: &[Token]) -> Result<Program, ParseError> {
