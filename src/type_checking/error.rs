@@ -48,6 +48,8 @@ pub enum TypeErrorKind {
     AssignNoneToPrimitive(TypeSpec),
     #[error("cannot assign expression of type '{1}' to a variable of type '{0}'")]
     Assign(TypeSpec, TypeSpec),
+    #[error("type '{0}' is not a function")]
+    NotCallable(TypeSpec),
 }
 
 pub trait AddSpan {

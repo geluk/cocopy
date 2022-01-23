@@ -10,6 +10,7 @@ use anyhow::Result;
 use error::{CompileError, CompileErrors};
 use parser::syntax_tree::Program;
 
+mod builtins;
 mod codegen;
 mod error;
 mod il;

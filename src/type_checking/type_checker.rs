@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::parser::syntax_tree::*;
+use crate::{builtins, parser::syntax_tree::*};
 
 use super::{bin_op_checker::BinOpChecker, error::*};
 
@@ -22,7 +22,7 @@ struct TypeChecker<'a> {
 impl<'a> TypeChecker<'a> {
     fn new(program: &'a Program) -> Self {
         Self {
-            global_environment: Default::default(),
+            global_environment: Environment::global(),
             program,
         }
     }
@@ -177,11 +177,16 @@ impl<'a> TypeChecker<'a> {
     }
 }
 
-#[derive(Default)]
 pub struct Environment {
     type_map: HashMap<String, TypeSpec>,
 }
 impl Environment {
+    pub fn global() -> Self {
+        Self {
+            type_map: builtins::get_types(),
+        }
+    }
+
     pub fn set_type(&mut self, name: String, type_spec: TypeSpec) {
         self.type_map.insert(name, type_spec);
     }
@@ -250,11 +255,11 @@ mod tests {
                 errors
             );
             assert_eq!(
-                res[0].kind(),
                 &$expected_err,
+                res[0].kind(),
                 "\n\nExpected to find this type error:\n\t{}\n\nbut found:\n\t{}\n\n",
-                res[0].kind(),
                 &$expected_err,
+                res[0].kind(),
             );
         }};
     }
@@ -305,5 +310,11 @@ c = (a + a) * b
             "a : int = None",
             TypeErrorKind::AssignNoneToPrimitive(TypeSpec::Bool)
         );
+    }
+
+    /// ChocoPy reference: 5.2
+    #[test]
+    fn int_is_not_a_function() {
+        assert_type_error!("10(True)", TypeErrorKind::NotCallable(TypeSpec::Int));
     }
 }

@@ -82,6 +82,7 @@ pub enum TypeSpec {
     Int,
     Bool,
     Array(Box<TypeSpec>),
+    Function(Vec<TypeSpec>, Box<TypeSpec>),
 }
 impl Display for TypeSpec {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -90,6 +91,13 @@ impl Display for TypeSpec {
             TypeSpec::Int => f.write_str("int"),
             TypeSpec::Bool => f.write_str("bool"),
             TypeSpec::Array(inner) => write!(f, "[{}]", inner),
+            TypeSpec::Function(params, ret) => {
+                f.write_str("(")?;
+                for param in params {
+                    write!(f, "{}", param)?;
+                }
+                write!(f, ") -> {}", ret)
+            }
         }
     }
 }
