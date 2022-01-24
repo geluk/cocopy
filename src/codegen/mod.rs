@@ -12,7 +12,10 @@ use std::{
 
 use anyhow::{bail, Result};
 
-use crate::{ext::TryDecode, il::Instruction};
+use crate::{
+    ext::{DiscardOk, TryDecode, VerifySuccess},
+    il::Instruction,
+};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Os {
@@ -70,19 +73,19 @@ fn generate_assembly<P: AsRef<Path>>(prog: Vec<Instruction>, asm_path: P, os: Os
 
 fn assemble<P: AsRef<Path>>(asm_path: P, obj_path: P, os: Os) -> Result<()> {
     let asm_path = asm_path.try_decode()?;
+    let obj_path = obj_path.try_decode()?;
 
     let format = match os {
         Os::Windows => "win64",
         Os::Linux => "elf64",
     };
     let output = Command::new("./lib/nasm-2.15.05/nasm.exe")
-        .args(["-f", format, "-o", asm_path])
+        .args(["-f", format, "-o", obj_path, asm_path])
         .output()?;
 
-    println!("{}", String::from_utf8(output.stdout)?);
-    println!("{}", String::from_utf8(output.stderr)?);
-
-    Ok(())
+    output
+        .verify_success("Failed to assemble the program")
+        .discard_ok()
 }
 
 fn link<P: AsRef<Path>>(assembly: P, executable: P, os: Os) -> Result<()> {

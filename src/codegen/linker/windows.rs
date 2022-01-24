@@ -1,11 +1,8 @@
-use std::{
-    path::Path,
-    process::{Command, Output},
-};
+use std::{path::Path, process::Command};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 
-use crate::ext::{DiscardOk, TryDecode};
+use crate::ext::{DiscardOk, TryDecode, VerifySuccess};
 
 use super::Linker;
 
@@ -52,23 +49,5 @@ impl Linker for WindowsLinker {
         output
             .verify_success("Failed to execute linker")
             .discard_ok()
-    }
-}
-
-trait VerifySuccess {
-    fn verify_success(self, error_msg: &'static str) -> Result<(String, String)>;
-}
-impl VerifySuccess for Output {
-    fn verify_success(self, error_msg: &'static str) -> Result<(String, String)> {
-        let stdout = String::from_utf8(self.stdout)?;
-        let stderr = String::from_utf8(self.stderr)?;
-
-        if self.status.success() {
-            Ok((stdout, stderr))
-        } else {
-            eprintln!("STDOUT:\n======\n{}", stdout);
-            eprintln!("STDERR:\n======\n{}", stderr);
-            Err(anyhow!("Command exited with a non-zeor status code").context(error_msg))
-        }
     }
 }

@@ -68,8 +68,18 @@ pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
 
 pub fn run_backend(program: Program) -> Result<()> {
     let il = il::generate(program);
+
     println!("\n======================");
     println!("IL generation finished");
+    println!("======================\n");
+    for instr in &il {
+        println!("{}", instr);
+    }
+
+    let il = il::optimise(il);
+
+    println!("\n======================");
+    println!("IL optimisation finished");
     println!("======================\n");
     for instr in &il {
         println!("{}", instr);
