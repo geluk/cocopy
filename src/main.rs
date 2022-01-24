@@ -15,6 +15,7 @@ mod ast;
 mod builtins;
 mod codegen;
 mod error;
+mod ext;
 mod il;
 mod lexer;
 mod parser;

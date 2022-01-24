@@ -1,5 +1,6 @@
 //! Target code generation.
 mod amd64;
+mod linker;
 #[allow(dead_code)]
 mod llvm;
 
@@ -11,10 +12,10 @@ use std::{
 
 use anyhow::{bail, Result};
 
-use crate::il::Instruction;
+use crate::{ext::TryDecode, il::Instruction};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-enum Os {
+pub enum Os {
     Windows,
     Linux,
 }
@@ -29,11 +30,17 @@ pub fn generate_native<P: AsRef<Path>>(prog: Vec<Instruction>, out_dir: P) -> Re
 
     clean_artifacts_dir(&out_dir)?;
 
-    let mut asm_path = out_dir;
+    let mut asm_path = out_dir.clone();
     asm_path.push("out.asm");
+    let mut obj_path = out_dir.clone();
+    obj_path.push("out.obj");
+    let mut exe_path = out_dir;
+    exe_path.push("out.exe");
 
     generate_assembly(prog, &asm_path, os)?;
-    assemble(&asm_path, os)?;
+    assemble(&asm_path, &obj_path, os)?;
+
+    link(&obj_path, &exe_path, os)?;
 
     Ok(())
 }
@@ -46,6 +53,12 @@ fn determine_os() -> Result<Os> {
     })
 }
 
+fn clean_artifacts_dir<P: AsRef<Path>>(dir: P) -> Result<()> {
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir(dir)?;
+    Ok(())
+}
+
 fn generate_assembly<P: AsRef<Path>>(prog: Vec<Instruction>, asm_path: P, os: Os) -> Result<()> {
     let assembly = match os {
         Os::Linux => amd64::linux::compile(prog),
@@ -55,15 +68,15 @@ fn generate_assembly<P: AsRef<Path>>(prog: Vec<Instruction>, asm_path: P, os: Os
     Ok(())
 }
 
-fn assemble<P: AsRef<Path>>(assembly: P, os: Os) -> Result<()> {
-    let asm_name = assembly.as_ref().to_str().unwrap();
+fn assemble<P: AsRef<Path>>(asm_path: P, obj_path: P, os: Os) -> Result<()> {
+    let asm_path = asm_path.try_decode()?;
 
     let format = match os {
         Os::Windows => "win64",
         Os::Linux => "elf64",
     };
     let output = Command::new("./lib/nasm-2.15.05/nasm.exe")
-        .args(["-f", format, asm_name])
+        .args(["-f", format, "-o", asm_path])
         .output()?;
 
     println!("{}", String::from_utf8(output.stdout)?);
@@ -72,8 +85,6 @@ fn assemble<P: AsRef<Path>>(assembly: P, os: Os) -> Result<()> {
     Ok(())
 }
 
-fn clean_artifacts_dir<P: AsRef<Path>>(dir: P) -> Result<()> {
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir(dir)?;
-    Ok(())
+fn link<P: AsRef<Path>>(assembly: P, executable: P, os: Os) -> Result<()> {
+    linker::link_object(os, assembly, executable)
 }
