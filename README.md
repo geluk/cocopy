@@ -16,11 +16,11 @@ Specify the source file as the first argument:
 ./target/release/cocopy ./examples/simple_add_program.py
 ```
 
-This generates an `out.obj` file, assembled for your platform.
-Use a linker to link this file into an executable.
+This generates an `out.exe` file on Windows, assuming you have a Visual Studio 2022 installation
+with `link.exe`. Otherwise, you may need tweak and run `build_win64.ps1` instead, which will
+manually link `out.obj` into an executable.
 
-On Linux, you can use `gcc`.
-on Windows, you can use `link.exe`, using the `build_win64.ps1` script.
+On Linux, you must link `out.obj` into an executable yourself. You can use `gcc` for this.
 
 
 # General structure
