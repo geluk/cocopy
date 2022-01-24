@@ -28,8 +28,8 @@ pub enum Name {
     Temp(String),
 }
 impl Name {
-    pub fn for_id(id: &str) -> Self {
-        Self::Name(id.to_string())
+    pub fn for_id(id: String) -> Self {
+        Self::Name(id)
     }
 }
 impl Display for Name {

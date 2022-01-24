@@ -2,7 +2,7 @@ use crate::ast::untyped::*;
 
 use super::{name_generator::*, tac::*};
 
-pub fn generate(program: &Program) -> Vec<Instruction> {
+pub fn generate(program: Program) -> Vec<Instruction> {
     Tac::generate(program)
 }
 
@@ -11,32 +11,32 @@ struct Tac {
     name_generator: NameGenerator,
 }
 impl Tac {
-    fn generate(program: &Program) -> Vec<Instruction> {
+    fn generate(program: Program) -> Vec<Instruction> {
         let mut tac = Self {
             instructions: vec![],
             name_generator: NameGenerator::new(),
         };
 
-        for var_def in &program.var_defs {
+        for var_def in program.var_defs {
             tac.lower_var_def(var_def);
         }
 
-        for stmt in &program.statements {
+        for stmt in program.statements {
             tac.lower_stmt(stmt);
         }
 
         tac.instructions
     }
 
-    fn lower_var_def(&mut self, var_def: &VarDef) {
+    fn lower_var_def(&mut self, var_def: VarDef) {
         self.emit(Instruction::Assign(
-            Name::for_id(&var_def.name),
-            self.lower_literal(var_def.value.clone()),
+            Name::for_id(var_def.name),
+            self.lower_literal(var_def.value),
         ));
     }
 
-    fn lower_stmt(&mut self, stmt: &Statement) {
-        match &stmt.stmt_kind {
+    fn lower_stmt(&mut self, stmt: Statement) {
+        match stmt.stmt_kind {
             StmtKind::Pass => (),
             StmtKind::Evaluate(expr) => {
                 self.lower_expr(expr);
@@ -46,22 +46,22 @@ impl Tac {
         };
     }
 
-    fn lower_assign(&mut self, assign: &Assign) {
-        let result = self.lower_expr(&assign.value);
+    fn lower_assign(&mut self, assign: Assign) {
+        let result = self.lower_expr(assign.value);
 
-        if let ExprKind::Identifier(tgt) = &assign.target.expr_type {
+        if let ExprKind::Identifier(tgt) = assign.target.expr_type {
             self.emit(Instruction::Assign(Name::for_id(tgt), result));
         } else {
             todo!();
         }
     }
 
-    fn lower_expr(&mut self, expr: &Expr) -> Value {
-        match &expr.expr_type {
-            ExprKind::Literal(lit) => self.lower_literal(lit.clone()),
+    fn lower_expr(&mut self, expr: Expr) -> Value {
+        match expr.expr_type {
+            ExprKind::Literal(lit) => self.lower_literal(lit),
             ExprKind::Identifier(id) => Value::Name(Name::for_id(id)),
             ExprKind::Unary(_) => todo!(),
-            ExprKind::Binary(bin) => self.lower_binexpr(bin),
+            ExprKind::Binary(bin) => self.lower_binexpr(*bin),
             ExprKind::Ternary(_) => todo!(),
         }
     }
@@ -74,9 +74,9 @@ impl Tac {
         }
     }
 
-    fn lower_binexpr(&mut self, expr: &BinExpr) -> Value {
-        let lhs = self.lower_expr(&expr.lhs);
-        let rhs = self.lower_expr(&expr.rhs);
+    fn lower_binexpr(&mut self, expr: BinExpr) -> Value {
+        let lhs = self.lower_expr(expr.lhs);
+        let rhs = self.lower_expr(expr.rhs);
 
         let temp_name = self.name_generator.next();
 
@@ -101,7 +101,7 @@ mod tests {
         ($source:expr, $il:expr) => {{
             let tokens = lex($source).unwrap();
             let program = parse(&tokens).unwrap();
-            let instrs = Tac::generate(&program);
+            let instrs = Tac::generate(program);
 
             let instr_lines: Vec<_> = instrs.iter().map(|i| i.to_string()).collect();
 
