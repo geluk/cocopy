@@ -29,10 +29,7 @@ impl Tac {
     }
 
     fn lower_var_def(&mut self, var_def: VarDef) {
-        self.emit(Instruction::Assign(
-            Name::for_id(var_def.name),
-            self.lower_literal(var_def.value),
-        ));
+        self.emit_assign(var_def.name, self.lower_literal(var_def.value));
     }
 
     fn lower_stmt(&mut self, stmt: Statement) {
@@ -50,16 +47,16 @@ impl Tac {
         let result = self.lower_expr(assign.value);
 
         if let ExprKind::Identifier(tgt) = assign.target.expr_type {
-            self.emit(Instruction::Assign(Name::for_id(tgt), result));
+            self.emit_assign(tgt, result);
         } else {
-            todo!();
+            todo!("Implement member assignment");
         }
     }
 
     fn lower_expr(&mut self, expr: Expr) -> Value {
         match expr.expr_type {
             ExprKind::Literal(lit) => self.lower_literal(lit),
-            ExprKind::Identifier(id) => Value::Name(Name::for_id(id)),
+            ExprKind::Identifier(id) => Value::Name(self.name_generator.last_subscript(id)),
             ExprKind::Unary(_) => todo!(),
             ExprKind::Binary(bin) => self.lower_binexpr(*bin),
             ExprKind::Ternary(_) => todo!(),
@@ -78,11 +75,16 @@ impl Tac {
         let lhs = self.lower_expr(expr.lhs);
         let rhs = self.lower_expr(expr.rhs);
 
-        let temp_name = self.name_generator.next();
+        let temp_name = self.name_generator.next_temp();
 
         self.emit(Instruction::Bin(temp_name.clone(), expr.op, lhs, rhs));
 
         Value::Name(temp_name)
+    }
+
+    fn emit_assign(&mut self, id: String, value: Value) {
+        let name = self.name_generator.next_subscript(id);
+        self.emit(Instruction::Assign(name, value));
     }
 
     /// Emit an instruction, adding it to the block.
@@ -110,10 +112,10 @@ mod tests {
     }
 
     #[test]
-    fn simple_program() {
+    fn simple_program_generates_tac() {
         assert_generates!(
             "a:int = 10\na = a + (100 + 1)",
-            vec!["a = 10", "%t1 = 100 + 1", "%t2 = a + %t1", "a = %t2",]
+            vec!["a^1 = 10", "%t1 = 100 + 1", "%t2 = a^1 + %t1", "a^2 = %t2",]
         )
     }
 }

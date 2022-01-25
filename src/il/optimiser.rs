@@ -89,7 +89,7 @@ mod tests {
 x : int = 0
 y: int = 10
 x = y + y "#,
-            vec!["y = 10", "%t1 = y + y"]
+            vec!["y^1 = 10", "%t1 = y^1 + y^1"]
         )
     }
 }

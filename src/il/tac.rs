@@ -24,18 +24,13 @@ impl Display for Instruction {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Name {
-    Name(String),
+    Sub(String, usize),
     Temp(String),
-}
-impl Name {
-    pub fn for_id(id: String) -> Self {
-        Self::Name(id)
-    }
 }
 impl Display for Name {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Name::Name(name) => write!(f, "{}", name),
+            Name::Sub(name, sub) => write!(f, "{}^{}", name, sub),
             Name::Temp(temp) => write!(f, "%{}", temp),
         }
     }

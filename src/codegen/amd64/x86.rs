@@ -62,9 +62,9 @@ pub enum Op {
     Mov,
     Lea,
     // Arithmetic
+    Add,
     Sub,
     Imul,
-    Add,
     // Bitwise operations
     Xor,
 }
@@ -77,9 +77,9 @@ impl Display for Op {
             Op::Ret => f.write_str("ret"),
             Op::Mov => f.write_str("mov"),
             Op::Lea => f.write_str("lea"),
+            Op::Add => f.write_str("add"),
             Op::Sub => f.write_str("sub"),
             Op::Imul => f.write_str("imul"),
-            Op::Add => f.write_str("add"),
             Op::Xor => f.write_str("xor"),
         }
     }
