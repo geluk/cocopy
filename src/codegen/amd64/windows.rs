@@ -12,7 +12,7 @@ use Op::*;
 use Operand::*;
 use Register::*;
 
-pub fn compile(prog: Vec<Instruction>) -> Assembly {
+pub fn compile(prog: TacListing) -> Assembly {
     use Decl::*;
     let mut asm = make_assembly();
 
@@ -47,10 +47,10 @@ pub fn compile(prog: Vec<Instruction>) -> Assembly {
     asm
 }
 
-fn compile_tac(prog: Vec<Instruction>, proc: &mut Procedure) {
+fn compile_tac(prog: TacListing, proc: &mut Procedure) {
     let mut allocator = RegisterAllocator::new();
     let mut final_tgt = None;
-    for instr in prog {
+    for instr in prog.into_vec().into_iter() {
         let comment = instr.to_string();
         match instr {
             Instruction::Assign(tgt, value) => {

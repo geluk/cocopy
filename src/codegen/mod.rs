@@ -14,7 +14,7 @@ use anyhow::{bail, Result};
 
 use crate::{
     ext::{DiscardOk, TryDecode, VerifySuccess},
-    il::Instruction,
+    il::TacListing,
 };
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -26,7 +26,7 @@ pub enum Os {
 #[allow(dead_code)]
 pub fn generate_llvm() {}
 
-pub fn generate_native<P: AsRef<Path>>(prog: Vec<Instruction>, out_dir: P) -> Result<()> {
+pub fn generate_native<P: AsRef<Path>>(prog: TacListing, out_dir: P) -> Result<()> {
     let out_dir = PathBuf::from(out_dir.as_ref());
 
     let os = determine_os()?;
@@ -62,7 +62,7 @@ fn clean_artifacts_dir<P: AsRef<Path>>(dir: P) -> Result<()> {
     Ok(())
 }
 
-fn generate_assembly<P: AsRef<Path>>(prog: Vec<Instruction>, asm_path: P, os: Os) -> Result<()> {
+fn generate_assembly<P: AsRef<Path>>(prog: TacListing, asm_path: P, os: Os) -> Result<()> {
     let assembly = match os {
         Os::Linux => amd64::linux::compile(prog),
         Os::Windows => amd64::windows::compile(prog),

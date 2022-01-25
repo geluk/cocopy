@@ -2,18 +2,18 @@ use crate::ast::untyped::*;
 
 use super::{name_generator::*, tac::*};
 
-pub fn generate(program: Program) -> Vec<Instruction> {
+pub fn generate(program: Program) -> TacListing {
     Tac::generate(program)
 }
 
 struct Tac {
-    instructions: Vec<Instruction>,
+    listing: TacListing,
     name_generator: NameGenerator,
 }
 impl Tac {
-    fn generate(program: Program) -> Vec<Instruction> {
+    fn generate(program: Program) -> TacListing {
         let mut tac = Self {
-            instructions: vec![],
+            listing: TacListing::new(),
             name_generator: NameGenerator::new(),
         };
 
@@ -25,7 +25,7 @@ impl Tac {
             tac.lower_stmt(stmt);
         }
 
-        tac.instructions
+        tac.listing
     }
 
     fn lower_var_def(&mut self, var_def: VarDef) {
@@ -87,9 +87,9 @@ impl Tac {
         self.emit(Instruction::Assign(name, value));
     }
 
-    /// Emit an instruction, adding it to the block.
+    /// Emit an instruction, adding it to the listing.
     fn emit(&mut self, instr: Instruction) {
-        self.instructions.push(instr);
+        self.listing.push(instr);
     }
 }
 
@@ -105,7 +105,7 @@ mod tests {
             let program = parse(&tokens).unwrap();
             let instrs = Tac::generate(program);
 
-            let instr_lines: Vec<_> = instrs.iter().map(|i| i.to_string()).collect();
+            let instr_lines: Vec<_> = instrs.into_vec().iter().map(|i| i.to_string()).collect();
 
             assert_eq!($il, instr_lines)
         }};

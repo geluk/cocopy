@@ -1,58 +1,91 @@
-use super::{Instruction, Name, Value};
+use std::collections::HashMap;
 
-pub fn optimise(instructions: Vec<Instruction>) -> Vec<Instruction> {
-    let mut optimiser = Optimiser::new(instructions);
+use super::{Instruction, TacListing, Value};
+
+pub fn optimise(listing: TacListing) -> TacListing {
+    let mut optimiser = Optimiser::new(listing);
     optimiser.optimise();
-    optimiser.instructions
+    optimiser.listing
 }
 
 struct Optimiser {
-    instructions: Vec<Instruction>,
+    listing: TacListing,
 }
 impl Optimiser {
-    pub fn new(instructions: Vec<Instruction>) -> Self {
-        Self { instructions }
+    pub fn new(listing: TacListing) -> Self {
+        Self { listing }
     }
 
     pub fn optimise(&mut self) {
-        let unused_indexes: Vec<_> = self
-            .instructions
-            .iter()
-            .enumerate()
-            .filter_map(|(ix, is)| self.filter_unused_assign(ix, is))
+        self.remove_unused_assignments();
+        self.merge_assign();
+    }
+
+    /// Remove assignments to names that are never read.
+    /// Optimises:
+    /// ```
+    /// a^1 = 10
+    /// a^2 = 20
+    /// b^1 = a^2 * 2
+    /// ```
+    /// To:
+    /// ```
+    /// a^2 = 20
+    /// b^1 = a^2 * 2
+    /// ```
+    fn remove_unused_assignments(&mut self) {
+        let candidates = self
+            .listing
+            .iter_lines()
+            .filter_map(|(line, instr)| {
+                if let Instruction::Assign(target, _) = instr {
+                    if !self.listing.is_used_after(target, line) {
+                        return Some(line);
+                    }
+                }
+                None
+            })
             .collect();
 
-        for idx in unused_indexes.into_iter().rev() {
-            self.instructions.remove(idx);
-        }
+        self.remove_lines(candidates);
     }
 
-    fn filter_unused_assign(&self, index: usize, instr: &Instruction) -> Option<usize> {
-        if let Instruction::Assign(target, _) = instr {
-            if !self.is_used_after(target, index) {
-                return Some(index);
+    /// Remove single assignments, and replace all occurrences
+    /// of those names with their constant.
+    fn merge_assign(&mut self) {
+        let mut replacements = HashMap::new();
+
+        let const_assignments = self
+            .listing
+            .iter_lines()
+            .filter_map(|(line, instr)| match instr {
+                Instruction::Assign(name, value) => {
+                    replacements.insert(name.clone(), value.clone());
+                    Some(line)
+                }
+                _ => None,
+            })
+            .collect();
+
+        for instr in self.listing.iter_mut() {
+            if let Some(name) = replacements
+                .keys()
+                .filter(|name| instr.reads_from_name(name))
+                .next()
+            {
+                let replacement = replacements.get(name).cloned().unwrap();
+                instr.replace(&Value::Name(name.clone()), replacement);
             }
         }
-        None
+
+        self.remove_lines(const_assignments);
     }
 
-    fn is_used_after(&self, name: &Name, index: usize) -> bool {
-        if index >= self.instructions.len() {
-            return false;
-        }
-
-        self.instructions[index..].iter().any(|instr| match instr {
-            Instruction::Assign(_, value) => Self::is_usage_of(name, value),
-            Instruction::Bin(_, _, lhs, rhs) => {
-                Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
-            }
-        })
-    }
-
-    fn is_usage_of(name: &Name, value: &Value) -> bool {
-        match value {
-            Value::Name(n) => name == n,
-            Value::Const(_) => false,
+    fn remove_lines(&mut self, mut lines: Vec<usize>) {
+        lines.sort_unstable();
+        lines.reverse();
+        for line in lines.into_iter() {
+            self.listing.remove(line);
         }
     }
 }
@@ -69,6 +102,7 @@ mod tests {
             let ast = parse(&tokens).unwrap();
             let tac = generate(ast);
             let tac = optimise(tac)
+                .into_vec()
                 .iter()
                 .map(ToString::to_string)
                 .collect::<Vec<_>>();
@@ -89,7 +123,7 @@ mod tests {
 x : int = 0
 y: int = 10
 x = y + y "#,
-            vec!["y^1 = 10", "%t1 = y^1 + y^1"]
+            vec!["%t1 = 10 + 10"]
         )
     }
 }

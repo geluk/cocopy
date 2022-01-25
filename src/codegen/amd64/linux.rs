@@ -1,6 +1,6 @@
 //! Native code generation for 64-bit Linux.
 
-use crate::il::Instruction;
+use crate::il::TacListing;
 
 use super::assembly::*;
 use super::x86::*;
@@ -9,7 +9,7 @@ use Op::*;
 use Operand::*;
 use Register::*;
 
-pub fn compile(_prog: Vec<Instruction>) -> Assembly {
+pub fn compile(_prog: TacListing) -> Assembly {
     default()
 }
 
