@@ -1,6 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, iter::Enumerate, slice::Iter};
 
-use super::{Instruction, TacListing, Value};
+use super::{Instruction, MatchInstruction, TacListing, Value};
 
 pub fn optimise(listing: TacListing) -> TacListing {
     let mut optimiser = Optimiser::new(listing);
@@ -35,37 +35,36 @@ impl Optimiser {
     /// ```
     fn remove_unused_assignments(&mut self) {
         let candidates = self
-            .listing
             .iter_lines()
-            .filter_map(|(line, instr)| {
-                if let Instruction::Assign(target, _) = instr {
-                    if !self.listing.is_used_after(target, line) {
-                        return Some(line);
-                    }
-                }
-                None
-            })
+            .match_instruction(Instruction::as_assign)
+            .filter(|(line, (name, _))| !self.listing.is_used_after(name, *line))
+            .map(|(line, _)| line)
             .collect();
 
         self.remove_lines(candidates);
     }
 
-    /// Remove single assignments, and replace all occurrences
-    /// of those names with their constant.
+    /// Looks for single assignments (`x` = `y`), replaces all occurrences
+    /// of `x` with `y` and deletes the original assignment instruction.
+    /// ```
+    /// a^1 = 10
+    /// b^1 = a^1 * 2
+    /// %t1 = b^1
+    /// %t2 = %t1 + a^1
+    /// ```
+    /// To:
+    /// ```
+    /// b^1 = 10 * 2
+    /// %t2 = b^1 + 10
+    /// ```
     fn merge_assign(&mut self) {
         let mut replacements = HashMap::new();
 
-        let const_assignments = self
-            .listing
-            .iter_lines()
-            .filter_map(|(line, instr)| match instr {
-                Instruction::Assign(name, value) => {
-                    replacements.insert(name.clone(), value.clone());
-                    Some(line)
-                }
-                _ => None,
-            })
-            .collect();
+        let mut assignments = vec![];
+        for (line, (name, value)) in self.iter_lines().match_instruction(Instruction::as_assign) {
+            replacements.insert(name.clone(), value.clone());
+            assignments.push(line);
+        }
 
         for instr in self.listing.iter_mut() {
             if let Some(name) = replacements
@@ -78,7 +77,11 @@ impl Optimiser {
             }
         }
 
-        self.remove_lines(const_assignments);
+        self.remove_lines(assignments);
+    }
+
+    fn iter_lines(&self) -> Enumerate<Iter<Instruction>> {
+        self.listing.iter_lines()
     }
 
     fn remove_lines(&mut self, mut lines: Vec<usize>) {

@@ -90,6 +90,13 @@ impl Instruction {
         }
     }
 
+    pub fn as_assign(&self) -> Option<(&Name, &Value)> {
+        match self {
+            Instruction::Assign(name, value) => Some((name, value)),
+            _ => None,
+        }
+    }
+
     fn is_usage_of(name: &Name, value: &Value) -> bool {
         match value {
             Value::Name(n) => name == n,
@@ -153,6 +160,43 @@ impl Display for Value {
         match self {
             Value::Const(lit) => write!(f, "{}", lit),
             Value::Name(name) => write!(f, "{}", name),
+        }
+    }
+}
+
+pub struct LineNumberIter<I, F> {
+    iter: I,
+    f: F,
+}
+impl<A, B, I, F> Iterator for LineNumberIter<I, F>
+where
+    I: Iterator<Item = (usize, A)>,
+    F: FnMut(A) -> Option<B>,
+{
+    type Item = (usize, B);
+
+    fn next(&mut self) -> Option<(usize, B)> {
+        self.iter
+            .find_map(|(line, a)| (self.f)(a).map(|x| (line, x)))
+    }
+}
+
+pub trait MatchInstruction<A, I> {
+    fn match_instruction<P, B>(self, pred: P) -> LineNumberIter<I, P>
+    where
+        P: Fn(A) -> Option<B>;
+}
+impl<'a, I> MatchInstruction<&'a Instruction, I> for I
+where
+    I: Iterator<Item = (usize, &'a Instruction)>,
+{
+    fn match_instruction<P, B>(self, pred: P) -> LineNumberIter<I, P>
+    where
+        P: Fn(&'a Instruction) -> Option<B>,
+    {
+        LineNumberIter {
+            iter: self,
+            f: pred,
         }
     }
 }
