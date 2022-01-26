@@ -4,12 +4,9 @@ use crate::il::Name;
 
 use super::x86::Register;
 
-type Lifetime = (usize, usize);
-
 pub struct RegisterAllocator {
     iterator: Iter<'static, Register>,
     allocations: HashMap<Name, Register>,
-    // lifetimes: HashMap<Name, Lifetime>,
 }
 
 impl RegisterAllocator {

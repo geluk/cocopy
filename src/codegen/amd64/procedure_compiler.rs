@@ -1,5 +1,6 @@
 use crate::{
     ast::untyped::BinOp,
+    builtins::Builtin,
     codegen::amd64::x86::{Op, Register},
     il::*,
 };
@@ -8,24 +9,27 @@ use super::{assembly::*, register_allocator::RegisterAllocator};
 
 use Op::*;
 use Operand::*;
+use Register::*;
 
 pub struct ProcedureCompiler {
     allocator: RegisterAllocator,
     procedure: Procedure,
+    param_stack: Vec<Operand>,
 }
 
 impl ProcedureCompiler {
-    pub fn compile(listing: TacListing, procedure: Procedure) -> (Procedure, Option<Register>) {
+    pub fn compile(listing: TacListing, procedure: Procedure) -> Procedure {
         let mut compiler = Self {
             allocator: RegisterAllocator::new(),
             procedure,
+            param_stack: vec![],
         };
-        let oper = compiler.compile_tac(listing);
+        compiler.compile_tac(listing);
 
-        (compiler.procedure, oper)
+        compiler.procedure
     }
 
-    pub fn compile_tac(&mut self, listing: TacListing) -> Option<Register> {
+    pub fn compile_tac(&mut self, listing: TacListing) {
         let mut final_tgt = None;
         for (_, instr) in listing.iter_lines() {
             let oper = self.compile_instr(instr);
@@ -33,10 +37,9 @@ impl ProcedureCompiler {
             // and free those whose value will no longer be used.
             final_tgt.replace(oper);
         }
-        final_tgt
     }
 
-    fn compile_instr(&mut self, instr: &Instruction) -> Register {
+    fn compile_instr(&mut self, instr: &Instruction) {
         let comment = instr.to_string();
         match instr {
             Instruction::Assign(tgt, value) => {
@@ -45,28 +48,21 @@ impl ProcedureCompiler {
             Instruction::Bin(tgt, op, left, right) => {
                 self.compile_bin(tgt.clone(), *op, left.clone(), right.clone(), comment)
             }
+            Instruction::Param(param) => self.compile_param(param.clone()),
+            Instruction::Call(tgt, name, params) => self.compile_call(tgt.clone(), *name, *params),
         }
     }
 
-    fn compile_assign(&mut self, target: Name, value: Value, comment: String) -> Register {
+    fn compile_assign(&mut self, target: Name, value: Value, comment: String) {
         let target = self.allocator.lookup(target);
         let value = self.get_operand(value);
 
         self.procedure
             .body
             .push_cmt(Mov, vec![Reg(target), value], comment);
-
-        target
     }
 
-    fn compile_bin(
-        &mut self,
-        tgt: Name,
-        op: BinOp,
-        left: Value,
-        right: Value,
-        comment: String,
-    ) -> Register {
+    fn compile_bin(&mut self, tgt: Name, op: BinOp, left: Value, right: Value, comment: String) {
         let target = self.allocator.lookup(tgt);
         let op = translate_binop(op);
         let left = self.get_operand(left);
@@ -78,7 +74,38 @@ impl ProcedureCompiler {
         self.procedure
             .body
             .push_cmt(op, vec![Reg(target), right], format!("<apply> {}", comment));
-        target
+    }
+
+    fn compile_call(&mut self, tgt: Name, name: Builtin, params: usize) {
+        let tgt = self.allocator.lookup(tgt);
+
+        if params > 4 {
+            todo!("Can't deal with more than 4 parameters yet.");
+        }
+        let target_regs = [RCX, RDX, R8, R9];
+        for (idx, &reg) in target_regs[0..params].iter().enumerate() {
+            let value = self.param_stack.pop().expect("Parameter count mismatch!");
+            self.procedure.body.push_cmt(
+                Mov,
+                vec![Reg(reg), value],
+                format!("set parameter #{}", idx + 1),
+            );
+        }
+
+        let name = match name {
+            Builtin::Print => "print",
+        };
+
+        self.procedure
+            .body
+            .push_cmt(Call, vec![Id(name)], "call print")
+            .push_cmt(Mov, vec![Reg(tgt), Reg(RAX)], "store return value");
+    }
+
+    fn compile_param(&mut self, param: Value) {
+        let param = self.get_operand(param);
+
+        self.param_stack.push(param);
     }
 
     fn get_operand(&mut self, value: Value) -> Operand {
@@ -128,7 +155,7 @@ mod tests {
         ($instr:expr) => {{
             let listing = listing!($instr);
             let proc = Procedure::new("main", Block::new(), Block::new());
-            let (proc, _) = ProcedureCompiler::compile(listing, proc);
+            let proc = ProcedureCompiler::compile(listing, proc);
             println!(
                 "Listing source:\n===============\n{}===============\n",
                 proc

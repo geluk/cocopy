@@ -71,6 +71,8 @@ impl Display for TacListing {
 pub enum Instruction {
     Assign(Name, Value),
     Bin(Name, BinOp, Value, Value),
+    Param(Value),
+    Call(Name, Builtin, usize),
 }
 impl Instruction {
     pub fn reads_from_name(&self, name: &Name) -> bool {
@@ -79,6 +81,8 @@ impl Instruction {
             Instruction::Bin(_, _, lhs, rhs) => {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
+            Instruction::Param(value) => Self::is_usage_of(name, value),
+            Instruction::Call(_, _, _) => false,
         }
     }
 
@@ -118,6 +122,10 @@ impl Display for Instruction {
             Instruction::Assign(target, value) => write!(f, "{} = {}", target, value),
             Instruction::Bin(target, op, lhs, rhs) => {
                 write!(f, "{} = {} {} {}", target, lhs, op, rhs)
+            }
+            Instruction::Param(p) => write!(f, "param {}", p),
+            Instruction::Call(name, tgt, params) => {
+                write!(f, "{} = call {}, {}", name, tgt, params)
             }
         }
     }

@@ -1,4 +1,4 @@
-use crate::ast::untyped::*;
+use crate::{ast::untyped::*, builtins::Builtin};
 
 use super::{name_generator::*, tac::*};
 
@@ -60,7 +60,7 @@ impl Tac {
             ExprKind::Member(_) => todo!(),
             ExprKind::Index(_) => todo!(),
             ExprKind::Unary(_) => todo!(),
-            ExprKind::FunctionCall(_) => todo!(),
+            ExprKind::FunctionCall(call) => self.lower_function_call(*call),
             ExprKind::MethodCall(_) => todo!(),
             ExprKind::Binary(bin) => self.lower_binexpr(*bin),
             ExprKind::Ternary(_) => todo!(),
@@ -81,6 +81,23 @@ impl Tac {
         } else {
             Value::Name(self.name_generator.last_subscript(id))
         }
+    }
+
+    fn lower_function_call(&mut self, call: FunCallExpr) -> Value {
+        let expr_value = self.lower_expr(call.params);
+
+        self.emit(Instruction::Param(expr_value));
+
+        let temp_name = self.name_generator.next_temp();
+        // TODO: allow calls to other types of functions here.
+        self.emit(Instruction::Call(
+            temp_name.clone(),
+            Builtin::Print,
+            // We'll need to know the function's type to determine the number of parameters.
+            1,
+        ));
+
+        Value::Name(temp_name)
     }
 
     fn lower_binexpr(&mut self, expr: BinExpr) -> Value {
@@ -129,5 +146,10 @@ mod tests {
             "a:int = 10\na = a + (100 + 1)",
             vec!["a^1 = 10", "%t1 = 100 + 1", "%t2 = a^1 + %t1", "a^2 = %t2",]
         )
+    }
+
+    #[test]
+    fn function_call_generates_param_and_call() {
+        assert_generates!("print(999)", vec!["param 999", "%t1 = call print, 1",])
     }
 }

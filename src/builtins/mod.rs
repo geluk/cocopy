@@ -17,7 +17,7 @@ pub fn get_type_map() -> HashMap<String, TypeSpec> {
     type_map
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Builtin {
     Print,
 }

@@ -204,7 +204,10 @@ main:
   - [x] Linking with `gcc` or `link.exe`
 - [ ] Convert intermediate code to assembly
   - [x] Integer arithmetic
+  - [x] Procedure calls
   - [ ] Boolean operations
+  - [ ] Array lookup
+  - [ ] Pointer dereference
   - [ ] Everything else
 - [ ] Register allocation
   - [x] Naive register allocation

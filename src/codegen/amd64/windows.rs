@@ -25,23 +25,7 @@ pub fn compile(prog: TacListing) -> Assembly {
         .push(Op::Call, vec![Id("_CRT_INIT")])
         .blank();
 
-    let (main, final_reg) = ProcedureCompiler::compile(prog, asm.text.main);
-    asm.text.main = main;
-
-    if let Some(tgt) = final_reg {
-        let body = &mut asm.text.main.body;
-        body.blank();
-        if tgt == RCX {
-            body.push_cmt(Push, vec![Reg(RCX)], "Preserve RCX");
-        }
-        body.push_cmt(Lea, vec![Reg(RCX), Id("[msg_i]")], "arg0: printf template");
-        if tgt == RCX {
-            body.push_cmt(Pop, vec![Reg(RDX)], "arg1: load preserved RCX");
-        } else {
-            body.push_cmt(Mov, vec![Reg(RDX), Reg(tgt)], "arg1: calculation outcome");
-        }
-        body.push_cmt(Call, vec![Id("printf")], "call printf");
-    }
+    asm.text.main = ProcedureCompiler::compile(prog, asm.text.main);
 
     asm.text
         .main
@@ -50,7 +34,7 @@ pub fn compile(prog: TacListing) -> Assembly {
         .ret_zero()
         .push(Call, vec![Id("ExitProcess")]);
 
-    //asm.text.procedures.push(square());
+    asm.text.procedures.push(print());
 
     asm.data
         .db("msg_ch", "'The char is %c', 13, 10, 0")
@@ -59,13 +43,14 @@ pub fn compile(prog: TacListing) -> Assembly {
     asm
 }
 
-fn square() -> Procedure {
-    let mut square = procedure("square");
-    square
+fn print() -> Procedure {
+    let mut print = procedure("print");
+    print
         .body
-        .push(Mov, vec![Reg(RAX), Reg(RCX)])
-        .push(Imul, vec![Reg(RAX)]);
-    square
+        .push(Mov, vec![Reg(RDX), Reg(RCX)])
+        .push(Lea, vec![Reg(RCX), Id("[msg_i]")])
+        .push(Call, vec![Id("printf")]);
+    print
 }
 
 fn make_assembly() -> Assembly {

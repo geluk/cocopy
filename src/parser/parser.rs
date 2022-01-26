@@ -256,8 +256,8 @@ impl<'a> Parser<'a> {
 
             let kind = match op {
                 NAryOp::Member => self.parse_member_expr(lhs)?,
-                NAryOp::Index => self.parse_index_expr(lhs, cur_fix)?,
-                NAryOp::FunctionCall => self.parse_function_call(lhs, cur_fix)?,
+                NAryOp::Index => self.parse_index_expr(lhs)?,
+                NAryOp::FunctionCall => self.parse_function_call(lhs)?,
                 NAryOp::Binary(bin) => {
                     let rhs = self.expression(cur_fix, delimiter.for_subexpr())?;
                     let bin_expr = BinExpr { lhs, op: bin, rhs };
@@ -287,17 +287,17 @@ impl<'a> Parser<'a> {
         Ok(ExprKind::Member(Box::new(expr)))
     }
 
-    fn parse_index_expr(&mut self, lhs: Expr, cur_fix: Fixity) -> Result<ExprKind, ParseError> {
-        let rhs = self.expression(cur_fix, Delimiter::index())?;
+    fn parse_index_expr(&mut self, lhs: Expr) -> Result<ExprKind, ParseError> {
+        let rhs = self.expression(Fixity::none(), Delimiter::index())?;
         let expr = IndexExpr { lhs, rhs };
         Ok(ExprKind::Index(Box::new(expr)))
     }
 
-    fn parse_function_call(&mut self, lhs: Expr, cur_fix: Fixity) -> Result<ExprKind, ParseError> {
+    fn parse_function_call(&mut self, lhs: Expr) -> Result<ExprKind, ParseError> {
         Ok(match lhs.expr_kind {
             ExprKind::Identifier(name) => {
                 // TODO: Parse parameter list instead
-                let params = self.expression(cur_fix, Delimiter::function_call())?;
+                let params = self.expression(Fixity::none(), Delimiter::function_call())?;
                 let call = FunCallExpr {
                     name,
                     name_span: lhs.span,
@@ -307,7 +307,7 @@ impl<'a> Parser<'a> {
             }
             ExprKind::Member(member) => {
                 // TODO: Parse parameter list instead
-                let params = self.expression(cur_fix, Delimiter::function_call())?;
+                let params = self.expression(Fixity::none(), Delimiter::function_call())?;
                 let call = MetCallExpr {
                     member: *member,
                     params,
@@ -499,13 +499,19 @@ mod tests {
 
     /// ChocoPy Language Reference: 4.1
     #[test]
-    fn member_function() {
+    fn function_may_have_expression_as_parameter() {
+        assert_expr_parses!("a(1 + 1)", "(a((1 + 1)))");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn method() {
         assert_expr_parses!("a.b(b)", "((a.b)(b))");
     }
 
     /// ChocoPy Language Reference: 4.1
     #[test]
-    fn complex_member_function() {
+    fn complex_method() {
         assert_expr_parses!("(a if True else b).c(d)", "(((a if True else b).c)(d))");
     }
 
