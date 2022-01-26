@@ -56,7 +56,7 @@ impl Tac {
     fn lower_expr(&mut self, expr: Expr) -> Value {
         match expr.expr_kind {
             ExprKind::Literal(lit) => self.lower_literal(lit),
-            ExprKind::Identifier(id) => Value::Name(self.name_generator.last_subscript(id)),
+            ExprKind::Identifier(id) => self.lower_identifier(id),
             ExprKind::Member(_) => todo!(),
             ExprKind::Index(_) => todo!(),
             ExprKind::Unary(_) => todo!(),
@@ -72,6 +72,14 @@ impl Tac {
             Literal::Integer(i) => Value::Const(i as TargetSize),
             Literal::Boolean(b) => Value::Const(b as TargetSize),
             Literal::None => todo!(),
+        }
+    }
+
+    fn lower_identifier(&self, id: String) -> Value {
+        if let Ok(builtin) = id.parse() {
+            Value::Name(Name::Builtin(builtin))
+        } else {
+            Value::Name(self.name_generator.last_subscript(id))
         }
     }
 

@@ -194,7 +194,7 @@ pub struct Environment {
 impl Environment {
     pub fn global() -> Self {
         Self {
-            type_map: builtins::get_types(),
+            type_map: builtins::get_type_map(),
         }
     }
 

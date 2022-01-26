@@ -31,7 +31,7 @@ impl NameGenerator {
     }
 
     /// Returns the most recently generated subscripted name for an identifier.
-    pub fn last_subscript(&mut self, id: String) -> Name {
+    pub fn last_subscript(&self, id: String) -> Name {
         let current_subscript = self.seen_subscripts[&id];
         Name::Sub(id, current_subscript)
     }

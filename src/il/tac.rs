@@ -6,7 +6,7 @@ use std::{
     slice::{Iter, IterMut},
 };
 
-use crate::ast::untyped::BinOp;
+use crate::{ast::untyped::BinOp, builtins::Builtin};
 
 pub type TargetSize = isize;
 
@@ -146,12 +146,14 @@ impl Display for Instruction {
 pub enum Name {
     Sub(String, usize),
     Temp(String),
+    Builtin(Builtin),
 }
 impl Display for Name {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Name::Sub(name, sub) => write!(f, "{}^{}", name, sub),
             Name::Temp(temp) => write!(f, "%{}", temp),
+            Name::Builtin(name) => write!(f, "{}", name),
         }
     }
 }
