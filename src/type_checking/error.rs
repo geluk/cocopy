@@ -39,6 +39,8 @@ impl From<TypeError> for CompileError {
 pub enum TypeErrorKind {
     #[error("unknown identifier: '{0}'")]
     UnknownIdentifier(String),
+    #[error("duplicate declaration of identifier: '{0}'")]
+    DuplicateIdentifier(String),
     #[error("cannot apply expression of type '{1}' to operator '{0}'")]
     UnOperandType(UnOp, TypeSpec),
     #[error("cannot apply expression of type '{1}' to operator '{0}'")]

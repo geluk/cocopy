@@ -42,8 +42,12 @@ impl<'a> TypeChecker<'a> {
     fn assign_var_defs(&mut self) -> Vec<TypeError> {
         let mut type_errors = vec![];
         for var_def in &self.program.var_defs {
-            self.global_environment
-                .set_type(var_def.name.to_string(), var_def.type_spec.clone());
+            if let Err(kind) = self
+                .global_environment
+                .set_type(var_def.name.to_string(), var_def.type_spec.clone())
+            {
+                type_errors.push(TypeError::new(kind, var_def.span));
+            }
 
             let lit_type = self.check_literal(&var_def.value);
 
@@ -190,8 +194,13 @@ impl Environment {
         }
     }
 
-    pub fn set_type(&mut self, name: String, type_spec: TypeSpec) {
-        self.type_map.insert(name, type_spec);
+    pub fn set_type(&mut self, name: String, type_spec: TypeSpec) -> Result<(), TypeErrorKind> {
+        if self.type_map.contains_key(&name) {
+            Err(TypeErrorKind::DuplicateIdentifier(name))
+        } else {
+            self.type_map.insert(name, type_spec);
+            Ok(())
+        }
     }
 
     pub fn lookup(&self, name: &str) -> Result<TypeSpec, TypeErrorKind> {
@@ -319,5 +328,14 @@ c = (a + a) * b
     #[test]
     fn int_is_not_a_function() {
         assert_type_error!("10(True)", TypeErrorKind::NotCallable(TypeSpec::Int));
+    }
+
+    /// ChocoPy reference: 5.2
+    #[test]
+    fn duplicate_identifier_not_allowed() {
+        assert_type_error!(
+            "a:int = 10\na:int = 99",
+            TypeErrorKind::DuplicateIdentifier("a".to_string())
+        );
     }
 }
