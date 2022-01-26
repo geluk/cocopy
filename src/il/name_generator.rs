@@ -6,7 +6,6 @@ pub struct NameGenerator {
     index: usize,
     seen_subscripts: HashMap<String, usize>,
 }
-
 impl NameGenerator {
     pub fn new() -> Self {
         Self {
@@ -25,9 +24,8 @@ impl NameGenerator {
     pub fn next_subscript(&mut self, id: String) -> Name {
         let current_subscript = self.seen_subscripts.entry(id.clone()).or_insert(0);
         *current_subscript += 1;
-        let name = Name::Sub(id, *current_subscript);
 
-        name
+        Name::Sub(id, *current_subscript)
     }
 
     /// Returns the most recently generated subscripted name for an identifier.

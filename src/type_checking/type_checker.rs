@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 use crate::{
     ast::{untyped::*, TypeSpec},
@@ -21,7 +21,6 @@ struct TypeChecker<'a> {
     global_environment: Environment,
     program: &'a Program,
 }
-
 impl<'a> TypeChecker<'a> {
     fn new(program: &'a Program) -> Self {
         Self {
@@ -136,10 +135,10 @@ impl<'a> TypeChecker<'a> {
                 Ok(*ret)
             }
         } else {
-            return Err(vec![TypeError::new(
+            Err(vec![TypeError::new(
                 TypeErrorKind::NotCallable(func_type),
                 call.name_span,
-            )]);
+            )])
         }
     }
 
@@ -230,11 +229,11 @@ impl Environment {
     }
 
     pub fn set_type(&mut self, name: String, type_spec: TypeSpec) -> Result<(), TypeErrorKind> {
-        if self.type_map.contains_key(&name) {
-            Err(TypeErrorKind::DuplicateIdentifier(name))
-        } else {
-            self.type_map.insert(name, type_spec);
+        if let Entry::Vacant(e) = self.type_map.entry(name.clone()) {
+            e.insert(type_spec);
             Ok(())
+        } else {
+            Err(TypeErrorKind::DuplicateIdentifier(name))
         }
     }
 

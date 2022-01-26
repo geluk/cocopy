@@ -29,7 +29,6 @@ pub struct BinOpChecker<'a> {
     lhs_err: Option<TypeError>,
     rhs_err: Option<TypeError>,
 }
-
 impl<'a> BinOpChecker<'a> {
     /// Given an operation and two well-typed operands, checks whether the operation can be applied
     /// to its operands.

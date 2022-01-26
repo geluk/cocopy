@@ -33,7 +33,6 @@ impl CompileErrors {
         self.errors.iter()
     }
 }
-
 impl<T> From<Vec<T>> for CompileErrors
 where
     T: Into<CompileError>,

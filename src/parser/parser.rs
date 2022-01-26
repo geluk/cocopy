@@ -15,7 +15,6 @@ use super::{
 pub fn parse(token_stream: &[Token]) -> Result<Program, ParseError> {
     Parser::new(token_stream).parse()
 }
-
 impl<'a> Parser<'a> {
     fn parse(&mut self) -> Result<Program, ParseError> {
         self.program()
@@ -170,7 +169,7 @@ impl<'a> Parser<'a> {
     ) -> Result<Expr, ParseError> {
         let token = self.next().add_stage(Stage::Expr)?;
 
-        let lhs = if let Some(lit) = Self::as_literal(&token) {
+        let lhs = if let Some(lit) = Self::as_literal(token) {
             Expr::new(ExprKind::Literal(lit), self.span_from(start))
         } else {
             match &token.kind {
@@ -336,7 +335,6 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 }
-
 impl TokenKind {
     fn as_n_ary_op(&self) -> Option<NAryOp> {
         use Symbol::*;

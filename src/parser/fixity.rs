@@ -28,7 +28,6 @@ pub enum Assoc {
     None,
     Right,
 }
-
 impl Fixity {
     pub fn none() -> Self {
         Self {

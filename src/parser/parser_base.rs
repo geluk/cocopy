@@ -1,11 +1,12 @@
 //! Basic token parsing functions and combinators.
 use std::{iter::Peekable, slice::Iter};
 
-use super::error::*;
 use crate::{
     lexer::tokens::*,
     span::{Bytes, Span},
 };
+
+use super::error::*;
 
 #[derive(Clone)]
 pub struct Parser<'a> {
@@ -13,7 +14,6 @@ pub struct Parser<'a> {
     token_position: usize,
     end_position: Bytes,
 }
-
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Token]) -> Self {
         Self {

@@ -13,7 +13,6 @@ pub struct CharLexer<'a> {
     chars: Peekable<Chars<'a>>,
     byte_position: Bytes,
 }
-
 impl<'a> CharLexer<'a> {
     /// Constructs a new [`CharLexer`] for the given source string,
     /// starting at position `0`.

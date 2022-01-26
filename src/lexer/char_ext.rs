@@ -8,7 +8,6 @@ pub trait CharExt {
         !self.is_linebreak()
     }
 }
-
 impl CharExt for char {
     fn is_non_newline_whitespace(&self) -> bool {
         self.is_whitespace() && *self != '\n' && *self != '\r'

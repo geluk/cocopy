@@ -168,7 +168,6 @@ pub enum Literal {
     Boolean(bool),
     None,
 }
-
 impl Display for Literal {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use Literal::*;
@@ -231,7 +230,6 @@ pub struct UnExpr {
     pub op: UnOp,
     pub rhs: Expr,
 }
-
 impl Display for UnExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "({} {})", self.op, self.rhs)
@@ -243,7 +241,6 @@ pub enum UnOp {
     Not,
     Negate,
 }
-
 impl Display for UnOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.write_str("not")
@@ -256,7 +253,6 @@ pub struct BinExpr {
     pub op: BinOp,
     pub rhs: Expr,
 }
-
 impl Display for BinExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "({} {} {})", self.lhs, self.op, self.rhs)
@@ -282,7 +278,6 @@ pub enum BinOp {
     And,
     Is,
 }
-
 impl Display for BinOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use BinOp::*;
@@ -313,7 +308,6 @@ pub struct TerExpr {
     pub mhs: Expr,
     pub rhs: Expr,
 }
-
 impl Display for TerExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.op {

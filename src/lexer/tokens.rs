@@ -11,13 +11,11 @@ pub struct Token {
     pub source: Span,
     pub kind: TokenKind,
 }
-
 impl Token {
     pub fn length(&self) -> Bytes {
         self.source.length()
     }
 }
-
 impl Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.kind)

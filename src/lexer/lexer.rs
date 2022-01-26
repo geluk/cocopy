@@ -17,7 +17,6 @@ struct Lexer<'s> {
 pub fn lex(source: &str) -> Result<Vec<Token>, Vec<LexError>> {
     Lexer::new(source).run()
 }
-
 impl<'s> Lexer<'s> {
     fn new(source: &'s str) -> Self {
         Self {
@@ -518,7 +517,7 @@ mod tests {
             Err(errors) => {
                 for error in errors {
                     println!("{}", error);
-                    describe_error(&error.into(), &source);
+                    describe_error(&error.into(), source);
                     println!();
                 }
             }

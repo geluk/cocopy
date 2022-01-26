@@ -42,6 +42,7 @@ impl TacListing {
         self.instructions.remove(line);
     }
 
+    #[cfg(test)]
     pub fn into_vec(self) -> Vec<Instruction> {
         self.instructions
     }
@@ -95,7 +96,7 @@ impl Instruction {
                     *l = dest.clone();
                 }
                 if r == src {
-                    *r = dest.clone();
+                    *r = dest;
                 }
             }
             _ => (),

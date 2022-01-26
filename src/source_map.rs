@@ -103,42 +103,42 @@ mod tests {
 
     #[test]
     pub fn inclusive_split_lines_empty_string() {
-        let lines = inclusive_split_lines(&"");
+        let lines = inclusive_split_lines("");
 
         assert_eq!(lines, vec![""])
     }
 
     #[test]
     pub fn inclusive_split_lines_no_line_ending() {
-        let lines = inclusive_split_lines(&"abcdef");
+        let lines = inclusive_split_lines("abcdef");
 
         assert_eq!(vec!["abcdef"], lines)
     }
 
     #[test]
     pub fn inclusive_split_lines_single_lf() {
-        let lines = inclusive_split_lines(&"abc\ndef");
+        let lines = inclusive_split_lines("abc\ndef");
 
         assert_eq!(vec!["abc\n", "def"], lines)
     }
 
     #[test]
     pub fn inclusive_split_lines_single_cr() {
-        let lines = inclusive_split_lines(&"abc\rdef");
+        let lines = inclusive_split_lines("abc\rdef");
 
         assert_eq!(vec!["abc\r", "def"], lines)
     }
 
     #[test]
     pub fn inclusive_split_lines_single_crlf() {
-        let lines = inclusive_split_lines(&"abc\r\ndef");
+        let lines = inclusive_split_lines("abc\r\ndef");
 
         assert_eq!(vec!["abc\r\n", "def"], lines)
     }
 
     #[test]
     pub fn inclusive_split_lines_mixed_endings() {
-        let lines = inclusive_split_lines(&"abc\r\nd\r\n\ne\rf");
+        let lines = inclusive_split_lines("abc\r\nd\r\n\ne\rf");
 
         assert_eq!(vec!["abc\r\n", "d\r\n", "\n", "e\r", "f"], lines)
     }

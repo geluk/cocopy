@@ -8,7 +8,6 @@ pub struct RegisterAllocator {
     iterator: Iter<'static, Register>,
     allocations: HashMap<Name, Register>,
 }
-
 impl RegisterAllocator {
     pub fn new() -> Self {
         Self {

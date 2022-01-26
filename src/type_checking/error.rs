@@ -71,7 +71,6 @@ pub trait AddSpan {
 
     fn add_span(self, span: Span) -> Self::Annotated;
 }
-
 impl<O> AddSpan for Result<O, TypeErrorKind> {
     type Annotated = Result<O, TypeError>;
 
@@ -79,7 +78,6 @@ impl<O> AddSpan for Result<O, TypeErrorKind> {
         self.map_err(|kind| TypeError::new(kind, span))
     }
 }
-
 impl From<TypeError> for Vec<TypeError> {
     fn from(type_error: TypeError) -> Self {
         vec![type_error]

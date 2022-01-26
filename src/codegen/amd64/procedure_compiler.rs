@@ -1,11 +1,6 @@
-use crate::{
-    ast::untyped::BinOp,
-    builtins::Builtin,
-    codegen::amd64::x86::{Op, Register},
-    il::*,
-};
+use crate::{ast::untyped::BinOp, builtins::Builtin, il::*};
 
-use super::{assembly::*, register_allocator::RegisterAllocator};
+use super::{assembly::*, register_allocator::RegisterAllocator, x86::*};
 
 use Op::*;
 use Operand::*;
@@ -16,7 +11,6 @@ pub struct ProcedureCompiler {
     procedure: Procedure,
     param_stack: Vec<Operand>,
 }
-
 impl ProcedureCompiler {
     pub fn compile(listing: TacListing, procedure: Procedure) -> Procedure {
         let mut compiler = Self {
@@ -127,8 +121,6 @@ fn translate_binop(op: BinOp) -> Op {
 
 #[cfg(test)]
 mod tests {
-    use Register::*;
-
     use super::*;
 
     macro_rules! sub {

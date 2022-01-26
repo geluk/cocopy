@@ -6,8 +6,7 @@ use crate::ext::{DiscardOk, TryDecode, VerifySuccess};
 
 use super::Linker;
 
-const VISUAL_STUDIO_VC: &'static str =
-    r#"C:\Program Files\Microsoft Visual Studio\2022\Community\VC"#;
+const VISUAL_STUDIO_VC: &str = r#"C:\Program Files\Microsoft Visual Studio\2022\Community\VC"#;
 
 pub struct WindowsLinker {}
 impl WindowsLinker {
@@ -20,8 +19,8 @@ impl WindowsLinker {
 
         let (stdout, _) = output.verify_success("Failed to prepare linker environment")?;
 
-        for line in stdout.lines().filter(|l| l.contains("=")) {
-            let (key, value) = line.split_once("=").unwrap();
+        for line in stdout.lines().filter(|l| l.contains('=')) {
+            let (key, value) = line.split_once('=').unwrap();
             if key == "PATH" {
                 return Ok(value.to_string());
             }
@@ -29,7 +28,6 @@ impl WindowsLinker {
         bail!("PATH not set when preparing linker environment");
     }
 }
-
 impl Linker for WindowsLinker {
     fn link_object<P: AsRef<Path>>(object_path: P, executable_path: P) -> Result<()> {
         let path = Self::prepare_environment()?;
