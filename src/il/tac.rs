@@ -57,6 +57,14 @@ impl TacListing {
             .any(|instr| instr.reads_from_name(name))
     }
 }
+impl Display for TacListing {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        for instr in &self.instructions {
+            writeln!(f, "{}", instr)?;
+        }
+        Ok(())
+    }
+}
 
 /// A single TAC instruction.
 #[derive(Debug)]

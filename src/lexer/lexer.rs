@@ -527,7 +527,7 @@ mod tests {
 
     /// ChocoPy Language Reference: 3.1.1
     #[test]
-    fn newline_style_lf() {
+    fn accepts_newline_style_lf() {
         assert_lexes(
             "one\ntwo",
             vec![
@@ -541,7 +541,7 @@ mod tests {
 
     /// ChocoPy Language Reference: 3.1.1
     #[test]
-    fn newline_style_cr() {
+    fn accepts_newline_style_cr() {
         assert_lexes(
             "one\rtwo",
             vec![
@@ -555,7 +555,7 @@ mod tests {
 
     /// ChocoPy Language Reference: 3.1.1
     #[test]
-    fn newline_style_crlf() {
+    fn accepts_newline_style_crlf() {
         assert_lexes(
             "one\r\ntwo",
             vec![
@@ -623,7 +623,7 @@ mod tests {
 
     /// ChocoPy Language Reference: 3.1.6
     #[test]
-    fn whitespace_separates_tokens() {
+    fn tokens_are_separated_by_whitespace() {
         assert_lexes(
             "one\t\t  two",
             vec![
@@ -667,10 +667,9 @@ mod tests {
     }
 
     /// ChocoPy Language Reference: 3.2
-    /// TODO: Assert that this lexes as a single invalid token (it currently doesn't)
     #[test]
     fn identifier_may_not_contain_non_ascii_alphabetic() {
-        assert_lex_fails("`hoi abc")
+        assert_lex_fails("hoi`abc")
     }
 
     /// ChocoPy Language Reference: 3.2

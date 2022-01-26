@@ -67,11 +67,12 @@ impl Optimiser {
         }
 
         for instr in self.listing.iter_mut() {
-            if let Some(name) = replacements
+            let usages: Vec<_> = replacements
                 .keys()
                 .filter(|name| instr.reads_from_name(name))
-                .next()
-            {
+                .collect();
+
+            for name in usages {
                 let replacement = replacements.get(name).cloned().unwrap();
                 instr.replace(&Value::Name(name.clone()), replacement);
             }
@@ -104,7 +105,14 @@ mod tests {
             let tokens = lex($source).unwrap();
             let ast = parse(&tokens).unwrap();
             let tac = generate(ast);
-            let tac = optimise(tac)
+            println!("Before opt:\n==========");
+            print!("{}", tac);
+            println!("==========");
+            let tac = optimise(tac);
+            println!("After opt:\n==========");
+            print!("{}", tac);
+            println!("==========");
+            let tac = tac
                 .into_vec()
                 .iter()
                 .map(ToString::to_string)
@@ -127,6 +135,18 @@ x : int = 0
 y: int = 10
 x = y + y "#,
             vec!["%t1 = 10 + 10"]
+        )
+    }
+
+    #[test]
+    fn merge_assign_can_be_applied_multiple_times_in_one_instruction() {
+        assert_optimises!(
+            r#"
+a : int = 1
+b : int = 2
+c : int = 0
+c = a + b"#,
+            vec!["%t1 = 1 + 2"]
         )
     }
 }
