@@ -22,9 +22,74 @@ manually link `out.obj` into an executable.
 
 On Linux, you must link `out.obj` into an executable yourself. You can use `gcc` for this.
 
+# Overview
 
-# General structure
+Currently, the compiler is capable of compiling very basic ChocoPy expressions
+to assembly. The following steps are taken during compilation.
 
+## ChocoPy code
+Start here.
+```py
+a:int = 0
+b:int = 9
+a = b + 10 * 3
+b = a * 100
+```
+## After lexing
+The lexer emits a token stream indicating the type of each token (keyword,
+identifier, symbol, literal, etc..) and its value, if present.
+```
+"a" ":" "int" "=" "0" "\n" "b" ":" "int" "=" "9" "\n" "a" "=" "b" "+" "10" "*" "3" "\n" "b" "=" "a" "*" "100" "\n"
+```
+## After parsing and type checking
+The parser combines tokens into expressions and statements, which together
+form an abstract syntax tree. The type checker verifies that all operations
+evaluate to the correct types.
+
+The syntax tree can be pretty-printed like so:
+```py
+a : int = 0
+b : int = 9
+a = (b + (10 * 3))
+b = (a * 100)
+```
+## Intermediate code generation
+The IL generator converts the syntax tree into three-address code.
+Complex expressions are flattened, generating lots of intermediates (`%`).
+To prevent variable reuse, variables receive a new subscript (`^`)
+every time they're reassigned. This will make it easier for the optimiser to
+reason about program flow.
+```
+a^1 = 0
+b^1 = 9
+%t1 = 10 * 3
+%t2 = b^1 + %t1
+a^2 = %t2
+%t3 = a^2 * 100
+b^2 = %t3
+```
+## Intermediate code optimisation
+The optimiser finds statements that can be removed or simplified, and rewrites
+the intermediate code.
+```
+%t1 = 10 * 3
+%t2 = 9 + %t1
+%t3 = %t2 * 100
+```
+## Assembly generation
+Each instruction is converted to assembly. Operations ma be broken up
+further into a `store` and `apply` instruction when they cannot be converted
+to a single assembly instruction. The register allocator assigns registers to
+variables, keeping track of which ones are used.
+```asm
+main:
+    mov     rax, 10             ; <store> %t1 = 10 * 3
+    imul    rax, 3              ; <apply> %t1 = 10 * 3
+    mov     rbx, 9              ; <store> %t2 = 9 + %t1
+    add     rbx, rax            ; <apply> %t2 = 9 + %t1
+    mov     rcx, rbx            ; <store> %t3 = %t2 * 100
+    imul    rcx, 100            ; <apply> %t3 = %t2 * 100
+```
 
 # TODO
 
@@ -128,7 +193,8 @@ On Linux, you must link `out.obj` into an executable yourself. You can use `gcc`
 
 ## Optimisation passes
 
-- [ ] Everything
+- [x] Remove unused assignments
+- [x] Inline assigned variables when posssible
 
 ## Target code generation
 
@@ -138,6 +204,7 @@ On Linux, you must link `out.obj` into an executable yourself. You can use `gcc`
   - [x] Linking with `gcc` or `link.exe`
 - [ ] Convert intermediate code to assembly
   - [x] Integer arithmetic
+  - [ ] Boolean operations
   - [ ] Everything else
 - [ ] Register allocation
   - [x] Naive register allocation
@@ -155,14 +222,6 @@ On Linux, you must link `out.obj` into an executable yourself. You can use `gcc`
 - Using Hindley-Milner type inference to make all type annotations optional
 - Good error reporting
 - More features?
-
-# Assembly cheat sheet
-
-| Register | Usage                                                        |
-| -------- | ------------------------------------------------------------ |
-| `rbp`    | Frame pointer, points to the base of the current stack frame |
-| `rsp`    | Stack pointer, points to the top of the current stack frame  |
-
 
 # Additional reading
 
