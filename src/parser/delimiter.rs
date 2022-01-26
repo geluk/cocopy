@@ -43,7 +43,7 @@ impl Delimiter {
             token_kind: TokenKind::Symbol(Symbol::CloseParen),
             stage: Stage::ParameterList,
             may_consume: true,
-            include_in_span: true, // TODO: false?
+            include_in_span: false,
         }
     }
     /// Construct a delimiter for an assignment target expression: `x : int =`.

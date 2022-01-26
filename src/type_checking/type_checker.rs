@@ -104,11 +104,42 @@ impl<'a> TypeChecker<'a> {
             ExprKind::Identifier(id) => Ok(self.global_environment.lookup(id).add_span(span)?),
             ExprKind::Member(_) => todo!("Type check member expressions"),
             ExprKind::Index(_) => todo!("Type check index expressions"),
-            ExprKind::FunctionCall(_) => todo!("Type check function call expressions"),
+            ExprKind::FunctionCall(call) => self.check_function_call(call),
             ExprKind::MethodCall(_) => todo!("Type check method call expressions"),
             ExprKind::Unary(un) => self.check_unary(un),
             ExprKind::Binary(bin) => self.check_binary(bin),
             ExprKind::Ternary(ter) => self.check_ternary(ter),
+        }
+    }
+
+    /// Verify that a function call references an existing function, and that
+    /// its arguments have a matching parameter in the function's type.
+    fn check_function_call(&self, call: &FunCallExpr) -> Result<TypeSpec, Vec<TypeError>> {
+        let (func_type, param_type) = self
+            .global_environment
+            .lookup(&call.name)
+            .add_span(call.name_span)
+            .concat_result(self.check_expression(&call.params))?;
+
+        if let TypeSpec::Function(mut args, ret) = func_type {
+            if args.len() != 1 {
+                singleton_error(
+                    TypeErrorKind::ParamCountMismatch(call.name.clone(), 1, args.len()),
+                    call.params.span,
+                )
+            } else if param_type != args[0] {
+                singleton_error(
+                    TypeErrorKind::ParamTypeMismatch(args.remove(0), param_type),
+                    call.params.span,
+                )
+            } else {
+                Ok(*ret)
+            }
+        } else {
+            return Err(vec![TypeError::new(
+                TypeErrorKind::NotCallable(func_type),
+                call.name_span,
+            )]);
         }
     }
 

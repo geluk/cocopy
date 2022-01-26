@@ -37,7 +37,7 @@ impl From<ParseError> for CompileError {
                 // TODO: Add position information to reason so we don't have to repeat ourselves here.
                 Reason::UnexpectedEndOfInput => Span::zero(),
                 Reason::UnknownType(_, tok) => tok.source,
-                Reason::NotCallable(_, span) => span,
+                Reason::NotCallable(span) => span,
             },
         )
     }
@@ -52,8 +52,8 @@ pub enum Reason {
     UnexpectedEndOfInput,
     #[error("unknown type '{0}'")]
     UnknownType(String, Token),
-    #[error("type '{0}' is not callable")]
-    NotCallable(String, Span),
+    #[error("invalid function name")]
+    NotCallable(Span),
 }
 
 /// Indicates in which parsing stage the parser failed.

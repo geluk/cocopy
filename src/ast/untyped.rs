@@ -145,21 +145,6 @@ pub enum ExprKind {
     Binary(Box<BinExpr>),
     Ternary(Box<TerExpr>),
 }
-impl ExprKind {
-    pub fn describe(&self) -> &'static str {
-        match self {
-            ExprKind::Literal(_) => "literal",
-            ExprKind::Identifier(_) => "identifier",
-            ExprKind::Member(_) => "member",
-            ExprKind::Index(_) => "index",
-            ExprKind::FunctionCall(_) => "function call",
-            ExprKind::MethodCall(_) => "method call",
-            ExprKind::Unary(_) => "unary",
-            ExprKind::Binary(_) => "binary",
-            ExprKind::Ternary(_) => "ternary",
-        }
-    }
-}
 impl Display for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ExprKind::*;
@@ -199,6 +184,7 @@ impl Display for Literal {
 #[derive(Debug)]
 pub struct FunCallExpr {
     pub name: String,
+    pub name_span: Span,
     pub params: Expr,
 }
 impl Display for FunCallExpr {

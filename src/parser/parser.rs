@@ -298,7 +298,11 @@ impl<'a> Parser<'a> {
             ExprKind::Identifier(name) => {
                 // TODO: Parse parameter list instead
                 let params = self.expression(cur_fix, Delimiter::function_call())?;
-                let call = FunCallExpr { name, params };
+                let call = FunCallExpr {
+                    name,
+                    name_span: lhs.span,
+                    params,
+                };
                 ExprKind::FunctionCall(Box::new(call))
             }
             ExprKind::Member(member) => {
@@ -310,12 +314,7 @@ impl<'a> Parser<'a> {
                 };
                 ExprKind::MethodCall(Box::new(call))
             }
-            other => {
-                return failure(
-                    Stage::Call,
-                    Reason::NotCallable(other.describe().to_string(), lhs.span),
-                )
-            }
+            _ => return failure(Stage::Call, Reason::NotCallable(lhs.span)),
         })
     }
 

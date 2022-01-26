@@ -19,8 +19,6 @@ enum Operation {
     /// The first, vector field specifies the input types that are accepted.
     /// The `TypeSpec` field specifies the output type that is produced.
     BinFunc(Vec<TypeSpec>, TypeSpec),
-    /// A function call. Its input and output types are determined by the type of the function.
-    FunctionCall,
 }
 
 /// Checks whether an operation can be applied to its operands.
@@ -70,20 +68,6 @@ impl<'a> BinOpChecker<'a> {
                     self.err_lhs();
                 }
                 ret
-            }
-            Operation::FunctionCall => {
-                if let TypeSpec::Function(args, ret) = &self.lhs_type {
-                    let ret = *ret.clone();
-                    if args.len() != 1 {
-                        self.err_rhs();
-                    }
-                    ret
-                } else {
-                    return Err(vec![TypeError::new(
-                        TypeErrorKind::NotCallable(self.lhs_type.clone()),
-                        self.expr.lhs.span,
-                    )]);
-                }
             }
         };
 
