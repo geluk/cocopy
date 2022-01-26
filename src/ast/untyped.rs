@@ -5,7 +5,7 @@ use crate::span::Span;
 
 use super::TypeSpec;
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Program {
     pub var_defs: Vec<VarDef>,
     pub statements: Vec<Statement>,

@@ -47,8 +47,8 @@ fn print() -> Procedure {
     let mut print = procedure("print");
     print
         .body
-        .push(Mov, vec![Reg(RDX), Reg(RCX)])
-        .push(Lea, vec![Reg(RCX), Id("[msg_i]")])
+        .push(Mov, vec![Reg(Rdx), Reg(Rcx)])
+        .push(Lea, vec![Reg(Rcx), Id("[msg_i]")])
         .push(Call, vec![Id("printf")]);
     print
 }
@@ -65,9 +65,9 @@ fn prologue() -> Block {
     let mut prologue = Block::new();
 
     prologue
-        .push_cmt(Push, vec![Reg(RBP)], "Store base pointer")
-        .push_cmt(Mov, vec![Reg(RBP), Reg(RSP)], "Move base pointer down")
-        .push_cmt(Sub, vec![Reg(RSP), Lit(32)], "Create shadow space")
+        .push_cmt(Push, vec![Reg(Rbp)], "Store base pointer")
+        .push_cmt(Mov, vec![Reg(Rbp), Reg(Rsp)], "Move base pointer down")
+        .push_cmt(Sub, vec![Reg(Rsp), Lit(32)], "Create shadow space")
         .blank();
 
     prologue
@@ -77,8 +77,8 @@ fn epilogue() -> Block {
     let mut epilogue = Block::new();
     epilogue
         .blank()
-        .push_cmt(Mov, vec![Reg(RSP), Reg(RBP)], "Move stack pointer back up")
-        .push_cmt(Pop, vec![Reg(RBP)], "Restore previous base pointer")
+        .push_cmt(Mov, vec![Reg(Rsp), Reg(Rbp)], "Move stack pointer back up")
+        .push_cmt(Pop, vec![Reg(Rbp)], "Restore previous base pointer")
         .push_cmt(Ret, vec![], "Return to caller");
 
     epilogue
@@ -89,7 +89,7 @@ trait BodyExt {
 }
 impl BodyExt for Block {
     fn ret_zero(&mut self) -> &mut Self {
-        self.push_cmt(Xor, vec![Reg(RAX), Reg(RAX)], "Return zero");
+        self.push_cmt(Xor, vec![Reg(Rax), Reg(Rax)], "Return zero");
         self
     }
 }

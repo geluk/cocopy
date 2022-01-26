@@ -5,14 +5,14 @@ use std::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Register {
-    RBP,
-    RSP,
-    RDI,
-    RSI,
-    RAX,
-    RBX,
-    RCX,
-    RDX,
+    Rbp,
+    Rsp,
+    Rdi,
+    Rsi,
+    Rax,
+    Rbx,
+    Rcx,
+    Rdx,
     R8,
     R9,
     R10,
@@ -25,20 +25,20 @@ pub enum Register {
 impl Register {
     pub fn iter() -> Iter<'static, Register> {
         use Register::*;
-        [RAX, RBX, RCX, RDX, R8, R9, R10, R11, R12, R13, R14, R15].iter()
+        [Rax, Rbx, Rcx, Rdx, R8, R9, R10, R11, R12, R13, R14, R15].iter()
     }
 }
 impl Display for Register {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Register::RBP => f.write_str("rbp"),
-            Register::RSP => f.write_str("rsp"),
-            Register::RDI => f.write_str("rdi"),
-            Register::RSI => f.write_str("rsi"),
-            Register::RAX => f.write_str("rax"),
-            Register::RBX => f.write_str("rbx"),
-            Register::RCX => f.write_str("rcx"),
-            Register::RDX => f.write_str("rdx"),
+            Register::Rbp => f.write_str("rbp"),
+            Register::Rsp => f.write_str("rsp"),
+            Register::Rdi => f.write_str("rdi"),
+            Register::Rsi => f.write_str("rsi"),
+            Register::Rax => f.write_str("rax"),
+            Register::Rbx => f.write_str("rbx"),
+            Register::Rcx => f.write_str("rcx"),
+            Register::Rdx => f.write_str("rdx"),
             Register::R8 => f.write_str("r8"),
             Register::R9 => f.write_str("r9"),
             Register::R10 => f.write_str("r10"),

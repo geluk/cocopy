@@ -76,7 +76,7 @@ impl ProcedureCompiler {
         if params > 4 {
             todo!("Can't deal with more than 4 parameters yet.");
         }
-        let target_regs = [RCX, RDX, R8, R9];
+        let target_regs = [Rcx, Rdx, R8, R9];
         for (idx, &reg) in target_regs[0..params].iter().enumerate() {
             let value = self.param_stack.pop().expect("Parameter count mismatch!");
             self.procedure.body.push_cmt(
@@ -93,7 +93,7 @@ impl ProcedureCompiler {
         self.procedure
             .body
             .push_cmt(Call, vec![Id(name)], "call print")
-            .push_cmt(Mov, vec![Reg(tgt), Reg(RAX)], "store return value");
+            .push_cmt(Mov, vec![Reg(tgt), Reg(Rax)], "store return value");
     }
 
     fn compile_param(&mut self, param: Value) {
@@ -166,8 +166,8 @@ mod tests {
         ));
 
         let mut expected = Block::new();
-        expected.push(Mov, vec![Reg(RAX), Lit(10)]);
-        expected.push(Add, vec![Reg(RAX), Lit(99)]);
+        expected.push(Mov, vec![Reg(Rax), Lit(10)]);
+        expected.push(Add, vec![Reg(Rax), Lit(99)]);
 
         assert_eq!(expected, procedure.body)
     }

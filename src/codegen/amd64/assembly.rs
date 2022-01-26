@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     pub fn instr_serializes_correctly() {
-        let instr = Instr::new(Op::Mov, vec![Reg(RAX), Reg(RCX)]);
+        let instr = Instr::new(Op::Mov, vec![Reg(Rax), Reg(Rcx)]);
 
         assert_eq!("    mov     rax, rcx", instr.to_string());
     }
