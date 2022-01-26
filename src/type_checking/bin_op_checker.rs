@@ -112,9 +112,6 @@ impl<'a> BinOpChecker<'a> {
             LessThan | GreaterThan | LessThanEqual | GreaterThanEqual => {
                 Operation::BinFunc(vec![Int], Bool)
             }
-            MemberAccess => todo!("Implement member access type checks"),
-            Index => todo!("Implement array index type checks"),
-            FunctionCall => Operation::FunctionCall,
             Is => todo!("Implement 'is' type check"),
         }
     }

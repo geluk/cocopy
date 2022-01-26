@@ -119,17 +119,17 @@ impl Display for Assign {
 }
 #[derive(Debug)]
 pub struct Expr {
-    pub expr_type: ExprKind,
+    pub expr_kind: ExprKind,
     pub span: Span,
 }
 impl Expr {
-    pub fn new(expr_type: ExprKind, span: Span) -> Self {
-        Self { expr_type, span }
+    pub fn new(expr_kind: ExprKind, span: Span) -> Self {
+        Self { expr_kind, span }
     }
 }
 impl Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.expr_type)
+        write!(f, "{}", self.expr_kind)
     }
 }
 
@@ -137,17 +137,39 @@ impl Display for Expr {
 pub enum ExprKind {
     Literal(Literal),
     Identifier(String),
+    Member(Box<MemberExpr>),
+    Index(Box<IndexExpr>),
+    FunctionCall(Box<FunCallExpr>),
+    MethodCall(Box<MetCallExpr>),
     Unary(Box<UnExpr>),
     Binary(Box<BinExpr>),
     Ternary(Box<TerExpr>),
 }
-
+impl ExprKind {
+    pub fn describe(&self) -> &'static str {
+        match self {
+            ExprKind::Literal(_) => "literal",
+            ExprKind::Identifier(_) => "identifier",
+            ExprKind::Member(_) => "member",
+            ExprKind::Index(_) => "index",
+            ExprKind::FunctionCall(_) => "function call",
+            ExprKind::MethodCall(_) => "method call",
+            ExprKind::Unary(_) => "unary",
+            ExprKind::Binary(_) => "binary",
+            ExprKind::Ternary(_) => "ternary",
+        }
+    }
+}
 impl Display for ExprKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         use ExprKind::*;
         match self {
             Literal(lit) => write!(f, "{}", lit),
             Identifier(id) => write!(f, "{}", id),
+            Member(mem) => write!(f, "{}", mem),
+            Index(idx) => write!(f, "{}", idx),
+            FunctionCall(fun) => write!(f, "{}", fun),
+            MethodCall(met) => write!(f, "{}", met),
             Binary(bin) => write!(f, "{}", bin),
             Unary(un) => write!(f, "{}", un),
             Ternary(un) => write!(f, "{}", un),
@@ -171,6 +193,50 @@ impl Display for Literal {
             Boolean(false) => write!(f, "False"),
             None => write!(f, "None"),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct FunCallExpr {
+    pub name: String,
+    pub params: Expr,
+}
+impl Display for FunCallExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}({}))", self.name, self.params)
+    }
+}
+
+#[derive(Debug)]
+pub struct MetCallExpr {
+    pub member: MemberExpr,
+    pub params: Expr,
+}
+impl Display for MetCallExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}({}))", self.member, self.params)
+    }
+}
+
+#[derive(Debug)]
+pub struct MemberExpr {
+    pub lhs: Expr,
+    pub rhs: String,
+}
+impl Display for MemberExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}.{})", self.lhs, self.rhs)
+    }
+}
+
+#[derive(Debug)]
+pub struct IndexExpr {
+    pub lhs: Expr,
+    pub rhs: Expr,
+}
+impl Display for IndexExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}[{}])", self.lhs, self.rhs)
     }
 }
 
@@ -207,12 +273,7 @@ pub struct BinExpr {
 
 impl Display for BinExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self.op {
-            BinOp::MemberAccess => write!(f, "({}{}{})", self.lhs, self.op, self.rhs),
-            BinOp::Index => write!(f, "({}[{}])", self.lhs, self.rhs),
-            BinOp::FunctionCall => write!(f, "({}({}))", self.lhs, self.rhs),
-            _ => write!(f, "({} {} {})", self.lhs, self.op, self.rhs),
-        }
+        write!(f, "({} {} {})", self.lhs, self.op, self.rhs)
     }
 }
 
@@ -230,9 +291,6 @@ pub enum BinOp {
     GreaterThanEqual,
     Equal,
     NotEqual,
-    MemberAccess,
-    Index,
-    FunctionCall,
     // Keywords
     Or,
     And,
@@ -254,12 +312,9 @@ impl Display for BinOp {
             GreaterThanEqual => ">=",
             Equal => "==",
             NotEqual => "!=",
-            MemberAccess => ".",
-            Index => "[]",
             Or => "or",
             And => "and",
             Is => "is",
-            FunctionCall => "()",
         };
         f.write_str(ch)
     }

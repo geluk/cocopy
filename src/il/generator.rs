@@ -46,7 +46,7 @@ impl Tac {
     fn lower_assign(&mut self, assign: Assign) {
         let result = self.lower_expr(assign.value);
 
-        if let ExprKind::Identifier(tgt) = assign.target.expr_type {
+        if let ExprKind::Identifier(tgt) = assign.target.expr_kind {
             self.emit_assign(tgt, result);
         } else {
             todo!("Implement member assignment");
@@ -54,10 +54,14 @@ impl Tac {
     }
 
     fn lower_expr(&mut self, expr: Expr) -> Value {
-        match expr.expr_type {
+        match expr.expr_kind {
             ExprKind::Literal(lit) => self.lower_literal(lit),
             ExprKind::Identifier(id) => Value::Name(self.name_generator.last_subscript(id)),
+            ExprKind::Member(_) => todo!(),
+            ExprKind::Index(_) => todo!(),
             ExprKind::Unary(_) => todo!(),
+            ExprKind::FunctionCall(_) => todo!(),
+            ExprKind::MethodCall(_) => todo!(),
             ExprKind::Binary(bin) => self.lower_binexpr(*bin),
             ExprKind::Ternary(_) => todo!(),
         }

@@ -85,7 +85,7 @@ impl<'a> TypeChecker<'a> {
     fn check_assign_stmt(&self, assign: &Assign) -> Result<(), Vec<TypeError>> {
         let expr_type = self.check_expression(&assign.value)?;
 
-        match &assign.target.expr_type {
+        match &assign.target.expr_kind {
             ExprKind::Identifier(id) => {
                 let target_type = self.global_environment.lookup(id).add_span(assign.span)?;
 
@@ -99,9 +99,13 @@ impl<'a> TypeChecker<'a> {
     /// Verify that an expression is well-typed.
     fn check_expression(&self, expression: &Expr) -> Result<TypeSpec, Vec<TypeError>> {
         let span = expression.span;
-        match &expression.expr_type {
+        match &expression.expr_kind {
             ExprKind::Literal(l) => Ok(self.check_literal(l)),
             ExprKind::Identifier(id) => Ok(self.global_environment.lookup(id).add_span(span)?),
+            ExprKind::Member(_) => todo!("Type check member expressions"),
+            ExprKind::Index(_) => todo!("Type check index expressions"),
+            ExprKind::FunctionCall(_) => todo!("Type check function call expressions"),
+            ExprKind::MethodCall(_) => todo!("Type check method call expressions"),
             ExprKind::Unary(un) => self.check_unary(un),
             ExprKind::Binary(bin) => self.check_binary(bin),
             ExprKind::Ternary(ter) => self.check_ternary(ter),
@@ -322,12 +326,6 @@ c = (a + a) * b
             "a : int = None",
             TypeErrorKind::AssignNoneToPrimitive(TypeSpec::Bool)
         );
-    }
-
-    /// ChocoPy reference: 5.2
-    #[test]
-    fn int_is_not_a_function() {
-        assert_type_error!("10(True)", TypeErrorKind::NotCallable(TypeSpec::Int));
     }
 
     /// ChocoPy reference: 5.2

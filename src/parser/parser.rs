@@ -154,20 +154,31 @@ impl<'a> Parser<'a> {
         self.expression(Fixity::none(), Delimiter::newline())
     }
 
+    /// Parse an expression, delimited by the given delimiter.
     fn expression(&mut self, left_fix: Fixity, delimiter: Delimiter) -> Result<Expr, ParseError> {
         let start = self.position();
-        // This clone seems to be necessary because of the mutable borrow of &self.
-        let token = self.next().add_stage(Stage::Expr)?.clone();
+        self.expression_from(start, left_fix, delimiter)
+    }
 
-        let make = |expr_type: ExprKind| Expr::new(expr_type, self.span_from(start));
+    /// Parse an expression, supplying a custom start position to be used when annotating the
+    /// range of the expression.
+    fn expression_from(
+        &mut self,
+        start: Bytes,
+        left_fix: Fixity,
+        delimiter: Delimiter,
+    ) -> Result<Expr, ParseError> {
+        let token = self.next().add_stage(Stage::Expr)?;
 
         let lhs = if let Some(lit) = Self::as_literal(&token) {
-            make(ExprKind::Literal(lit))
+            Expr::new(ExprKind::Literal(lit), self.span_from(start))
         } else {
             match &token.kind {
-                TokenKind::Identifier(id) => make(ExprKind::Identifier(id.clone())),
+                TokenKind::Identifier(id) => {
+                    Expr::new(ExprKind::Identifier(id.clone()), self.span_from(start))
+                }
                 TokenKind::Symbol(Symbol::OpenParen) => {
-                    self.expression(Fixity::none(), Delimiter::parentheses())?
+                    self.expression_from(start, Fixity::none(), Delimiter::parentheses())?
                 }
                 TokenKind::Symbol(Symbol::Minus) => {
                     self.un_expr(UnOp::Negate, delimiter.for_subexpr(), start)?
@@ -175,11 +186,11 @@ impl<'a> Parser<'a> {
                 TokenKind::Keyword(Keyword::Not) => {
                     self.un_expr(UnOp::Not, delimiter.for_subexpr(), start)?
                 }
-                _ => return failure(Stage::Expr, Reason::UnexpectedToken(token)),
+                _ => return failure(Stage::Expr, Reason::UnexpectedToken(token.clone())),
             }
         };
 
-        let expr_type = self.pratt_parse(lhs, left_fix, delimiter.for_subexpr(), start)?;
+        let expr_kind = self.pratt_parse(lhs, left_fix, delimiter.for_subexpr(), start)?;
 
         let mut span = self.span_from(start);
         self.satisfy_delimiter(&delimiter)?;
@@ -187,7 +198,7 @@ impl<'a> Parser<'a> {
             span = self.span_from(start);
         }
 
-        Ok(Expr { expr_type, span })
+        Ok(Expr { expr_kind, span })
     }
 
     /// Parse a unary expression using the provided unary operator.
@@ -206,6 +217,7 @@ impl<'a> Parser<'a> {
         ))
     }
 
+    /// Keep grouping stronger operators until a weaker operator is found, then return.
     fn pratt_parse(
         &mut self,
         mut lhs: Expr,
@@ -216,14 +228,13 @@ impl<'a> Parser<'a> {
         loop {
             // Look for the next operator that's coming up
             let op = match self.peek() {
-                // TODO: Check if we should produce the entire expression instead
-                None => return Ok(lhs.expr_type),
+                None => return Ok(lhs.expr_kind),
                 Some(token) => {
                     match (token.kind.as_n_ary_op(), &delimiter) {
-                        // Process a valid binary operator
+                        // Process a valid n-ary operation
                         (Some(op), _) => op,
                         // Process a recognised expression delimiter
-                        (_, delim) if delim.accepts_token(token) => return Ok(lhs.expr_type),
+                        (_, delim) if delim.is_satisfied_by(token) => return Ok(lhs.expr_kind),
                         // Anything else is an error
                         _ => {
                             return failure(
@@ -237,26 +248,23 @@ impl<'a> Parser<'a> {
 
             let cur_fix = Fixity::for_n_ary_op(op);
             if prev_fix.precedes_rhs(&cur_fix) {
-                return Ok(lhs.expr_type);
+                return Ok(lhs.expr_kind);
             }
 
             // Only advance the parser once we're sure we'll use the operator.
             self.next().unwrap();
 
-            match op {
+            let kind = match op {
+                NAryOp::Member => self.parse_member_expr(lhs)?,
+                NAryOp::Index => self.parse_index_expr(lhs, cur_fix)?,
+                NAryOp::FunctionCall => self.parse_function_call(lhs, cur_fix)?,
                 NAryOp::Binary(bin) => {
-                    let rhs = if bin == BinOp::Index {
-                        self.expression(cur_fix, Delimiter::index())?
-                    } else if bin == BinOp::FunctionCall {
-                        self.expression(cur_fix, Delimiter::function_call())?
-                    } else {
-                        self.expression(cur_fix, delimiter.for_subexpr())?
-                    };
+                    let rhs = self.expression(cur_fix, delimiter.for_subexpr())?;
                     let bin_expr = BinExpr { lhs, op: bin, rhs };
-                    lhs = Expr::new(ExprKind::Binary(Box::new(bin_expr)), self.span_from(start));
+                    ExprKind::Binary(Box::new(bin_expr))
                 }
                 NAryOp::Ternary(TerOp::If) => {
-                    let mhs = self.expression(Fixity::none(), Delimiter::ternary())?;
+                    let mhs = self.expression(Fixity::none(), Delimiter::ternary_if())?;
 
                     let rhs = self.expression(cur_fix, delimiter.for_subexpr())?;
 
@@ -266,10 +274,49 @@ impl<'a> Parser<'a> {
                         mhs,
                         rhs,
                     };
-                    lhs = Expr::new(ExprKind::Ternary(Box::new(ter_expr)), self.span_from(start));
+                    ExprKind::Ternary(Box::new(ter_expr))
                 }
-            }
+            };
+            lhs = Expr::new(kind, self.span_from(start));
         }
+    }
+
+    fn parse_member_expr(&mut self, lhs: Expr) -> Result<ExprKind, ParseError> {
+        let (rhs, _) = self.recognise_identifier().add_stage(Stage::MemberExpr)?;
+        let expr = MemberExpr { lhs, rhs };
+        Ok(ExprKind::Member(Box::new(expr)))
+    }
+
+    fn parse_index_expr(&mut self, lhs: Expr, cur_fix: Fixity) -> Result<ExprKind, ParseError> {
+        let rhs = self.expression(cur_fix, Delimiter::index())?;
+        let expr = IndexExpr { lhs, rhs };
+        Ok(ExprKind::Index(Box::new(expr)))
+    }
+
+    fn parse_function_call(&mut self, lhs: Expr, cur_fix: Fixity) -> Result<ExprKind, ParseError> {
+        Ok(match lhs.expr_kind {
+            ExprKind::Identifier(name) => {
+                // TODO: Parse parameter list instead
+                let params = self.expression(cur_fix, Delimiter::function_call())?;
+                let call = FunCallExpr { name, params };
+                ExprKind::FunctionCall(Box::new(call))
+            }
+            ExprKind::Member(member) => {
+                // TODO: Parse parameter list instead
+                let params = self.expression(cur_fix, Delimiter::function_call())?;
+                let call = MetCallExpr {
+                    member: *member,
+                    params,
+                };
+                ExprKind::MethodCall(Box::new(call))
+            }
+            other => {
+                return failure(
+                    Stage::Call,
+                    Reason::NotCallable(other.describe().to_string(), lhs.span),
+                )
+            }
+        })
     }
 
     fn as_literal(token: &Token) -> Option<Literal> {
@@ -302,6 +349,9 @@ impl TokenKind {
                 Keyword::Is => BinOp::Is,
                 _ => return None,
             }),
+            TokenKind::Symbol(Symbol::Period) => NAryOp::Member,
+            TokenKind::Symbol(Symbol::OpenBracket) => NAryOp::Index,
+            TokenKind::Symbol(Symbol::OpenParen) => NAryOp::FunctionCall,
             TokenKind::Symbol(s) => NAryOp::Binary(match s {
                 Plus => BinOp::Add,
                 Minus => BinOp::Subtract,
@@ -314,9 +364,6 @@ impl TokenKind {
                 Gte => BinOp::GreaterThanEqual,
                 Eq => BinOp::Equal,
                 Neq => BinOp::NotEqual,
-                OpenBracket => BinOp::Index,
-                OpenParen => BinOp::FunctionCall,
-                Period => BinOp::MemberAccess,
                 _ => return None,
             }),
             _ => return None,
@@ -443,6 +490,36 @@ mod tests {
     #[test]
     fn index() {
         assert_expr_parses!("a[b] and c", "((a[b]) and c)");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn function() {
+        assert_expr_parses!("a(b)", "(a(b))");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn member_function() {
+        assert_expr_parses!("a.b(b)", "((a.b)(b))");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn complex_member_function() {
+        assert_expr_parses!("(a if True else b).c(d)", "(((a if True else b).c)(d))");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn call_on_uncallable_type_fails() {
+        assert_expr_fails!("(a if True else b)(d)", Stage::Call);
+    }
+
+    /// ChocoPy reference: 5.2
+    #[test]
+    fn call_on_int_fails() {
+        assert_expr_fails!("10(True)", Stage::Call);
     }
 
     /// ChocoPy Language Reference: 4.1

@@ -56,7 +56,7 @@ impl Delimiter {
         }
     }
     /// Construct a delimiter for the middle expression of a ternary if-expression: `x if y else`.
-    pub fn ternary() -> Self {
+    pub fn ternary_if() -> Self {
         Self {
             token_kind: TokenKind::Keyword(Keyword::Else),
             stage: Stage::TernaryElse,
@@ -91,7 +91,7 @@ impl Delimiter {
     }
 
     /// Returns `true` if the supplied token satisfies the required delimiter type.
-    pub fn accepts_token(&self, token: &Token) -> bool {
+    pub fn is_satisfied_by(&self, token: &Token) -> bool {
         token.kind == self.token_kind
     }
 

@@ -8,6 +8,9 @@ use crate::ast::untyped::{BinOp, TerOp, UnOp};
 pub enum NAryOp {
     Binary(BinOp),
     Ternary(TerOp),
+    Member,
+    Index,
+    FunctionCall,
 }
 
 pub type Precedence = u8;
@@ -46,6 +49,10 @@ impl Fixity {
         match op {
             NAryOp::Binary(bin) => Self::for_binop(bin),
             NAryOp::Ternary(ter) => Self::for_terop(ter),
+            NAryOp::Member | NAryOp::Index | NAryOp::FunctionCall => Self {
+                assoc: Assoc::Left,
+                precedence: 9,
+            },
         }
     }
 
@@ -62,7 +69,6 @@ impl Fixity {
             | BinOp::Is => (Assoc::None, 5),
             BinOp::Add | BinOp::Subtract => (Assoc::Left, 6),
             BinOp::Multiply | BinOp::IntDiv | BinOp::Remainder => (Assoc::Left, 7),
-            BinOp::MemberAccess | BinOp::Index | BinOp::FunctionCall => (Assoc::Left, 9),
         };
         Self { assoc, precedence }
     }

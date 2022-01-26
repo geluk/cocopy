@@ -37,6 +37,7 @@ impl From<ParseError> for CompileError {
                 // TODO: Add position information to reason so we don't have to repeat ourselves here.
                 Reason::UnexpectedEndOfInput => Span::zero(),
                 Reason::UnknownType(_, tok) => tok.source,
+                Reason::NotCallable(_, span) => span,
             },
         )
     }
@@ -51,6 +52,8 @@ pub enum Reason {
     UnexpectedEndOfInput,
     #[error("unknown type '{0}'")]
     UnknownType(String, Token),
+    #[error("type '{0}' is not callable")]
+    NotCallable(String, Span),
 }
 
 /// Indicates in which parsing stage the parser failed.
@@ -64,6 +67,10 @@ pub enum Stage {
     ParenExprEnd,
     #[error("the end of an index expression")]
     IndexEnd,
+    #[error("a member expression")]
+    MemberExpr,
+    #[error("a function or method call")]
+    Call,
     #[error("a ternary if-expression")]
     TernaryElse,
     #[error("a parameter list")]
