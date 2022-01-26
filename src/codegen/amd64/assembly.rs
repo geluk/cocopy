@@ -150,6 +150,7 @@ impl Display for Decl {
 }
 
 /// A block of assembly code.
+#[derive(Debug, PartialEq, Eq)]
 pub struct Block {
     lines: Vec<Line<Instr>>,
 }
@@ -190,6 +191,7 @@ impl Display for Block {
 
 /// A line of assembly, consisting of an optional instruction and optional comment.
 /// When the instruction is [`None`], an empty line is emitted.
+#[derive(Debug, Eq)]
 pub struct Line<T> {
     line: Option<T>,
     comment: Option<String>,
@@ -216,6 +218,12 @@ impl<T> Line<T> {
             line: None,
             comment: None,
         }
+    }
+}
+impl<T: PartialEq> PartialEq for Line<T> {
+    fn eq(&self, other: &Self) -> bool {
+        // Ignore comments in equality checks
+        self.line == other.line
     }
 }
 impl<T: Display> Display for Line<T> {

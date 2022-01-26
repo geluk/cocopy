@@ -1,12 +1,8 @@
 //! Native code generation for 64-bit Windows.
 
-use crate::{
-    ast::untyped::BinOp,
-    codegen::amd64::x86::{Op, Register},
-    il::*,
-};
+use crate::il::*;
 
-use super::{assembly::*, register_allocator::RegisterAllocator};
+use super::{assembly::*, procedure_compiler::ProcedureCompiler, x86::*};
 
 use Op::*;
 use Operand::*;
@@ -29,7 +25,23 @@ pub fn compile(prog: TacListing) -> Assembly {
         .push(Op::Call, vec![Id("_CRT_INIT")])
         .blank();
 
-    compile_tac(prog, &mut asm.text.main);
+    let (main, final_reg) = ProcedureCompiler::compile(prog, asm.text.main);
+    asm.text.main = main;
+
+    if let Some(tgt) = final_reg {
+        let body = &mut asm.text.main.body;
+        body.blank();
+        if tgt == RCX {
+            body.push_cmt(Push, vec![Reg(RCX)], "Preserve RCX");
+        }
+        body.push_cmt(Lea, vec![Reg(RCX), Id("[msg_i]")], "arg0: printf template");
+        if tgt == RCX {
+            body.push_cmt(Pop, vec![Reg(RDX)], "arg1: load preserved RCX");
+        } else {
+            body.push_cmt(Mov, vec![Reg(RDX), Reg(tgt)], "arg1: calculation outcome");
+        }
+        body.push_cmt(Call, vec![Id("printf")], "call printf");
+    }
 
     asm.text
         .main
@@ -45,60 +57,6 @@ pub fn compile(prog: TacListing) -> Assembly {
         .db("msg_i", "'The integer is %i', 13, 10, 0");
 
     asm
-}
-
-fn compile_tac(prog: TacListing, proc: &mut Procedure) {
-    let mut allocator = RegisterAllocator::new();
-    let mut final_tgt = None;
-    for instr in prog.into_vec().into_iter() {
-        let comment = instr.to_string();
-        match instr {
-            Instruction::Assign(tgt, value) => {
-                let target = Reg(allocator.lookup(tgt));
-                final_tgt.replace(target.clone());
-                let value = get_operand(value, &mut allocator);
-
-                proc.body.push_cmt(Mov, vec![target, value], comment);
-            }
-            Instruction::Bin(tgt, op, left, right) => {
-                let target = Reg(allocator.lookup(tgt));
-                final_tgt.replace(target.clone());
-                let op = translate_binop(op);
-                let left = get_operand(left, &mut allocator);
-                let right = get_operand(right, &mut allocator);
-
-                // Store
-                proc.body
-                    .push_cmt(Mov, vec![target, left], format!("<store> {}", comment));
-                // Apply
-                proc.body
-                    .push_cmt(op, vec![target, right], format!("<apply> {}", comment));
-            }
-        }
-    }
-    if let Some(tgt) = final_tgt {
-        proc.body
-            .blank()
-            .push_cmt(Lea, vec![Reg(RCX), Id("[msg_i]")], "arg0: printf template")
-            .push_cmt(Mov, vec![Reg(RDX), tgt], "arg1: calculation outcome")
-            .push_cmt(Call, vec![Id("printf")], "call printf");
-    }
-}
-
-fn get_operand(value: Value, allocator: &mut RegisterAllocator) -> Operand {
-    match value {
-        Value::Const(lit) => Lit(lit as i128),
-        Value::Name(name) => Reg(allocator.lookup(name)),
-    }
-}
-
-fn translate_binop(op: BinOp) -> Op {
-    match op {
-        BinOp::Add => Add,
-        BinOp::Multiply => Imul,
-        BinOp::Subtract => Sub,
-        _ => todo!("Unknown operation"),
-    }
 }
 
 fn square() -> Procedure {

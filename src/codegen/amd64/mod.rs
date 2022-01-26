@@ -2,6 +2,7 @@
 
 mod assembly;
 pub mod linux;
+mod procedure_compiler;
 mod register_allocator;
 pub mod windows;
 mod x86;

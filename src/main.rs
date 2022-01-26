@@ -84,6 +84,7 @@ pub fn run_backend(program: Program) -> Result<()> {
     for instr in il.iter_instructions() {
         println!("{}", instr);
     }
+    println!();
 
     codegen::generate_native(il, "out")
 }
