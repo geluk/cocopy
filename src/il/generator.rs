@@ -87,11 +87,11 @@ impl Tac {
     fn lower_function_call(&mut self, call: FunCallExpr) -> Value {
         let expr_value = self.lower_expr(call.params);
 
-        self.emit(Instruction::Param(expr_value));
+        self.emit(InstrKind::Param(expr_value));
 
         let temp_name = self.name_generator.next_temp();
         // TODO: allow calls to other types of functions here.
-        self.emit(Instruction::Call(
+        self.emit(InstrKind::Call(
             temp_name.clone(),
             Builtin::Print,
             // We'll need to know the function's type to determine the number of parameters.
@@ -107,18 +107,19 @@ impl Tac {
 
         let temp_name = self.name_generator.next_temp();
 
-        self.emit(Instruction::Bin(temp_name.clone(), expr.op, lhs, rhs));
+        self.emit(InstrKind::Bin(temp_name.clone(), expr.op, lhs, rhs));
 
         Value::Name(temp_name)
     }
 
     fn emit_assign(&mut self, id: String, value: Value) {
         let name = self.name_generator.next_subscript(id);
-        self.emit(Instruction::Assign(name, value));
+        self.emit(InstrKind::Assign(name, value));
     }
 
     /// Emit an instruction, adding it to the listing.
-    fn emit(&mut self, instr: Instruction) {
+    fn emit(&mut self, kind: InstrKind) {
+        let instr = Instruction::new(kind);
         self.listing.push(instr);
     }
 }

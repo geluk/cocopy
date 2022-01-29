@@ -9,6 +9,7 @@ use std::{
 
 use crate::{ast::untyped::BinOp, builtins::Builtin};
 
+pub type Label = String;
 pub type TargetSize = isize;
 
 /// A listing of three-address code. This will normally represent a function body
@@ -68,23 +69,51 @@ impl Display for TacListing {
     }
 }
 
+#[derive(Debug)]
+pub struct Instruction {
+    pub kind: InstrKind,
+    pub label: Option<Label>,
+}
+impl Instruction {
+    pub fn new(kind: InstrKind) -> Self {
+        Self { kind, label: None }
+    }
+
+    pub fn reads_from_name(&self, name: &Name) -> bool {
+        self.kind.reads_from_name(name)
+    }
+
+    pub fn replace(&mut self, src: &Value, dest: Cow<Value>) {
+        self.kind.replace(src, dest)
+    }
+
+    pub fn as_assign(&self) -> Option<(&Name, &Value)> {
+        self.kind.as_assign()
+    }
+}
+impl Display for Instruction {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        self.kind.fmt(f)
+    }
+}
+
 /// A single TAC instruction.
 #[derive(Debug)]
-pub enum Instruction {
+pub enum InstrKind {
     Assign(Name, Value),
     Bin(Name, BinOp, Value, Value),
     Param(Value),
     Call(Name, Builtin, usize),
 }
-impl Instruction {
+impl InstrKind {
     pub fn reads_from_name(&self, name: &Name) -> bool {
         match self {
-            Instruction::Assign(_, value) => Self::is_usage_of(name, value),
-            Instruction::Bin(_, _, lhs, rhs) => {
+            InstrKind::Assign(_, value) => Self::is_usage_of(name, value),
+            InstrKind::Bin(_, _, lhs, rhs) => {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
-            Instruction::Param(value) => Self::is_usage_of(name, value),
-            Instruction::Call(_, _, _) => false,
+            InstrKind::Param(value) => Self::is_usage_of(name, value),
+            InstrKind::Call(_, _, _) => false,
         }
     }
 
@@ -96,19 +125,19 @@ impl Instruction {
             }
         }
         match self {
-            Instruction::Assign(_, value) => try_replace(value, src, dest),
-            Instruction::Bin(_, _, l, r) => {
+            InstrKind::Assign(_, value) => try_replace(value, src, dest),
+            InstrKind::Bin(_, _, l, r) => {
                 try_replace(l, src, dest.clone());
                 try_replace(r, src, dest);
             }
-            Instruction::Param(p) => try_replace(p, src, dest),
-            Instruction::Call(_, _, _) => (),
+            InstrKind::Param(p) => try_replace(p, src, dest),
+            InstrKind::Call(_, _, _) => (),
         }
     }
 
     pub fn as_assign(&self) -> Option<(&Name, &Value)> {
         match self {
-            Instruction::Assign(name, value) => Some((name, value)),
+            InstrKind::Assign(name, value) => Some((name, value)),
             _ => None,
         }
     }
@@ -120,15 +149,15 @@ impl Instruction {
         }
     }
 }
-impl Display for Instruction {
+impl Display for InstrKind {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Instruction::Assign(target, value) => write!(f, "{} = {}", target, value),
-            Instruction::Bin(target, op, lhs, rhs) => {
+            InstrKind::Assign(target, value) => write!(f, "{} = {}", target, value),
+            InstrKind::Bin(target, op, lhs, rhs) => {
                 write!(f, "{} = {} {} {}", target, lhs, op, rhs)
             }
-            Instruction::Param(p) => write!(f, "param {}", p),
-            Instruction::Call(name, tgt, params) => {
+            InstrKind::Param(p) => write!(f, "param {}", p),
+            InstrKind::Call(name, tgt, params) => {
                 write!(f, "{} = call {}, {}", name, tgt, params)
             }
         }
@@ -156,8 +185,11 @@ impl Display for Instruction {
 /// to better optimise the code.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Name {
+    /// A subscripted variable.
     Sub(String, usize),
+    /// A generated, temporary name.
     Temp(String),
+    /// A built-in function.
     Builtin(Builtin),
 }
 impl Display for Name {
@@ -170,6 +202,8 @@ impl Display for Name {
     }
 }
 
+/// A TAC value. Values can be constants, or references to names that were
+/// defined earlier.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     /// A constant, specified in the target size of the destination platform.

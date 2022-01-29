@@ -35,15 +35,15 @@ impl ProcedureCompiler {
 
     fn compile_instr(&mut self, instr: &Instruction) {
         let comment = instr.to_string();
-        match instr {
-            Instruction::Assign(tgt, value) => {
+        match &instr.kind {
+            InstrKind::Assign(tgt, value) => {
                 self.compile_assign(tgt.clone(), value.clone(), comment)
             }
-            Instruction::Bin(tgt, op, left, right) => {
+            InstrKind::Bin(tgt, op, left, right) => {
                 self.compile_bin(tgt.clone(), *op, left.clone(), right.clone(), comment)
             }
-            Instruction::Param(param) => self.compile_param(param.clone()),
-            Instruction::Call(tgt, name, params) => self.compile_call(tgt.clone(), *name, *params),
+            InstrKind::Param(param) => self.compile_param(param.clone()),
+            InstrKind::Call(tgt, name, params) => self.compile_call(tgt.clone(), *name, *params),
         }
     }
 
@@ -70,14 +70,14 @@ impl ProcedureCompiler {
             .push_cmt(op, vec![Reg(target), right], format!("<apply> {}", comment));
     }
 
-    fn compile_call(&mut self, tgt: Name, name: Builtin, params: usize) {
+    fn compile_call(&mut self, tgt: Name, name: Builtin, param_count: usize) {
         let tgt = self.allocator.lookup(tgt);
 
-        if params > 4 {
+        if param_count > 4 {
             todo!("Can't deal with more than 4 parameters yet.");
         }
         let target_regs = [Rcx, Rdx, R8, R9];
-        for (idx, &reg) in target_regs[0..params].iter().enumerate() {
+        for (idx, &reg) in target_regs[0..param_count].iter().enumerate() {
             let value = self.param_stack.pop().expect("Parameter count mismatch!");
             self.procedure.body.push_cmt(
                 Mov,
@@ -138,7 +138,7 @@ mod tests {
     macro_rules! listing {
         ($instr:expr) => {{
             let mut listing = TacListing::new();
-            listing.push($instr);
+            listing.push(Instruction::new($instr));
             listing
         }};
     }
@@ -158,12 +158,8 @@ mod tests {
 
     #[test]
     fn compile_tac_compiles_instruction_to_assembly() {
-        let procedure = compile_listing!(Instruction::Bin(
-            sub!("x"),
-            BinOp::Add,
-            cnst!(10),
-            cnst!(99),
-        ));
+        let procedure =
+            compile_listing!(InstrKind::Bin(sub!("x"), BinOp::Add, cnst!(10), cnst!(99),));
 
         let mut expected = Block::new();
         expected.push(Mov, vec![Reg(Rax), Lit(10)]);
@@ -174,7 +170,7 @@ mod tests {
 
     #[test]
     fn can_compile_multiplication() {
-        compile_listing!(Instruction::Bin(
+        compile_listing!(InstrKind::Bin(
             sub!("x"),
             BinOp::Multiply,
             cnst!(10),
