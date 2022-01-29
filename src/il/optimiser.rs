@@ -1,4 +1,4 @@
-use std::{collections::HashMap, iter::Enumerate, slice::Iter};
+use std::{borrow::Cow, collections::HashMap, iter::Enumerate, slice::Iter};
 
 use super::{Instruction, MatchInstruction, TacListing, Value};
 
@@ -73,8 +73,8 @@ impl Optimiser {
                 .collect();
 
             for name in usages {
-                let replacement = replacements.get(name).cloned().unwrap();
-                instr.replace(&Value::Name(name.clone()), replacement);
+                let replacement = replacements.get(name).unwrap();
+                instr.replace(&Value::Name(name.clone()), Cow::Borrowed(replacement));
             }
         }
 

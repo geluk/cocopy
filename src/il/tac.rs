@@ -1,6 +1,7 @@
 //! Three-Address Code
 
 use std::{
+    borrow::Cow,
     fmt::{self, Display, Formatter},
     iter::Enumerate,
     slice::{Iter, IterMut},
@@ -87,19 +88,21 @@ impl Instruction {
         }
     }
 
-    /// Replace all occurrences a value in this instruction with another value.
-    pub fn replace(&mut self, src: &Value, dest: Value) {
-        match self {
-            Instruction::Assign(_, value) if value == src => *value = dest,
-            Instruction::Bin(_, _, l, r) => {
-                if l == src {
-                    *l = dest.clone();
-                }
-                if r == src {
-                    *r = dest;
-                }
+    /// Replace all occurrences of a value in this instruction with another value.
+    pub fn replace(&mut self, src: &Value, dest: Cow<Value>) {
+        fn try_replace(tgt: &mut Value, src: &Value, dest: Cow<Value>) {
+            if tgt == src {
+                *tgt = dest.into_owned();
             }
-            _ => (),
+        }
+        match self {
+            Instruction::Assign(_, value) => try_replace(value, src, dest),
+            Instruction::Bin(_, _, l, r) => {
+                try_replace(l, src, dest.clone());
+                try_replace(r, src, dest);
+            }
+            Instruction::Param(p) => try_replace(p, src, dest),
+            Instruction::Call(_, _, _) => (),
         }
     }
 
