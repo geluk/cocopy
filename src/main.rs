@@ -42,6 +42,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+/// Run the compiler frontend. The frontend converts an input string to a
+/// [`Program`], which represents an abstract syntax tree.
 pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
     let tokens = lexer::lex(source)?;
     println!("\n==============");
@@ -67,6 +69,10 @@ pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
     Ok(program)
 }
 
+/// Run the compiler backend. The backend takes an AST and lowers it into a
+/// simple intermediate language, which then gets converted to assembly.
+/// Finally, the assembly source code is assembled and linked into
+/// an executable.
 pub fn run_backend(program: Program) -> Result<()> {
     let il = il::generate(program);
 

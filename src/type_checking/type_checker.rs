@@ -76,6 +76,7 @@ impl<'a> TypeChecker<'a> {
             }
             StmtKind::Return(_) => todo!("return statements are not supported yet"),
             StmtKind::Assign(assign) => self.check_assign_stmt(assign)?,
+            StmtKind::If(_) => todo!("if-statements are not supported yet"),
         }
         Ok(())
     }

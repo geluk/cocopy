@@ -83,6 +83,12 @@ pub enum Stage {
     Statement,
     #[error("an assignment target")]
     AssignTarget,
+    #[error("a condition")]
+    Condition,
+    #[error("an if-statement")]
+    IfStatement,
+    #[error("an indented block")]
+    Block,
 }
 
 /// Allows adding a parsing stage to an error.

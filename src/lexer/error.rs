@@ -1,4 +1,4 @@
-//! Lexing functions for constructing a token stream.
+//! Representation of lexer errors.
 use thiserror::Error;
 
 use crate::{error::CompileError, span::*};

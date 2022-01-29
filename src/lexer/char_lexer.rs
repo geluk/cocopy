@@ -1,4 +1,5 @@
 //! A lightweight, peekable character lexer with position information.
+//! It is wrapped by [`Lexer`], which handles higher level lexing.
 use std::{iter::Peekable, str::Chars};
 
 use crate::span::Bytes;

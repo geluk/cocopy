@@ -38,8 +38,9 @@ impl Tac {
             StmtKind::Evaluate(expr) => {
                 self.lower_expr(expr);
             }
-            StmtKind::Return(_) => todo!(),
+            StmtKind::Return(_) => todo!("return statements are not supported yet"),
             StmtKind::Assign(assign) => self.lower_assign(assign),
+            StmtKind::If(_) => todo!("if-statements are not supported yet"),
         };
     }
 

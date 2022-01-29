@@ -3,10 +3,17 @@ use crate::lexer::tokens::*;
 
 use super::error::Stage;
 
+/// A delimiter for a parseable token sequence. Indicates how a the sequence
+/// may be closed, and the parsing stage it belongs to.
 pub struct Delimiter {
+    /// The kind of token that may end a sequence.
     token_kind: TokenKind,
+    /// The parsing stage to which this delimiter belongs.
     stage: Stage,
+    /// If true, the delimiter token should be consumed once encountered.
     may_consume: bool,
+    /// If true, the delimiter should be considered part of the span of the
+    /// expression it represents.
     include_in_span: bool,
 }
 impl Delimiter {
@@ -24,6 +31,15 @@ impl Delimiter {
         Self {
             token_kind: TokenKind::Structure(Structure::Newline),
             stage: Stage::StatementEnd,
+            may_consume: true,
+            include_in_span: false,
+        }
+    }
+    /// Construct a delimiter for a condition expression terminated by a colon: `:`.
+    pub fn condition() -> Self {
+        Self {
+            token_kind: TokenKind::Symbol(Symbol::Colon),
+            stage: Stage::Condition,
             may_consume: true,
             include_in_span: false,
         }
@@ -85,7 +101,16 @@ impl Delimiter {
     }
 
     /// Returns `true` if the delimiter token should be considered part
-    /// of the expression it delimits.
+    /// of the span of its expression. When `true`, the span looks like this:
+    /// ```
+    /// (a + b)
+    /// ^^^^^^^
+    /// ```
+    /// When `false`, it looks like this:
+    /// ```
+    /// (a + b)
+    ///  ^^^^^
+    /// ```
     pub fn include_in_span(&self) -> bool {
         self.include_in_span
     }
@@ -97,7 +122,7 @@ impl Delimiter {
 
     /// Constructs a new delimiter for a subexpression parser. This delimiter will be a copy of the
     /// current delimiter, but with [`self.may_consume`] set to `false` to indicate that the subparser
-    /// must leave the token for the parent parser to consume.
+    /// must leave the delimiter token in place, so the parent parser can consume it.
     pub fn for_subexpr(&self) -> Self {
         Self {
             token_kind: self.token_kind.clone(),

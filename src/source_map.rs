@@ -10,10 +10,13 @@ pub fn find_line(source: &str, target_position: Bytes) -> LineContext {
         };
     }
 
-    let lines = inclusive_split_lines(source).into_iter().enumerate();
+    let lines: Vec<_> = inclusive_split_lines(source)
+        .into_iter()
+        .enumerate()
+        .collect();
 
     let mut position = Bytes::new(0);
-    for (line_idx, line) in lines {
+    for (line_idx, line) in lines.iter() {
         let end_position = position + line.len();
         if target_position >= position && target_position < end_position {
             return LineContext {
@@ -24,8 +27,14 @@ pub fn find_line(source: &str, target_position: Bytes) -> LineContext {
         }
         position = end_position;
     }
-
-    panic!("Target position was outside the bounds of the source string")
+    println!("{:#?}", lines);
+    // TODO: Determine a better way to display virtual tokens
+    let (line_idx, line) = lines.last().unwrap();
+    LineContext {
+        source: line,
+        range: Span::new(position, position + line.len()),
+        line_no: line_idx + 1,
+    }
 }
 
 fn inclusive_split_lines(source: &str) -> Vec<&str> {

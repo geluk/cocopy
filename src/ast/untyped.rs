@@ -53,18 +53,27 @@ impl Display for VarDef {
 
 #[derive(Debug)]
 pub struct Block {
-    pub statements: Vec<StmtKind>,
+    pub statements: Vec<Statement>,
+    pub span: Span,
 }
 impl Block {
-    pub fn new() -> Self {
-        Self { statements: vec![] }
+    pub fn new(statements: Vec<Statement>, span: Span) -> Self {
+        Self { statements, span }
+    }
+}
+impl Display for Block {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for stmt in &self.statements {
+            writeln!(f, "{}", stmt)?;
+        }
+        Ok(())
     }
 }
 
 #[derive(Debug)]
 pub struct If {
-    pub expression: ExprKind,
-    pub block: Block,
+    pub condition: Expr,
+    pub body: Block,
     pub elifs: Vec<Elif>,
     pub else_block: Option<Block>,
 }
@@ -92,6 +101,7 @@ pub enum StmtKind {
     Evaluate(Expr),
     Return(Option<Expr>),
     Assign(Assign),
+    If(If),
 }
 impl Display for StmtKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -102,6 +112,10 @@ impl Display for StmtKind {
             Return(None) => f.write_str("return\n"),
             Return(Some(expr)) => writeln!(f, "return {}", expr),
             Assign(assign) => writeln!(f, "{}", assign),
+            If(if_st) => {
+                writeln!(f, "if {}:", if_st.condition)?;
+                writeln!(f, "{}", if_st.body)
+            }
         }
     }
 }

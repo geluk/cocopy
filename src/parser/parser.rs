@@ -12,25 +12,23 @@ use super::{
     parser_base::*,
 };
 
+/// Parse a token stream into a syntax tree.
 pub fn parse(token_stream: &[Token]) -> Result<Program, ParseError> {
-    Parser::new(token_stream).parse()
+    Parser::new(token_stream).program()
 }
-impl<'a> Parser<'a> {
-    fn parse(&mut self) -> Result<Program, ParseError> {
-        self.program()
-    }
 
+impl<'a> Parser<'a> {
     /// Parse a complete program (a single ChocoPy file).
     fn program(&mut self) -> Result<Program, ParseError> {
         let mut program = Program::new();
 
         while self.has_next() {
-            // Keep parsing var_defs...
-            if let Some(var_def) = self.recognise_parser(Self::var_def) {
+            // Keep parsing variable definitions...
+            if let Ok(var_def) = self.recognise_parser(Self::var_def) {
                 program.add_var_def(var_def);
             }
             // ... until we encounter an error. Then try a statement...
-            else if let Some(stmt) = self.recognise_parser(Self::statement) {
+            else if let Ok(stmt) = self.recognise_parser(Self::statement) {
                 // If that succeeds, add it. From now on, recognise only statements.
                 program.add_statement(stmt);
                 break;
@@ -103,6 +101,10 @@ impl<'a> Parser<'a> {
                 span: self.span_from(start),
             });
         }
+        match self.peek_kind() {
+            Some(TokenKind::Keyword(Keyword::If)) => return self.if_statement(),
+            _ => (),
+        }
         // TODO: The same can be said for `if`, `while`, and `for`.
 
         // At this point, we have two options left. We could either encounter an assignment,
@@ -117,6 +119,50 @@ impl<'a> Parser<'a> {
             stmt_kind: stmt_type,
             span: self.span_from(start),
         })
+    }
+
+    fn if_statement(&mut self) -> Result<Statement, ParseError> {
+        let start = self.position();
+        const ST: Stage = Stage::IfStatement;
+        self.recognise_keyword(Keyword::If).add_stage(ST)?;
+
+        let condition = self.expression(Fixity::none(), Delimiter::condition())?;
+        self.recognise_structure(Structure::Newline).add_stage(ST)?;
+
+        let body = self.block()?;
+        let if_st = If {
+            condition,
+            body,
+            elifs: vec![],
+            else_block: None,
+        };
+
+        // TODO: elif/else
+
+        Ok(Statement {
+            span: self.span_from(start),
+            stmt_kind: StmtKind::If(if_st),
+        })
+    }
+
+    fn block(&mut self) -> Result<Block, ParseError> {
+        let start = self.position();
+        self.recognise_structure(Structure::Indent)
+            .add_stage(Stage::Block)?;
+        let mut body = Vec::new();
+        loop {
+            match self.recognise_parser(Self::statement) {
+                Ok(st) => body.push(st),
+                Err(err) => {
+                    if self.recognise_structure(Structure::Dedent).is_ok() {
+                        break;
+                    } else {
+                        return Err(err);
+                    }
+                }
+            }
+        }
+        Ok(Block::new(body, self.span_from(start)))
     }
 
     /// Parse a variable assignment statement.

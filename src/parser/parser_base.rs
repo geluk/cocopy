@@ -38,6 +38,10 @@ impl<'a> Parser<'a> {
         self.tokens.peek().copied()
     }
 
+    pub fn peek_kind(&mut self) -> Option<&TokenKind> {
+        self.peek().map(|t| &t.kind)
+    }
+
     pub fn has_next(&mut self) -> bool {
         self.peek().is_some()
     }
@@ -96,18 +100,16 @@ impl<'a> Parser<'a> {
 
     /// Transforms a parsing function to only mutate the parsing state if it succeeds.
     /// If it fails, returns [`None`] without modifying the parser state.
-    pub fn recognise_parser<P, R, E>(&mut self, parse_func: P) -> Option<R>
+    pub fn recognise_parser<P, R, E>(&mut self, parse_func: P) -> Result<R, E>
     where
         P: FnOnce(&mut Self) -> Result<R, E>,
     {
         let mut sub_parser = self.clone();
-        match parse_func(&mut sub_parser) {
-            Ok(result) => {
-                *self = sub_parser;
-                Some(result)
-            }
-            Err(_) => None,
+        let res = parse_func(&mut sub_parser);
+        if res.is_ok() {
+            *self = sub_parser;
         }
+        res
     }
 
     /// Tries two parsing functions, returning the result of the first if it succeeds.

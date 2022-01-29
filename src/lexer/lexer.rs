@@ -1,4 +1,5 @@
-//! Functionality for looking up character ranges in the source code.
+//! Recognises ChocoPy tokens. The lexer takes an input string and converts
+//! it to a token stream.
 use std::num::ParseIntError;
 
 use crate::span::*;
