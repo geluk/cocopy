@@ -1,39 +1,31 @@
-use std::{path::Path, process::Command};
+use std::{
+    collections::HashMap,
+    fs::{self},
+    path::{Path, PathBuf},
+    process::Command,
+};
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, Context, Result};
 
 use crate::ext::{DiscardOk, TryDecode, VerifySuccess};
 
 use super::Linker;
 
-const VISUAL_STUDIO_VC: &str = r#"C:\Program Files\Microsoft Visual Studio\2022\Community\VC"#;
+const VISUAL_STUDIO_DIR: &str = r#"C:\Program files\Microsoft Visual Studio\"#;
 
 pub struct WindowsLinker {}
-impl WindowsLinker {
-    fn prepare_environment() -> Result<String> {
-        let output = Command::new("cmd")
-            .args(["/c", r#"\Auxiliary\Build\vcvars64.bat&set"#])
-            .current_dir(VISUAL_STUDIO_VC)
-            .env("__VSCMD_ARG_NO_LOGO", "1")
-            .output()?;
-
-        let (stdout, _) = output.verify_success("Failed to prepare linker environment")?;
-
-        for line in stdout.lines().filter(|l| l.contains('=')) {
-            let (key, value) = line.split_once('=').unwrap();
-            if key == "PATH" {
-                return Ok(value.to_string());
-            }
-        }
-        bail!("PATH not set when preparing linker environment");
-    }
-}
 impl Linker for WindowsLinker {
+    /// Link an assembled object into an executable file.
     fn link_object<P: AsRef<Path>>(object_path: P, executable_path: P) -> Result<()> {
-        let path = Self::prepare_environment()?;
+        let vc = find_visual_studio_dir().context("Could not find Visual Studio directory")?;
+        let env =
+            prepare_linker_environment(&vc).context("Could not prepare linker environment")?;
+
+        let link_exe = find_link_exe(&vc)?;
 
         let exe = format!(r#"/out:{}"#, executable_path.try_decode()?);
-        let output = Command::new("link.exe")
+        let mut command = Command::new(link_exe);
+        command
             .args([
                 object_path.try_decode()?,
                 "/subsystem:console",
@@ -41,11 +33,102 @@ impl Linker for WindowsLinker {
                 "legacy_stdio_definitions.lib",
                 "msvcrt.lib",
             ])
-            .env("PATH", path)
-            .output()?;
+            .envs(&env);
 
-        output
-            .verify_success("Failed to execute linker")
+        command
+            .output()
+            .map_err(Into::into)
+            .and_then(VerifySuccess::verify_success)
             .discard_ok()
+            .context("Running the linker failed")
+    }
+}
+
+/// Find the Visual Studio installation directory.
+fn find_visual_studio_dir() -> Result<PathBuf> {
+    let newest = find_newest_subdir(VISUAL_STUDIO_DIR).context(format!(
+        "Could not find Visual Studio version (looked in '{}')",
+        VISUAL_STUDIO_DIR
+    ))?;
+
+    let mut edition = fs::read_dir(&newest)?
+        .next()
+        .ok_or_else(|| {
+            anyhow!(
+                "No Visual Studio edition directory found at '{}'",
+                newest.display()
+            )
+        })??
+        .path();
+
+    edition.push("VC");
+
+    Ok(edition)
+}
+
+/// Sets up the required environment variables in order for `link.exe`
+/// to work correctly.
+fn prepare_linker_environment(visual_studio_vc: &Path) -> Result<HashMap<String, String>> {
+    let output = Command::new("cmd")
+        .args(["/c", r#"\Auxiliary\Build\vcvars64.bat&set"#])
+        .current_dir(visual_studio_vc)
+        .env("__VSCMD_ARG_NO_LOGO", "1")
+        .output()?;
+
+    let (stdout, _) = output
+        .verify_success()
+        .context("Failed to prepare linker environment")?;
+
+    let mut env = HashMap::new();
+
+    for line in stdout.lines().filter(|l| l.contains('=')) {
+        let (key, value) = line.split_once('=').unwrap();
+        env.insert(key.to_string(), value.to_string());
+    }
+    Ok(env)
+}
+
+/// Find the location of `link.exe` in a Visual Studio installation directory.
+fn find_link_exe(vs_vc: &Path) -> Result<PathBuf> {
+    let msvc = vs_vc.join(Path::new(r#"Tools\MSVC"#));
+    // Look for the latest installed Visual C++ version.
+    let mut version = find_newest_subdir(&msvc).context(format!(
+        "Could not find MSVC version (looked in '{}')",
+        msvc.display()
+    ))?;
+    version.extend(["bin", "HostX64", "x64", "link.exe"].iter());
+    Ok(version)
+}
+
+fn find_newest_subdir<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
+    let vs_dir = fs::read_dir(path.as_ref()).context(format!(
+        "Could not find target directory '{}'",
+        path.as_ref().display()
+    ))?;
+    let mut entries = vs_dir
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()
+        .context(format!(
+            "Could not discover subdirectories of '{}'",
+            path.as_ref().display()
+        ))?;
+    entries.sort_by_key(|ent| ent.file_name());
+
+    entries
+        .into_iter()
+        .last()
+        .map(|ent| ent.path())
+        .ok_or_else(|| anyhow!("Path '{}' has no subdirectories", path.as_ref().display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    pub fn test() {
+        let dir = find_visual_studio_dir().unwrap();
+
+        println!("{:#?}", dir);
     }
 }

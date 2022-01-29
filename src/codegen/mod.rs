@@ -10,7 +10,7 @@ use std::{
     process::Command,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use crate::{
     ext::{DiscardOk, TryDecode, VerifySuccess},
@@ -43,7 +43,7 @@ pub fn generate_native<P: AsRef<Path>>(prog: TacListing, out_dir: P) -> Result<(
     generate_assembly(prog, &asm_path, os)?;
     assemble(&asm_path, &obj_path, os)?;
 
-    link(&obj_path, &exe_path, os)?;
+    link(obj_path, exe_path, os)?;
 
     Ok(())
 }
@@ -84,7 +84,8 @@ fn assemble<P: AsRef<Path>>(asm_path: P, obj_path: P, os: Os) -> Result<()> {
         .output()?;
 
     output
-        .verify_success("Failed to assemble the program")
+        .verify_success()
+        .context("Failed to assemble the program")
         .discard_ok()
 }
 
