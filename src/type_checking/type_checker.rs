@@ -63,22 +63,45 @@ impl<'a> TypeChecker<'a> {
         self.program
             .statements
             .iter()
-            .flat_map(|s| self.check_statement(s).collect_errors())
+            .flat_map(|s| self.check_statement(s))
             .collect()
     }
 
     /// Verify that a statement is well-typed.
-    fn check_statement(&self, statement: &Statement) -> Result<(), Vec<TypeError>> {
+    fn check_statement(&self, statement: &Statement) -> Vec<TypeError> {
         match &statement.stmt_kind {
-            StmtKind::Pass => (),
-            StmtKind::Evaluate(expr) => {
-                self.check_expression(expr)?;
-            }
+            StmtKind::Pass => vec![],
+            StmtKind::Evaluate(expr) => self.check_expression(expr).collect_errors(),
             StmtKind::Return(_) => todo!("return statements are not supported yet"),
-            StmtKind::Assign(assign) => self.check_assign_stmt(assign)?,
-            StmtKind::If(_) => todo!("if-statements are not supported yet"),
+            StmtKind::Assign(assign) => self.check_assign_stmt(assign).collect_errors(),
+            StmtKind::If(if_stmt) => self.check_if(if_stmt),
         }
-        Ok(())
+    }
+
+    fn check_if(&self, if_stmt: &If) -> Vec<TypeError> {
+        let mut errors = self
+            .check_expression(&if_stmt.condition)
+            .and_then(|ty| {
+                if ty != TypeSpec::Bool {
+                    singleton_error(TypeErrorKind::IfCondition(ty), if_stmt.condition.span)
+                } else {
+                    Ok(())
+                }
+            })
+            .collect_errors();
+
+        let mut block_errors = self.check_block(&if_stmt.body);
+
+        errors.append(&mut block_errors);
+        errors
+    }
+
+    fn check_block(&self, block: &Block) -> Vec<TypeError> {
+        block
+            .statements
+            .iter()
+            .flat_map(|stmt| self.check_statement(stmt))
+            .collect()
     }
 
     /// Verify that assignment to a variable is well-typed.
@@ -346,6 +369,29 @@ b: int = 9
 c: int = 0
 c = (a + a) * b
 "#
+        )
+    }
+
+    /// ChocoPy reference: 5.2
+    #[test]
+    fn if_without_elif_else_typechecks() {
+        assert_type_checks!(
+            r#"
+if True:
+	10 * 10
+"#
+        )
+    }
+
+    /// ChocoPy reference: 5.2
+    #[test]
+    fn if_with_non_bool_condition_fails() {
+        assert_type_error!(
+            r#"
+if 10 * 10:
+	20
+"#,
+            TypeErrorKind::IfCondition(TypeSpec::Int)
         )
     }
 

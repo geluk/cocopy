@@ -40,8 +40,13 @@ impl Tac {
             }
             StmtKind::Return(_) => todo!("return statements are not supported yet"),
             StmtKind::Assign(assign) => self.lower_assign(assign),
-            StmtKind::If(_) => todo!("if-statements are not supported yet"),
+            StmtKind::If(if_stmt) => self.lower_if(if_stmt),
         };
+    }
+
+    fn lower_if(&mut self, if_stmt: If) {
+        todo!("lower if statement");
+        // let cond = self.lower_expr(if_stmt.condition);
     }
 
     fn lower_assign(&mut self, assign: Assign) {

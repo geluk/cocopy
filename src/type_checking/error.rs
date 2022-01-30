@@ -64,6 +64,8 @@ pub enum TypeErrorKind {
     ParamCountMismatch(String, usize, usize),
     #[error("cannot apply expression of type '{1}' to a parameter of type '{0}'")]
     ParamTypeMismatch(TypeSpec, TypeSpec),
+    #[error("cannot use expression of type '{0}' as the condition for an if-statement")]
+    IfCondition(TypeSpec),
 }
 
 pub trait AddSpan {

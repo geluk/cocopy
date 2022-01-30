@@ -100,9 +100,13 @@ impl Display for Instruction {
 /// A single TAC instruction.
 #[derive(Debug)]
 pub enum InstrKind {
+    /// Assign a value to a name.
     Assign(Name, Value),
+    /// Perform a binary operation.
     Bin(Name, BinOp, Value, Value),
+    /// Push a parameter to the parameter stack.
     Param(Value),
+    /// Call a function, passing `n` parameters.
     Call(Name, Builtin, usize),
 }
 impl InstrKind {
