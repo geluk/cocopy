@@ -17,7 +17,7 @@ Specify the source file as the first argument:
 ```
 
 This generates an `out.exe` file on Windows, assuming you have a Visual Studio 2022 installation
-with `link.exe`. Otherwise, you may need tweak and run `build_win64.ps1` instead, which will
+with the C++ workload installed. Otherwise, you may need tweak and run `build_win64.ps1` instead, which will
 manually link `out.obj` into an executable.
 
 On Linux, you must link `out.obj` into an executable yourself. You can use `gcc` for this.
@@ -234,6 +234,7 @@ main:
 
 ## Type checking
 - [Write You a Haskell](http://dev.stephendiehl.com/fun/)
+- [Algorithm 𝒲 Step by Step](http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.65.7733&rep=rep1&type=pdf)
 
 ## Code generation
 - [My First Language Frontend with LLVM](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
