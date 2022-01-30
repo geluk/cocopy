@@ -3,7 +3,7 @@ use std::{
     slice::Iter,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
     Rbp,
     Rsp,
@@ -68,6 +68,13 @@ pub enum Op {
     // Bitwise operations
     Xor,
 }
+// impl Op {
+//     fn accepts_target(&self) -> Accepts {
+//         match self {
+//             Idiv => Accepts::rax_only(),
+//         }
+//     }
+// }
 impl Display for Op {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
@@ -81,6 +88,54 @@ impl Display for Op {
             Op::Sub => f.write_str("sub"),
             Op::Imul => f.write_str("imul"),
             Op::Xor => f.write_str("xor"),
+        }
+    }
+}
+
+pub struct OpSemantics {
+    operands: Vec<Accepts>,
+}
+impl OpSemantics {
+    pub fn new(operands: Vec<Accepts>) -> OpSemantics {
+        Self { operands }
+    }
+
+    pub fn any_reg1() -> Self {
+        Self::new(vec![Accepts::any_reg()])
+    }
+
+    pub fn any1() -> Self {
+        Self::new(vec![Accepts::any()])
+    }
+}
+
+#[derive(Default)]
+pub struct Accepts {
+    rax: bool,
+    gp_regs: bool,
+    memory: bool,
+    immediate: bool,
+}
+impl Accepts {
+    pub fn any() -> Self {
+        Self {
+            rax: true,
+            gp_regs: true,
+            memory: true,
+            immediate: true,
+        }
+    }
+    pub fn any_reg() -> Self {
+        Self {
+            rax: true,
+            gp_regs: true,
+            ..Default::default()
+        }
+    }
+    pub fn rax_only() -> Self {
+        Self {
+            rax: true,
+            ..Default::default()
         }
     }
 }

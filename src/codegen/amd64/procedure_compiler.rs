@@ -1,3 +1,4 @@
+
 use crate::{ast::untyped::BinOp, builtins::Builtin, il::*};
 
 use super::{assembly::*, register_allocator::RegisterAllocator, x86::*};
@@ -6,10 +7,13 @@ use Op::*;
 use Operand::*;
 use Register::*;
 
+struct StackOffset(usize);
+
 pub struct ProcedureCompiler {
     allocator: RegisterAllocator,
     procedure: Procedure,
     param_stack: Vec<Operand>,
+    spills: Vec<Name>,
 }
 impl ProcedureCompiler {
     pub fn compile(listing: TacListing, procedure: Procedure) -> Procedure {
@@ -17,6 +21,7 @@ impl ProcedureCompiler {
             allocator: RegisterAllocator::new(),
             procedure,
             param_stack: vec![],
+            spills: Vec::new(),
         };
         compiler.compile_tac(listing);
 
@@ -48,30 +53,30 @@ impl ProcedureCompiler {
     }
 
     fn compile_assign(&mut self, target: Name, value: Value, comment: String) {
-        let target = self.allocator.lookup(target);
+        let target = self.lookup(target);
         let value = self.get_operand(value);
 
         self.procedure
             .body
-            .push_cmt(Mov, vec![Reg(target), value], comment);
+            .push_cmt(Mov, vec![target, value], comment);
     }
 
     fn compile_bin(&mut self, tgt: Name, op: BinOp, left: Value, right: Value, comment: String) {
-        let target = self.allocator.lookup(tgt);
+        let target = self.lookup(tgt);
         let op = translate_binop(op);
         let left = self.get_operand(left);
         let right = self.get_operand(right);
 
         self.procedure
             .body
-            .push_cmt(Mov, vec![Reg(target), left], format!("<store> {}", comment));
+            .push_cmt(Mov, vec![target, left], format!("<store> {}", comment));
         self.procedure
             .body
-            .push_cmt(op, vec![Reg(target), right], format!("<apply> {}", comment));
+            .push_cmt(op, vec![target, right], format!("<apply> {}", comment));
     }
 
     fn compile_call(&mut self, tgt: Name, name: Builtin, param_count: usize) {
-        let tgt = self.allocator.lookup(tgt);
+        let tgt = self.lookup(tgt);
 
         if param_count > 4 {
             todo!("Can't deal with more than 4 parameters yet.");
@@ -93,7 +98,7 @@ impl ProcedureCompiler {
         self.procedure
             .body
             .push_cmt(Call, vec![Id(name)], "call print")
-            .push_cmt(Mov, vec![Reg(tgt), Reg(Rax)], "store return value");
+            .push_cmt(Mov, vec![tgt, Reg(Rax)], "store return value");
     }
 
     fn compile_param(&mut self, param: Value) {
@@ -105,7 +110,34 @@ impl ProcedureCompiler {
     fn get_operand(&mut self, value: Value) -> Operand {
         match value {
             Value::Const(lit) => Lit(lit as i128),
-            Value::Name(name) => Reg(self.allocator.lookup(name)),
+            Value::Name(name) => self.lookup(name),
+        }
+    }
+
+    fn lookup(&mut self, name: Name) -> Operand {
+        let r = self
+            .allocator
+            .lookup(&name)
+            .or_else(|| self.allocator.allocate(name))
+            .or_else(|| {
+                self.spills.push(name);
+                self.procedure.body.push_cmt(Push, vec![], "")
+            })
+
+        todo!();
+    }
+
+    /// Frees a register. If it was already allocated to a variable, its value is moved around.
+    fn free(&mut self, reg: Register) {
+        match self.allocator.holds(&reg).cloned() {
+            None => (), // The register is already free
+            Some(name) => {
+                self.allocator.release(&name);
+                self.procedure
+                    .body
+                    .push_cmt(Push, vec![Reg(reg)], format!("free {}", reg));
+                self.spills.push(name);
+            }
         }
     }
 }
