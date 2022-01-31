@@ -30,28 +30,29 @@ impl Register {
 }
 impl Display for Register {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Register::Rbp => f.write_str("rbp"),
-            Register::Rsp => f.write_str("rsp"),
-            Register::Rdi => f.write_str("rdi"),
-            Register::Rsi => f.write_str("rsi"),
-            Register::Rax => f.write_str("rax"),
-            Register::Rbx => f.write_str("rbx"),
-            Register::Rcx => f.write_str("rcx"),
-            Register::Rdx => f.write_str("rdx"),
-            Register::R8 => f.write_str("r8"),
-            Register::R9 => f.write_str("r9"),
-            Register::R10 => f.write_str("r10"),
-            Register::R11 => f.write_str("r11"),
-            Register::R12 => f.write_str("r12"),
-            Register::R13 => f.write_str("r13"),
-            Register::R14 => f.write_str("r14"),
-            Register::R15 => f.write_str("r15"),
-        }
+        f.write_str(match self {
+            Register::Rbp => "rbp",
+            Register::Rsp => "rsp",
+            Register::Rdi => "rdi",
+            Register::Rsi => "rsi",
+            Register::Rax => "rax",
+            Register::Rbx => "rbx",
+            Register::Rcx => "rcx",
+            Register::Rdx => "rdx",
+            Register::R8 => "r8",
+            Register::R9 => "r9",
+            Register::R10 => "r10",
+            Register::R11 => "r11",
+            Register::R12 => "r12",
+            Register::R13 => "r13",
+            Register::R14 => "r14",
+            Register::R15 => "r15",
+        })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code, reason = "We prefer completeness here")]
 pub enum Op {
     // Stack manipulation
     Push,
@@ -67,20 +68,45 @@ pub enum Op {
     Imul,
     // Bitwise operations
     Xor,
+    // Comparison
+    Cmp,
+    Test,
+    // Jumps
+    Jz,
+    Jnz,
+    Je,
+    Jne,
+    Jg,
+    Jge,
+    Jl,
+    Jle,
+    // Misc
+    Nop,
 }
 impl Display for Op {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Op::Push => f.write_str("push"),
-            Op::Pop => f.write_str("pop"),
-            Op::Call => f.write_str("call"),
-            Op::Ret => f.write_str("ret"),
-            Op::Mov => f.write_str("mov"),
-            Op::Lea => f.write_str("lea"),
-            Op::Add => f.write_str("add"),
-            Op::Sub => f.write_str("sub"),
-            Op::Imul => f.write_str("imul"),
-            Op::Xor => f.write_str("xor"),
-        }
+        f.write_str(match self {
+            Op::Push => "push",
+            Op::Pop => "pop",
+            Op::Call => "call",
+            Op::Ret => "ret",
+            Op::Mov => "mov",
+            Op::Lea => "lea",
+            Op::Add => "add",
+            Op::Sub => "sub",
+            Op::Imul => "imul",
+            Op::Xor => "xor",
+            Op::Cmp => "cmp",
+            Op::Test => "test",
+            Op::Jz => "jz",
+            Op::Jnz => "jnz",
+            Op::Je => "je",
+            Op::Jne => "jne",
+            Op::Jg => "jg",
+            Op::Jge => "jge",
+            Op::Jl => "jl",
+            Op::Jle => "jle",
+            Op::Nop => "nop",
+        })
     }
 }

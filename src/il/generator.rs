@@ -1,6 +1,6 @@
 use crate::{ast::untyped::*, builtins::Builtin};
 
-use super::{name_generator::*, tac::*};
+use super::{label_generator::*, name_generator::*, tac::*};
 
 pub fn generate(program: Program) -> TacListing {
     Tac::generate(program)
@@ -9,12 +9,14 @@ pub fn generate(program: Program) -> TacListing {
 struct Tac {
     listing: TacListing,
     name_generator: NameGenerator,
+    label_generator: LabelGenerator,
 }
 impl Tac {
     fn generate(program: Program) -> TacListing {
         let mut tac = Self {
             listing: TacListing::new(),
             name_generator: NameGenerator::new(),
+            label_generator: LabelGenerator::new(),
         };
 
         for var_def in program.var_defs {
@@ -44,9 +46,20 @@ impl Tac {
         };
     }
 
+    fn lower_block(&mut self, block: Block) {
+        for stmt in block.statements {
+            self.lower_stmt(stmt);
+        }
+    }
+
     fn lower_if(&mut self, if_stmt: If) {
-        todo!("lower if statement");
-        // let cond = self.lower_expr(if_stmt.condition);
+        let cond = self.lower_expr(if_stmt.condition);
+        let end_lbl = self.label_generator.next_label("if_end");
+        self.emit(InstrKind::IfFalse(cond, end_lbl.clone()));
+
+        self.lower_block(if_stmt.body);
+
+        self.emit_label(InstrKind::Nop, end_lbl);
     }
 
     fn lower_assign(&mut self, assign: Assign) {
@@ -109,12 +122,10 @@ impl Tac {
     fn lower_binexpr(&mut self, expr: BinExpr) -> Value {
         let lhs = self.lower_expr(expr.lhs);
         let rhs = self.lower_expr(expr.rhs);
+        let res_name = self.name_generator.next_temp();
+        self.emit(InstrKind::Bin(res_name.clone(), expr.op, lhs, rhs));
 
-        let temp_name = self.name_generator.next_temp();
-
-        self.emit(InstrKind::Bin(temp_name.clone(), expr.op, lhs, rhs));
-
-        Value::Name(temp_name)
+        Value::Name(res_name)
     }
 
     fn emit_assign(&mut self, id: String, value: Value) {
@@ -125,6 +136,13 @@ impl Tac {
     /// Emit an instruction, adding it to the listing.
     fn emit(&mut self, kind: InstrKind) {
         let instr = Instruction::new(kind);
+        self.listing.push(instr);
+    }
+
+    /// Emit an instruction, adding it to the listing.
+    fn emit_label(&mut self, kind: InstrKind, label: Label) {
+        let mut instr = Instruction::new(kind);
+        instr.add_label(label);
         self.listing.push(instr);
     }
 }
@@ -152,6 +170,20 @@ mod tests {
         assert_generates!(
             "a:int = 10\na = a + (100 + 1)",
             vec!["a^1 = 10", "%t1 = 100 + 1", "%t2 = a^1 + %t1", "a^2 = %t2",]
+        )
+    }
+
+    #[test]
+    fn if_stmt_generates_tac() {
+        assert_generates!(
+            "a:bool = True\nif a:\n\tprint(1)",
+            vec![
+                "a^1 = 1",
+                "if_false a^1 goto if_end_1",
+                "param 1",
+                "%t1 = call print, 1",
+                "if_end_1: nop"
+            ]
         )
     }
 

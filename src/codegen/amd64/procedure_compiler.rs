@@ -10,6 +10,7 @@ pub struct ProcedureCompiler {
     allocator: RegisterAllocator,
     procedure: Procedure,
     param_stack: Vec<Operand>,
+    pending_label: Option<Label>,
 }
 impl ProcedureCompiler {
     pub fn compile(listing: TacListing, procedure: Procedure) -> Procedure {
@@ -17,6 +18,7 @@ impl ProcedureCompiler {
             allocator: RegisterAllocator::new(),
             procedure,
             param_stack: vec![],
+            pending_label: None,
         };
         compiler.compile_tac(listing);
 
@@ -34,6 +36,9 @@ impl ProcedureCompiler {
     }
 
     fn compile_instr(&mut self, instr: &Instruction) {
+        if let Some(lbl) = &instr.label {
+            self.pending_label = Some(lbl.clone());
+        }
         let comment = instr.to_string();
         match &instr.kind {
             InstrKind::Assign(tgt, value) => {
@@ -44,16 +49,42 @@ impl ProcedureCompiler {
             }
             InstrKind::Param(param) => self.compile_param(param.clone()),
             InstrKind::Call(tgt, name, params) => self.compile_call(tgt.clone(), *name, *params),
+            InstrKind::Nop => self.compile_nop(),
+            InstrKind::IfTrue(value, lbl) => self.compile_if(value.clone(), lbl.clone(), true),
+            InstrKind::IfFalse(value, lbl) => self.compile_if(value.clone(), lbl.clone(), false),
         }
+    }
+
+    fn compile_nop(&mut self) {
+        self.emit(Nop, vec![]);
+    }
+
+    fn compile_if(&mut self, value: Value, label: Label, jump_when: bool) {
+        let jump_type = match jump_when {
+            true => Jnz,
+            false => Jz,
+        };
+        let val_op = self.get_operand(value.clone());
+        self.emit_cmt(Push, vec![Reg(Rax)], "preserve RAX")
+            .emit_cmt(Mov, vec![Reg(Rax), val_op], "place operand in RAX")
+            .emit_cmt(
+                Test,
+                vec![Reg(Rax), Reg(Rax)],
+                format!("<if_true {}>", value),
+            )
+            .emit_cmt(Pop, vec![Reg(Rax)], "restore RAX")
+            .emit_cmt(
+                jump_type,
+                vec![Lbl(label.to_string())],
+                "skip past if when condition is false",
+            );
     }
 
     fn compile_assign(&mut self, target: Name, value: Value, comment: String) {
         let target = self.allocator.lookup(target);
         let value = self.get_operand(value);
 
-        self.procedure
-            .body
-            .push_cmt(Mov, vec![Reg(target), value], comment);
+        self.emit_cmt(Mov, vec![Reg(target), value], comment);
     }
 
     fn compile_bin(&mut self, tgt: Name, op: BinOp, left: Value, right: Value, comment: String) {
@@ -62,12 +93,8 @@ impl ProcedureCompiler {
         let left = self.get_operand(left);
         let right = self.get_operand(right);
 
-        self.procedure
-            .body
-            .push_cmt(Mov, vec![Reg(target), left], format!("<store> {}", comment));
-        self.procedure
-            .body
-            .push_cmt(op, vec![Reg(target), right], format!("<apply> {}", comment));
+        self.emit_cmt(Mov, vec![Reg(target), left], format!("<store> {}", comment));
+        self.emit_cmt(op, vec![Reg(target), right], format!("<apply> {}", comment));
     }
 
     fn compile_call(&mut self, tgt: Name, name: Builtin, param_count: usize) {
@@ -79,7 +106,7 @@ impl ProcedureCompiler {
         let target_regs = [Rcx, Rdx, R8, R9];
         for (idx, &reg) in target_regs[0..param_count].iter().enumerate() {
             let value = self.param_stack.pop().expect("Parameter count mismatch!");
-            self.procedure.body.push_cmt(
+            self.emit_cmt(
                 Mov,
                 vec![Reg(reg), value],
                 format!("set parameter #{}", idx + 1),
@@ -90,10 +117,11 @@ impl ProcedureCompiler {
             Builtin::Print => "print",
         };
 
-        self.procedure
-            .body
-            .push_cmt(Call, vec![Id(name)], "call print")
-            .push_cmt(Mov, vec![Reg(tgt), Reg(Rax)], "store return value");
+        self.emit_cmt(Call, vec![Id(name)], "call print").emit_cmt(
+            Mov,
+            vec![Reg(tgt), Reg(Rax)],
+            "store return value",
+        );
     }
 
     fn compile_param(&mut self, param: Value) {
@@ -107,6 +135,26 @@ impl ProcedureCompiler {
             Value::Const(lit) => Lit(lit as i128),
             Value::Name(name) => Reg(self.allocator.lookup(name)),
         }
+    }
+    pub fn emit(&mut self, op: Op, operands: Vec<Operand>) -> &mut Self {
+        self.procedure.body.push(op, operands);
+        if let Some(label) = self.pending_label.take() {
+            self.procedure.body.add_label(label.to_string());
+        }
+        self
+    }
+
+    pub fn emit_cmt<S: Into<String>>(
+        &mut self,
+        op: Op,
+        operands: Vec<Operand>,
+        comment: S,
+    ) -> &mut Self {
+        self.procedure.body.push_cmt(op, operands, comment);
+        if let Some(label) = self.pending_label.take() {
+            self.procedure.body.add_label(label.to_string());
+        }
+        self
     }
 }
 

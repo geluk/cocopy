@@ -21,7 +21,8 @@ impl NameGenerator {
     }
 
     /// Generates a unique subscripted name from an existing identifier.
-    pub fn next_subscript(&mut self, id: String) -> Name {
+    pub fn next_subscript<S: Into<String>>(&mut self, id: S) -> Name {
+        let id = id.into();
         let current_subscript = self.seen_subscripts.entry(id.clone()).or_insert(0);
         *current_subscript += 1;
 
@@ -29,7 +30,8 @@ impl NameGenerator {
     }
 
     /// Returns the most recently generated subscripted name for an identifier.
-    pub fn last_subscript(&self, id: String) -> Name {
+    pub fn last_subscript<S: Into<String>>(&self, id: S) -> Name {
+        let id = id.into();
         let current_subscript = self.seen_subscripts[&id];
         Name::Sub(id, current_subscript)
     }
@@ -51,46 +53,28 @@ mod tests {
     fn next_subscript_generates_ascending_subscripts() {
         let mut name_gen = NameGenerator::new();
 
-        assert_eq!(
-            "var^1",
-            name_gen.next_subscript("var".to_string()).to_string()
-        );
-        assert_eq!(
-            "var^2",
-            name_gen.next_subscript("var".to_string()).to_string()
-        );
+        assert_eq!("var^1", name_gen.next_subscript("var").to_string());
+        assert_eq!("var^2", name_gen.next_subscript("var").to_string());
     }
 
     #[test]
     fn last_subscript_produces_most_recent_subscript() {
         let mut name_gen = NameGenerator::new();
 
-        assert_eq!(
-            "var^1",
-            name_gen.next_subscript("var".to_string()).to_string()
-        );
-        assert_eq!(
-            "var^1",
-            name_gen.last_subscript("var".to_string()).to_string()
-        );
-        assert_eq!(
-            "var^2",
-            name_gen.next_subscript("var".to_string()).to_string()
-        );
-        assert_eq!(
-            "var^2",
-            name_gen.last_subscript("var".to_string()).to_string()
-        );
+        assert_eq!("var^1", name_gen.next_subscript("var").to_string());
+        assert_eq!("var^1", name_gen.last_subscript("var").to_string());
+        assert_eq!("var^2", name_gen.next_subscript("var").to_string());
+        assert_eq!("var^2", name_gen.last_subscript("var").to_string());
     }
 
     #[test]
     fn variables_can_be_mixed_freely() {
         let mut name_gen = NameGenerator::new();
 
-        assert_eq!("a^1", name_gen.next_subscript("a".to_string()).to_string());
-        assert_eq!("b^1", name_gen.next_subscript("b".to_string()).to_string());
-        assert_eq!("a^2", name_gen.next_subscript("a".to_string()).to_string());
-        assert_eq!("c^1", name_gen.next_subscript("c".to_string()).to_string());
-        assert_eq!("b^1", name_gen.last_subscript("b".to_string()).to_string());
+        assert_eq!("a^1", name_gen.next_subscript("a").to_string());
+        assert_eq!("b^1", name_gen.next_subscript("b").to_string());
+        assert_eq!("a^2", name_gen.next_subscript("a").to_string());
+        assert_eq!("c^1", name_gen.next_subscript("c").to_string());
+        assert_eq!("b^1", name_gen.last_subscript("b").to_string());
     }
 }

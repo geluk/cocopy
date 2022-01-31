@@ -10,6 +10,7 @@
 //! Instructions are guaranteed to be in static single-assignment form (SSA).
 
 mod generator;
+mod label_generator;
 mod name_generator;
 mod optimiser;
 mod tac;

@@ -175,6 +175,13 @@ impl Block {
         self
     }
 
+    /// Add a label to the last line
+    pub fn add_label(&mut self, label: String) {
+        if let Some(line) = self.lines.last_mut() {
+            line.add_label(label);
+        }
+    }
+
     pub fn blank(&mut self) -> &mut Self {
         self.lines.push(Line::new_blank());
         self
@@ -193,20 +200,23 @@ impl Display for Block {
 /// When the instruction is [`None`], an empty line is emitted.
 #[derive(Debug, Eq)]
 pub struct Line<T> {
+    label: Option<String>,
     line: Option<T>,
     comment: Option<String>,
 }
 impl<T> Line<T> {
-    /// Construct a new line without comment.
+    /// Construct a new line without comment or label.
     pub fn new(dir: T) -> Self {
         Self {
+            label: None,
             line: Some(dir),
             comment: None,
         }
     }
-    /// Construct a new line with a comment.
+    /// Construct a new line with a comment and no label.
     pub fn new_cmt(dir: T, comment: String) -> Self {
         Self {
+            label: None,
             line: Some(dir),
             comment: Some(comment),
         }
@@ -215,9 +225,15 @@ impl<T> Line<T> {
     /// Construct an empty line.
     pub fn new_blank() -> Self {
         Self {
+            label: None,
             line: None,
             comment: None,
         }
+    }
+
+    /// Add a label to this line
+    pub fn add_label(&mut self, label: String) {
+        self.label = Some(label);
     }
 }
 impl<T: PartialEq> PartialEq for Line<T> {
@@ -228,6 +244,10 @@ impl<T: PartialEq> PartialEq for Line<T> {
 }
 impl<T: Display> Display for Line<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        if let Some(lbl) = &self.label {
+            writeln!(f, "{}:", lbl)?;
+        }
+
         match (&self.line, self.comment.as_ref()) {
             (None, None) => Ok(()),
             (None, Some(cmt)) => write!(f, "                                {}", cmt),
@@ -279,12 +299,14 @@ impl Display for Instr {
 }
 
 /// An operand.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Operand {
     /// A register
     Reg(Register),
     /// An immediate value
     Lit(i128),
+    /// A label
+    Lbl(String),
     /// An identifier
     Id(Str),
 }
@@ -294,6 +316,7 @@ impl Display for Operand {
             Operand::Reg(reg) => write!(f, "{}", reg),
             Operand::Lit(lit) => write!(f, "{}", lit),
             Operand::Id(str) => f.write_str(str),
+            Operand::Lbl(lbl) => f.write_str(lbl),
         }
     }
 }

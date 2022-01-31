@@ -9,7 +9,6 @@ use std::{
 
 use crate::{ast::untyped::BinOp, builtins::Builtin};
 
-pub type Label = String;
 pub type TargetSize = isize;
 
 /// A listing of three-address code. This will normally represent a function body
@@ -79,6 +78,10 @@ impl Instruction {
         Self { kind, label: None }
     }
 
+    pub fn add_label(&mut self, label: Label) {
+        self.label = Some(label);
+    }
+
     pub fn reads_from_name(&self, name: &Name) -> bool {
         self.kind.reads_from_name(name)
     }
@@ -93,7 +96,26 @@ impl Instruction {
 }
 impl Display for Instruction {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        self.kind.fmt(f)
+        match &self.label {
+            Some(lbl) => write!(f, "{}: {}", lbl, self.kind),
+            None => self.kind.fmt(f),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Label {
+    name: String,
+    subscript: usize,
+}
+impl Label {
+    pub fn new(name: String, subscript: usize) -> Self {
+        Self { name, subscript }
+    }
+}
+impl Display for Label {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}_{}", self.name, self.subscript)
     }
 }
 
@@ -104,10 +126,16 @@ pub enum InstrKind {
     Assign(Name, Value),
     /// Perform a binary operation.
     Bin(Name, BinOp, Value, Value),
+    /// Conditional jump.
+    IfTrue(Value, Label),
+    /// Jump if a value is false.
+    IfFalse(Value, Label),
     /// Push a parameter to the parameter stack.
     Param(Value),
     /// Call a function, passing `n` parameters.
     Call(Name, Builtin, usize),
+    /// No-op
+    Nop,
 }
 impl InstrKind {
     pub fn reads_from_name(&self, name: &Name) -> bool {
@@ -118,6 +146,9 @@ impl InstrKind {
             }
             InstrKind::Param(value) => Self::is_usage_of(name, value),
             InstrKind::Call(_, _, _) => false,
+            InstrKind::Nop => false,
+            InstrKind::IfTrue(value, _) => Self::is_usage_of(name, value),
+            InstrKind::IfFalse(value, _) => Self::is_usage_of(name, value),
         }
     }
 
@@ -136,6 +167,9 @@ impl InstrKind {
             }
             InstrKind::Param(p) => try_replace(p, src, dest),
             InstrKind::Call(_, _, _) => (),
+            InstrKind::Nop => (),
+            InstrKind::IfTrue(value, _) => try_replace(value, src, dest),
+            InstrKind::IfFalse(value, _) => try_replace(value, src, dest),
         }
     }
 
@@ -164,6 +198,9 @@ impl Display for InstrKind {
             InstrKind::Call(name, tgt, params) => {
                 write!(f, "{} = call {}, {}", name, tgt, params)
             }
+            InstrKind::Nop => f.write_str("nop"),
+            InstrKind::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),
+            InstrKind::IfFalse(value, lbl) => write!(f, "if_false {} goto {}", value, lbl),
         }
     }
 }
