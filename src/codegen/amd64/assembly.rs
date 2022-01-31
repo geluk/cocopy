@@ -287,14 +287,18 @@ impl Instr {
 impl Display for Instr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let operator = self.operator.to_string();
-        write!(f, "    {:7} ", operator)?;
-        let operands = self
-            .operands
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        f.write_str(&operands)
+        if self.operands.is_empty() {
+            write!(f, "    {}", operator)
+        } else {
+            write!(f, "    {:7} ", operator)?;
+            let operands = self
+                .operands
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            f.write_str(&operands)
+        }
     }
 }
 

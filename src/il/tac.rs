@@ -127,6 +127,7 @@ pub enum InstrKind {
     /// Perform a binary operation.
     Bin(Name, BinOp, Value, Value),
     /// Conditional jump.
+    /// Jump if a value is true.
     IfTrue(Value, Label),
     /// Jump if a value is false.
     IfFalse(Value, Label),

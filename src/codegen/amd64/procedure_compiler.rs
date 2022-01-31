@@ -21,20 +21,19 @@ impl ProcedureCompiler {
             pending_label: None,
         };
         compiler.compile_tac(listing);
-
         compiler.procedure
     }
 
-    pub fn compile_tac(&mut self, listing: TacListing) {
-        let mut final_tgt = None;
+    /// Compile a three-address code listing.
+    fn compile_tac(&mut self, listing: TacListing) {
         for (_, instr) in listing.iter_lines() {
-            let oper = self.compile_instr(instr);
+            self.compile_instr(instr);
             // TODO: After each instruction has been compiled, iterate over allocated registers,
             // and free those whose value will no longer be used.
-            final_tgt.replace(oper);
         }
     }
 
+    /// Compile a single TAC instruction.
     fn compile_instr(&mut self, instr: &Instruction) {
         if let Some(lbl) = &instr.label {
             self.pending_label = Some(lbl.clone());
@@ -49,60 +48,72 @@ impl ProcedureCompiler {
             }
             InstrKind::Param(param) => self.compile_param(param.clone()),
             InstrKind::Call(tgt, name, params) => self.compile_call(tgt.clone(), *name, *params),
-            InstrKind::Nop => self.compile_nop(),
-            InstrKind::IfTrue(value, lbl) => self.compile_if(value.clone(), lbl.clone(), true),
-            InstrKind::IfFalse(value, lbl) => self.compile_if(value.clone(), lbl.clone(), false),
+            InstrKind::Nop => {
+                self.emit(Nop, vec![]);
+            }
+            InstrKind::IfTrue(value, lbl) => self.compile_jump(value.clone(), lbl.clone(), true),
+            InstrKind::IfFalse(value, lbl) => self.compile_jump(value.clone(), lbl.clone(), false),
         }
     }
 
-    fn compile_nop(&mut self) {
-        self.emit(Nop, vec![]);
-    }
-
-    fn compile_if(&mut self, value: Value, label: Label, jump_when: bool) {
+    /// Compile a conditional jump. A jump will be made if `value` evaluates to `jump_when`.
+    /// This allows this function to compile both `if_true x goto label` and `if_false y goto label`.
+    fn compile_jump(&mut self, value: Value, label: Label, jump_when: bool) {
         let jump_type = match jump_when {
             true => Jnz,
             false => Jz,
         };
         let val_op = self.get_operand(value.clone());
-        self.emit_cmt(Push, vec![Reg(Rax)], "preserve RAX")
-            .emit_cmt(Mov, vec![Reg(Rax), val_op], "place operand in RAX")
+        // RAX may be occupied, so we should free it first.
+        // This can be removed once we support operator semantics.
+        self.free(Rax);
+        self.emit_cmt(Mov, vec![Reg(Rax), val_op], "place operand in RAX")
             .emit_cmt(
                 Test,
                 vec![Reg(Rax), Reg(Rax)],
-                format!("<if_true {}>", value),
-            )
-            .emit_cmt(Pop, vec![Reg(Rax)], "restore RAX")
-            .emit_cmt(
-                jump_type,
-                vec![Lbl(label.to_string())],
-                "skip past if when condition is false",
+                format!("<if_true> {}", value),
             );
+        // We're done with RAX, restore it.
+        self.restore(Rax);
+        self.emit_cmt(
+            jump_type,
+            vec![Lbl(label.to_string())],
+            format!("jump when condition is {}", jump_when),
+        );
     }
 
+    /// Compile an assignment.
     fn compile_assign(&mut self, target: Name, value: Value, comment: String) {
-        let target = self.allocator.lookup(target);
+        let target = self.allocator.bind(target);
         let value = self.get_operand(value);
 
         self.emit_cmt(Mov, vec![Reg(target), value], comment);
     }
 
+    /// Compile a binary operation.
     fn compile_bin(&mut self, tgt: Name, op: BinOp, left: Value, right: Value, comment: String) {
-        let target = self.allocator.lookup(tgt);
+        let target = self.allocator.bind(tgt);
         let op = translate_binop(op);
         let left = self.get_operand(left);
         let right = self.get_operand(right);
 
+        // Binary operations of the form `x = y <> z` (where <> is some operation) cannot be
+        // compiled in one go, so we translate them to the following sequence:
+        // x <- y
+        // x <>= z
         self.emit_cmt(Mov, vec![Reg(target), left], format!("<store> {}", comment));
         self.emit_cmt(op, vec![Reg(target), right], format!("<apply> {}", comment));
     }
 
+    /// Compile a function call.
     fn compile_call(&mut self, tgt: Name, name: Builtin, param_count: usize) {
-        let tgt = self.allocator.lookup(tgt);
+        let tgt = self.allocator.bind(tgt);
 
         if param_count > 4 {
             todo!("Can't deal with more than 4 parameters yet.");
         }
+
+        // TODO: this should be made to work for any calling convention, not just fastcall.
         let target_regs = [Rcx, Rdx, R8, R9];
         for (idx, &reg) in target_regs[0..param_count].iter().enumerate() {
             let value = self.param_stack.pop().expect("Parameter count mismatch!");
@@ -124,19 +135,33 @@ impl ProcedureCompiler {
         );
     }
 
+    /// Compile a function parameter.
     fn compile_param(&mut self, param: Value) {
         let param = self.get_operand(param);
 
         self.param_stack.push(param);
     }
 
+    /// Retrieves the operand for a value.
     fn get_operand(&mut self, value: Value) -> Operand {
         match value {
             Value::Const(lit) => Lit(lit as i128),
-            Value::Name(name) => Reg(self.allocator.lookup(name)),
+            Value::Name(name) => Reg(self.allocator.bind(name)),
         }
     }
-    pub fn emit(&mut self, op: Op, operands: Vec<Operand>) -> &mut Self {
+
+    /// Free a register, storing its value on the stack.
+    fn free(&mut self, register: Register) {
+        self.emit_cmt(Push, vec![Reg(register)], format!("free {}", register));
+    }
+
+    /// Restore a register, popping its value from the top of the stack.
+    fn restore(&mut self, register: Register) {
+        self.emit_cmt(Pop, vec![Reg(register)], format!("restore {}", register));
+    }
+
+    /// Emit an operation.
+    fn emit(&mut self, op: Op, operands: Vec<Operand>) -> &mut Self {
         self.procedure.body.push(op, operands);
         if let Some(label) = self.pending_label.take() {
             self.procedure.body.add_label(label.to_string());
@@ -144,7 +169,8 @@ impl ProcedureCompiler {
         self
     }
 
-    pub fn emit_cmt<S: Into<String>>(
+    /// Emit an operation with comment.
+    fn emit_cmt<S: Into<String>>(
         &mut self,
         op: Op,
         operands: Vec<Operand>,

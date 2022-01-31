@@ -3,7 +3,7 @@ use std::{
     slice::Iter,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
     Rbp,
     Rsp,
