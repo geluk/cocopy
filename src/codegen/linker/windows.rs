@@ -69,15 +69,20 @@ fn find_visual_studio_dir() -> Result<PathBuf> {
 /// Sets up the required environment variables in order for `link.exe`
 /// to work correctly.
 fn prepare_linker_environment(visual_studio_vc: &Path) -> Result<HashMap<String, String>> {
+    let build_dir = visual_studio_vc.join(PathBuf::from(r#"Auxiliary\Build"#));
     let output = Command::new("cmd")
-        .args(["/c", r#"\Auxiliary\Build\vcvars64.bat&set"#])
-        .current_dir(visual_studio_vc)
+        .args(["/c", "vcvars64.bat&set"])
+        .current_dir(build_dir)
         .env("__VSCMD_ARG_NO_LOGO", "1")
         .output()?;
 
-    let (stdout, _) = output
+    let (stdout, stderr) = output
         .verify_success()
         .context("Failed to prepare linker environment")?;
+
+    if !stderr.is_empty() {
+        return Err(anyhow!("{}", stderr).context("Executing vcvars64 failed"));
+    }
 
     let mut env = HashMap::new();
 
