@@ -26,10 +26,18 @@ impl ProcedureCompiler {
 
     /// Compile a three-address code listing.
     fn compile_tac(&mut self, listing: TacListing) {
-        for (_, instr) in listing.iter_lines() {
+        for (idx, instr) in listing.iter_lines() {
             self.compile_instr(instr);
-            // TODO: After each instruction has been compiled, iterate over allocated registers,
-            // and free those whose value will no longer be used.
+
+            let may_unbind: Vec<_> = self
+                .allocator
+                .iter_bound_names()
+                .filter(|name| !listing.is_used_after(name, idx))
+                .cloned()
+                .collect();
+            for name in may_unbind {
+                self.allocator.unbind(&name);
+            }
         }
     }
 
@@ -51,35 +59,31 @@ impl ProcedureCompiler {
             InstrKind::Nop => {
                 self.emit(Nop, vec![]);
             }
-            InstrKind::IfTrue(value, lbl) => self.compile_jump(value.clone(), lbl.clone(), true),
-            InstrKind::IfFalse(value, lbl) => self.compile_jump(value.clone(), lbl.clone(), false),
+            InstrKind::IfTrue(value, lbl) => {
+                self.compile_jump(value.clone(), lbl.clone(), true, comment)
+            }
+            InstrKind::IfFalse(value, lbl) => {
+                self.compile_jump(value.clone(), lbl.clone(), false, comment)
+            }
         }
     }
 
     /// Compile a conditional jump. A jump will be made if `value` evaluates to `jump_when`.
     /// This allows this function to compile both `if_true x goto label` and `if_false y goto label`.
-    fn compile_jump(&mut self, value: Value, label: Label, jump_when: bool) {
+    fn compile_jump(&mut self, value: Value, label: Label, jump_when: bool, comment: String) {
         let jump_type = match jump_when {
             true => Jnz,
             false => Jz,
         };
-        let val_op = self.get_operand(value.clone());
-        // RAX may be occupied, so we should free it first.
-        // This can be removed once we support operator semantics.
-        self.free(Rax);
-        self.emit_cmt(Mov, vec![Reg(Rax), val_op], "place operand in RAX")
-            .emit_cmt(
-                Test,
-                vec![Reg(Rax), Reg(Rax)],
-                format!("<if_true> {}", value),
-            );
-        // We're done with RAX, restore it.
-        self.restore(Rax);
+
+        let val_op = self.prepare_operand(value, Test.op1_semantics());
         self.emit_cmt(
-            jump_type,
-            vec![Lbl(label.to_string())],
-            format!("jump when condition is {}", jump_when),
+            Test,
+            vec![val_op.operand(), val_op.operand()],
+            format!("<jump> {}", comment),
         );
+        self.free_prepared(val_op);
+        self.emit(jump_type, vec![Lbl(label.to_string())]);
     }
 
     /// Compile an assignment.
@@ -90,7 +94,7 @@ impl ProcedureCompiler {
         self.emit_cmt(Mov, vec![Reg(target), value], comment);
     }
 
-    /// Compile a binary operation. Dispatches the operation fo the correct compile fuction
+    /// Compile a binary operation. Dispatches the operation for the correct compile fuction
     /// if the operation represents a comparison or (TODO) boolean operation.
     fn compile_bin(&mut self, tgt: Name, op: BinOp, left: Value, right: Value, comment: String) {
         // Comparisons are handled separately, since they should produce a boolean.
@@ -114,18 +118,14 @@ impl ProcedureCompiler {
 
     /// Compile a comparison between two values.
     fn compile_cmp(&mut self, tgt: Name, cmp: Cmp, left: Value, right: Value, comment: String) {
-        let target = self.allocator.bind(tgt);
-        let left = self.get_operand(left);
-        let right = self.get_operand(right);
+        let left_op = self.prepare_operand(left, OpSemantics::any_reg());
+        let right_op = self.get_operand(right);
 
-        // RAX may be occupied, so we should free it first.
-        // This can be removed once we support operator semantics.
-        self.free(Rax);
-        self.emit_cmt(Mov, vec![Reg(Rax), left], "place lhs in RAX");
-        self.emit_cmt(Cmp, vec![Reg(Rax), right], format!("<compare> {}", comment));
-        // We're done with RAX, restore it.
-        self.restore(Rax);
-
+        self.emit_cmt(
+            Cmp,
+            vec![left_op.operand(), right_op],
+            format!("<compare> {}", comment),
+        );
         // The x86 `set` operation copies a comparison flag into a register,
         // allowing us to treat the value as a boolean.
         let set_op = match cmp {
@@ -136,11 +136,14 @@ impl ProcedureCompiler {
             Cmp::Eq => Sete,
             Cmp::Neq => Setne,
         };
+        let target = self.allocator.bind(tgt);
         self.emit_cmt(
             set_op,
             vec![Reg(target.into_byte())],
             format!("<store> {}", comment),
         );
+
+        self.free_prepared(left_op);
     }
 
     /// Compile a call to a function with `param_count` parameters.
@@ -180,7 +183,44 @@ impl ProcedureCompiler {
         self.param_stack.push(param);
     }
 
-    /// Retrieves the operand for a value.
+    /// Prepares an operand with a value according to the given operand semantics.
+    /// If the value is a literal, but the operand should be a register,
+    /// it is first placed in a temporary register. Call `free_operand` after using
+    /// the operand to ensure the temporary register is freed again.
+    fn prepare_operand(&mut self, value: Value, op_smt: OpSemantics) -> PreparedOperand {
+        match value {
+            Value::Const(lit) => {
+                if op_smt.immediate {
+                    PreparedOperand::other(Lit(lit as i128))
+                } else {
+                    // We found a literal, but this operand cannot be an immediate value,
+                    // so we temporarily allocate a register for it.
+                    let reg = self
+                        .allocator
+                        .allocate()
+                        .expect("Ran out of registers to allocate");
+                    self.emit_cmt(
+                        Mov,
+                        vec![Reg(reg), Lit(lit as i128)],
+                        format!("<op_sem> prepare operand {}", value),
+                    );
+                    PreparedOperand::temp(Reg(reg))
+                }
+            }
+            Value::Name(name) => PreparedOperand::other(Reg(self.allocator.bind(name))),
+        }
+    }
+
+    /// Frees a prepared operand. If a temporary register was allocated for this operand,
+    /// it is released.
+    fn free_prepared(&mut self, prep_op: PreparedOperand) {
+        if let (true, Reg(reg)) = (prep_op.is_temp, prep_op.operand) {
+            self.allocator.release(&reg);
+        }
+    }
+
+    /// Retrieves the operand for a value. Constants are passed through as literal operands,
+    /// while names are bound to a register before being returned as register operands.
     fn get_operand(&mut self, value: Value) -> Operand {
         match value {
             Value::Const(lit) => Lit(lit as i128),
@@ -228,6 +268,58 @@ fn translate_binop(op: BinOp) -> Op {
         BinOp::Multiply => Imul,
         BinOp::Subtract => Sub,
         _ => todo!("Don't know how to translate {:?} to assembly", op),
+    }
+}
+
+struct PreparedOperand {
+    operand: Operand,
+    is_temp: bool,
+}
+impl PreparedOperand {
+    fn other(operand: Operand) -> Self {
+        Self {
+            operand,
+            is_temp: false,
+        }
+    }
+    fn temp(operand: Operand) -> Self {
+        Self {
+            operand,
+            is_temp: true,
+        }
+    }
+    fn operand(&self) -> Operand {
+        self.operand.clone()
+    }
+}
+
+/// Describes how an operand may be used.
+#[derive(Default)]
+struct OpSemantics {
+    immediate: bool,
+    register: bool,
+    memory: bool,
+}
+impl OpSemantics {
+    /// The operand may be placed in any register.
+    fn any_reg() -> Self {
+        Self {
+            register: true,
+            ..Default::default()
+        }
+    }
+}
+
+trait OpSemanticsFor {
+    /// Get the operand semantics for the first operand of this instruction.
+    fn op1_semantics(&self) -> OpSemantics;
+}
+impl OpSemanticsFor for Op {
+    fn op1_semantics(&self) -> OpSemantics {
+        match self {
+            Test => OpSemantics::any_reg(),
+            _ => todo!("Determine operand 1 semantics for {}", self),
+        }
     }
 }
 

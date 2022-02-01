@@ -1,4 +1,7 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{
+    hash_map::{Entry, Keys},
+    HashMap, HashSet,
+};
 
 use crate::il::Name;
 
@@ -14,6 +17,10 @@ impl RegisterAllocator {
             allocations: HashSet::new(),
             bindings: HashMap::new(),
         }
+    }
+
+    pub fn iter_bound_names(&self) -> Keys<Name, Register> {
+        self.bindings.keys()
     }
 
     /// Bind a name to a free register. If this name is already bound, returns the bound register.
