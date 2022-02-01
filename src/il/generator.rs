@@ -102,6 +102,7 @@ impl Tac {
         }
     }
 
+    /// Lower a function call.
     fn lower_function_call(&mut self, call: FunCallExpr) -> Value {
         let expr_value = self.lower_expr(call.params);
 
@@ -119,15 +120,67 @@ impl Tac {
         Value::Name(temp_name)
     }
 
+    /// Lower a binary expression. If the expression contains a boolean operator, it is dispatched
+    /// to [`Self::lower_bool_expr`].
     fn lower_binexpr(&mut self, expr: BinExpr) -> Value {
+        if expr.op == BinOp::And {
+            return self.lower_bool_expr(expr, BoolOp::And);
+        } else if expr.op == BinOp::Or {
+            return self.lower_bool_expr(expr, BoolOp::Or);
+        }
+
         let lhs = self.lower_expr(expr.lhs);
         let rhs = self.lower_expr(expr.rhs);
+
         let res_name = self.name_generator.next_temp();
         self.emit(InstrKind::Bin(res_name.clone(), expr.op, lhs, rhs));
 
         Value::Name(res_name)
     }
 
+    /// Lower a boolean expression. Boolean expressions are special-cased because they result in
+    /// the generation of conditional jumps to allow for short-circuiting.
+    fn lower_bool_expr(&mut self, expr: BinExpr, op: BoolOp) -> Value {
+        let true_lbl = self.label_generator.next_label("bexpr_t");
+        let false_lbl = self.label_generator.next_label("bexpr_f");
+        let end_lbl = self.label_generator.next_label("bexpr_e");
+
+        let lhs = self.lower_expr(expr.lhs);
+        match op {
+            BoolOp::Or => {
+                self.emit(InstrKind::IfTrue(lhs, true_lbl.clone()));
+            }
+            BoolOp::And => {
+                self.emit(InstrKind::IfFalse(lhs, false_lbl.clone()));
+            }
+        }
+
+        let rhs = self.lower_expr(expr.rhs);
+        match op {
+            BoolOp::Or => {
+                self.emit(InstrKind::IfFalse(rhs, false_lbl.clone()));
+            }
+            BoolOp::And => {
+                self.emit(InstrKind::IfFalse(rhs, false_lbl.clone()));
+            }
+        }
+
+        // Should we use ɸ(t, f) here?
+        let res_name = self.name_generator.next_temp();
+        self.emit_label(
+            InstrKind::Assign(res_name.clone(), Value::Const(1)),
+            true_lbl,
+        );
+        self.emit(InstrKind::Goto(end_lbl.clone()));
+        self.emit_label(
+            InstrKind::Assign(res_name.clone(), Value::Const(0)),
+            false_lbl,
+        );
+        self.emit_label(InstrKind::Nop, end_lbl);
+        Value::Name(res_name)
+    }
+
+    /// Emit an assignment, assigning `value` to `id`.
     fn emit_assign(&mut self, id: String, value: Value) {
         let name = self.name_generator.next_subscript(id);
         self.emit(InstrKind::Assign(name, value));
@@ -145,6 +198,11 @@ impl Tac {
         instr.add_label(label);
         self.listing.push(instr);
     }
+}
+
+enum BoolOp {
+    Or,
+    And,
 }
 
 #[cfg(test)]

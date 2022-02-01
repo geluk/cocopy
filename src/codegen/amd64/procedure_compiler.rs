@@ -65,6 +65,10 @@ impl ProcedureCompiler {
             InstrKind::IfFalse(value, lbl) => {
                 self.compile_jump(value.clone(), lbl.clone(), false, comment)
             }
+            InstrKind::Phi(_) => (), // Phi is a no-op
+            InstrKind::Goto(tgt) => {
+                self.emit(Jmp, vec![Lbl(tgt.to_string())]);
+            }
         }
     }
 
@@ -121,7 +125,13 @@ impl ProcedureCompiler {
         let left_op = self.prepare_operand(left, OpSemantics::any_reg());
         let right_op = self.get_operand(right);
 
+        let target = self.allocator.bind(tgt);
         self.emit_cmt(
+            Xor,
+            vec![Reg(target), Reg(target)],
+            format!("clear upper bytes of {}", target),
+        )
+        .emit_cmt(
             Cmp,
             vec![left_op.operand(), right_op],
             format!("<compare> {}", comment),
@@ -136,7 +146,6 @@ impl ProcedureCompiler {
             Cmp::Eq => Sete,
             Cmp::Neq => Setne,
         };
-        let target = self.allocator.bind(tgt);
         self.emit_cmt(
             set_op,
             vec![Reg(target.into_byte())],

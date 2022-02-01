@@ -126,7 +126,8 @@ pub enum InstrKind {
     Assign(Name, Value),
     /// Perform a binary operation.
     Bin(Name, BinOp, Value, Value),
-    /// Conditional jump.
+    /// Jump to a label.
+    Goto(Label),
     /// Jump if a value is true.
     IfTrue(Value, Label),
     /// Jump if a value is false.
@@ -135,6 +136,8 @@ pub enum InstrKind {
     Param(Value),
     /// Call a function, passing `n` parameters.
     Call(Name, Builtin, usize),
+    /// The phi-function.
+    Phi(Name),
     /// No-op
     Nop,
 }
@@ -148,8 +151,10 @@ impl InstrKind {
             InstrKind::Param(value) => Self::is_usage_of(name, value),
             InstrKind::Call(_, _, _) => false,
             InstrKind::Nop => false,
+            InstrKind::Goto(_) => false,
             InstrKind::IfTrue(value, _) => Self::is_usage_of(name, value),
             InstrKind::IfFalse(value, _) => Self::is_usage_of(name, value),
+            InstrKind::Phi(n) => name == n,
         }
     }
 
@@ -169,8 +174,16 @@ impl InstrKind {
             InstrKind::Param(p) => try_replace(p, src, dest),
             InstrKind::Call(_, _, _) => (),
             InstrKind::Nop => (),
+            InstrKind::Goto(_) => (),
             InstrKind::IfTrue(value, _) => try_replace(value, src, dest),
             InstrKind::IfFalse(value, _) => try_replace(value, src, dest),
+            InstrKind::Phi(name) => {
+                assert_ne!(
+                    &Value::Name(name.clone()),
+                    src,
+                    "Optimiser error! Replacing a name used in the phi function is not allowed ({} -> {})", src, dest
+                )
+            }
         }
     }
 
@@ -200,8 +213,10 @@ impl Display for InstrKind {
                 write!(f, "{} = call {}, {}", name, tgt, params)
             }
             InstrKind::Nop => f.write_str("nop"),
+            InstrKind::Goto(label) => write!(f, "goto {}", label),
             InstrKind::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),
             InstrKind::IfFalse(value, lbl) => write!(f, "if_false {} goto {}", value, lbl),
+            InstrKind::Phi(name) => write!(f, "phi {}", name),
         }
     }
 }

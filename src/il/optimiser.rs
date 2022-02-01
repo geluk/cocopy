@@ -36,6 +36,8 @@ impl Optimiser {
     fn remove_unused_assignments(&mut self) {
         let candidates = self
             .iter_lines()
+            // Instructions with labels on them may be jumped to, and should never be deleted.
+            .filter(|(_, instr)| instr.label.is_none())
             .match_instruction(Instruction::as_assign)
             .filter(|(line, (name, _))| !self.listing.is_used_after(name, *line))
             .map(|(line, _)| line)
@@ -61,7 +63,12 @@ impl Optimiser {
         let mut replacements = HashMap::new();
 
         let mut assignments = vec![];
-        for (line, (name, value)) in self.iter_lines().match_instruction(Instruction::as_assign) {
+        for (line, (name, value)) in self
+            .iter_lines()
+            // Instructions with labels on them may be jumped to, and should never be deleted.
+            .filter(|(_, instr)| instr.label.is_none())
+            .match_instruction(Instruction::as_assign)
+        {
             replacements.insert(name.clone(), value.clone());
             assignments.push(line);
         }

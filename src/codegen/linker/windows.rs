@@ -29,6 +29,9 @@ impl Linker for WindowsLinker {
             .args([
                 object_path.try_decode()?,
                 "/subsystem:console",
+                // This only results in the generation of debug symbols in a separate PDB, so we can
+                // always leave this on.
+                "/debug",
                 &exe,
                 "legacy_stdio_definitions.lib",
                 "msvcrt.lib",

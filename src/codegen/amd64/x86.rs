@@ -117,6 +117,7 @@ pub enum Op {
     Cmp,
     Test,
     // Jumps
+    Jmp,
     Jz,
     Jnz,
     Je,
@@ -150,6 +151,7 @@ impl Display for Op {
             Op::Xor => "xor",
             Op::Cmp => "cmp",
             Op::Test => "test",
+            Op::Jmp => "jmp",
             Op::Jz => "jz",
             Op::Jnz => "jnz",
             Op::Je => "je",
