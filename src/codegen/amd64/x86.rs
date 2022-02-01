@@ -5,6 +5,7 @@ use std::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
+    // 64-bit wide registers
     Rbp,
     Rsp,
     Rdi,
@@ -21,11 +22,43 @@ pub enum Register {
     R13,
     R14,
     R15,
+    // 8-bit wide registers
+    Al,
+    Bl,
+    Cl,
+    Dl,
+    R8b,
+    R9b,
+    R10b,
+    R11b,
+    R12b,
+    R13b,
+    R14b,
+    R15b,
 }
 impl Register {
     pub fn iter() -> Iter<'static, Register> {
         use Register::*;
         [Rax, Rbx, Rcx, Rdx, R8, R9, R10, R11, R12, R13, R14, R15].iter()
+    }
+
+    pub fn into_byte(self) -> Self {
+        use Register::*;
+        match self {
+            Rax => Al,
+            Rbx => Bl,
+            Rcx => Cl,
+            Rdx => Dl,
+            R8 => R8b,
+            R9 => R9b,
+            R10 => R10b,
+            R11 => R11b,
+            R12 => R12b,
+            R13 => R13b,
+            R14 => R14b,
+            R15 => R15b,
+            other => panic!("Can't convert {} into a byte register", other),
+        }
     }
 }
 impl Display for Register {
@@ -47,6 +80,18 @@ impl Display for Register {
             Register::R13 => "r13",
             Register::R14 => "r14",
             Register::R15 => "r15",
+            Register::Al => "al",
+            Register::Bl => "bl",
+            Register::Cl => "cl",
+            Register::Dl => "dl",
+            Register::R8b => "r8b",
+            Register::R9b => "r9b",
+            Register::R10b => "r10b",
+            Register::R11b => "r11b",
+            Register::R12b => "r12b",
+            Register::R13b => "r13b",
+            Register::R14b => "r14b",
+            Register::R15b => "r15b",
         })
     }
 }
@@ -80,6 +125,13 @@ pub enum Op {
     Jge,
     Jl,
     Jle,
+    // Conditional set
+    Setg,
+    Setge,
+    Setl,
+    Setle,
+    Sete,
+    Setne,
     // Misc
     Nop,
 }
@@ -107,6 +159,12 @@ impl Display for Op {
             Op::Jl => "jl",
             Op::Jle => "jle",
             Op::Nop => "nop",
+            Op::Setg => "setg",
+            Op::Setge => "setge",
+            Op::Setl => "setl",
+            Op::Setle => "setle",
+            Op::Sete => "sete",
+            Op::Setne => "setne",
         })
     }
 }

@@ -90,8 +90,15 @@ impl ProcedureCompiler {
         self.emit_cmt(Mov, vec![Reg(target), value], comment);
     }
 
-    /// Compile a binary operation.
+    /// Compile a binary operation. Dispatches the operation fo the correct compile fuction
+    /// if the operation represents a comparison or (TODO) boolean operation.
     fn compile_bin(&mut self, tgt: Name, op: BinOp, left: Value, right: Value, comment: String) {
+        // Comparisons are handled separately, since they should produce a boolean.
+        if let Ok(cmp) = op.try_into() {
+            self.compile_cmp(tgt, cmp, left, right, comment);
+            return;
+        }
+
         let target = self.allocator.bind(tgt);
         let op = translate_binop(op);
         let left = self.get_operand(left);
@@ -105,7 +112,38 @@ impl ProcedureCompiler {
         self.emit_cmt(op, vec![Reg(target), right], format!("<apply> {}", comment));
     }
 
-    /// Compile a function call.
+    /// Compile a comparison between two values.
+    fn compile_cmp(&mut self, tgt: Name, cmp: Cmp, left: Value, right: Value, comment: String) {
+        let target = self.allocator.bind(tgt);
+        let left = self.get_operand(left);
+        let right = self.get_operand(right);
+
+        // RAX may be occupied, so we should free it first.
+        // This can be removed once we support operator semantics.
+        self.free(Rax);
+        self.emit_cmt(Mov, vec![Reg(Rax), left], "place lhs in RAX");
+        self.emit_cmt(Cmp, vec![Reg(Rax), right], format!("<compare> {}", comment));
+        // We're done with RAX, restore it.
+        self.restore(Rax);
+
+        // The x86 `set` operation copies a comparison flag into a register,
+        // allowing us to treat the value as a boolean.
+        let set_op = match cmp {
+            Cmp::Gt => Setg,
+            Cmp::Gte => Setge,
+            Cmp::Lt => Setl,
+            Cmp::Lte => Setle,
+            Cmp::Eq => Sete,
+            Cmp::Neq => Setne,
+        };
+        self.emit_cmt(
+            set_op,
+            vec![Reg(target.into_byte())],
+            format!("<store> {}", comment),
+        );
+    }
+
+    /// Compile a call to a function with `param_count` parameters.
     fn compile_call(&mut self, tgt: Name, name: Builtin, param_count: usize) {
         let tgt = self.allocator.bind(tgt);
 
@@ -190,6 +228,31 @@ fn translate_binop(op: BinOp) -> Op {
         BinOp::Multiply => Imul,
         BinOp::Subtract => Sub,
         _ => todo!("Don't know how to translate {:?} to assembly", op),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cmp {
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    Eq,
+    Neq,
+}
+impl TryFrom<BinOp> for Cmp {
+    type Error = ();
+
+    fn try_from(value: BinOp) -> Result<Self, ()> {
+        Ok(match value {
+            BinOp::LessThan => Cmp::Lt,
+            BinOp::GreaterThan => Cmp::Gt,
+            BinOp::LessThanEqual => Cmp::Lte,
+            BinOp::GreaterThanEqual => Cmp::Gte,
+            BinOp::Equal => Cmp::Eq,
+            BinOp::NotEqual => Cmp::Neq,
+            _ => return Err(()),
+        })
     }
 }
 
