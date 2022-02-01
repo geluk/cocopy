@@ -1,3 +1,4 @@
+//! Functionality for interacting with linkers.
 mod windows;
 
 use std::path::Path;

@@ -12,6 +12,7 @@ struct TacGenerator {
     label_generator: LabelGenerator,
 }
 impl TacGenerator {
+    /// Generate a three-address code listing for a program.
     fn generate(program: Program) -> TacListing {
         let mut tac = Self {
             listing: TacListing::new(),
@@ -30,10 +31,12 @@ impl TacGenerator {
         tac.listing
     }
 
+    /// Lower a variable definition to an assignment instruction.
     fn lower_var_def(&mut self, var_def: VarDef) {
-        self.emit_assign(var_def.name, self.lower_literal(var_def.value));
+        self.emit_assign(var_def.name, self.convert_literal(var_def.value));
     }
 
+    /// Lower a statement.
     fn lower_stmt(&mut self, stmt: Statement) {
         match stmt.stmt_kind {
             StmtKind::Pass => (),
@@ -46,12 +49,15 @@ impl TacGenerator {
         };
     }
 
+    /// Lower a block of statements.
     fn lower_block(&mut self, block: Block) {
         for stmt in block.statements {
             self.lower_stmt(stmt);
         }
     }
 
+    /// Lower an if-statement. If-statements are lowered to one or more conditional jumps, to
+    /// jump into the correct code block.
     fn lower_if(&mut self, if_stmt: If) {
         let cond = self.lower_expr(if_stmt.condition);
         let end_lbl = self.label_generator.next_label("if_end");
@@ -62,6 +68,8 @@ impl TacGenerator {
         self.emit_label(InstrKind::Nop, end_lbl);
     }
 
+    /// Lower a variable assignment by evaluating an expression and assigning its result to a
+    /// variable.
     fn lower_assign(&mut self, assign: Assign) {
         let result = self.lower_expr(assign.value);
 
@@ -72,10 +80,11 @@ impl TacGenerator {
         }
     }
 
+    /// Lower an expression.
     fn lower_expr(&mut self, expr: Expr) -> Value {
         match expr.expr_kind {
-            ExprKind::Literal(lit) => self.lower_literal(lit),
-            ExprKind::Identifier(id) => self.lower_identifier(id),
+            ExprKind::Literal(lit) => self.convert_literal(lit),
+            ExprKind::Identifier(id) => self.convert_identifier(id),
             ExprKind::Member(_) => todo!(),
             ExprKind::Index(_) => todo!(),
             ExprKind::Unary(_) => todo!(),
@@ -86,7 +95,9 @@ impl TacGenerator {
         }
     }
 
-    fn lower_literal(&self, lit: Literal) -> Value {
+    /// Convert a literal to a [`Value`]. This does not result in the emission
+    /// of intermediate code.
+    fn convert_literal(&self, lit: Literal) -> Value {
         match lit {
             Literal::Integer(i) => Value::Const(i as TargetSize),
             Literal::Boolean(b) => Value::Const(b as TargetSize),
@@ -94,7 +105,9 @@ impl TacGenerator {
         }
     }
 
-    fn lower_identifier(&self, id: String) -> Value {
+    /// Convert an identifier to a [`Value`]. This does not result in the emission
+    /// of intermediate code.
+    fn convert_identifier(&self, id: String) -> Value {
         if let Ok(builtin) = id.parse() {
             Value::Name(Name::Builtin(builtin))
         } else {
@@ -102,7 +115,8 @@ impl TacGenerator {
         }
     }
 
-    /// Lower a function call.
+    /// Lower a function call. Its parameters are pushed onto the parameter stack,
+    /// then the function is called.
     fn lower_function_call(&mut self, call: FunCallExpr) -> Value {
         let expr_value = self.lower_expr(call.params);
 

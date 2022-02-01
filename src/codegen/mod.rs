@@ -1,8 +1,6 @@
 //! Target code generation.
 mod amd64;
 mod linker;
-#[allow(dead_code)]
-mod llvm;
 
 use std::{
     env,
@@ -17,6 +15,7 @@ use crate::{
     il::TacListing,
 };
 
+/// A target operating system for compilation.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Os {
     Windows,
@@ -26,10 +25,12 @@ pub enum Os {
 #[allow(dead_code)]
 pub fn generate_llvm() {}
 
+/// Generate native code for the current platform. Assembly code is written to `out_dir`,
+/// which is then assembled and linked into an executable file.
 pub fn generate_native<P: AsRef<Path>>(prog: TacListing, out_dir: P) -> Result<()> {
     let out_dir = PathBuf::from(out_dir.as_ref());
 
-    let os = determine_os()?;
+    let os = current_os()?;
 
     clean_artifacts_dir(&out_dir)?;
 
@@ -48,7 +49,8 @@ pub fn generate_native<P: AsRef<Path>>(prog: TacListing, out_dir: P) -> Result<(
     Ok(())
 }
 
-fn determine_os() -> Result<Os> {
+/// Selects the current operating system as target operating system.
+fn current_os() -> Result<Os> {
     Ok(match env::consts::OS {
         "linux" => Os::Linux,
         "windows" => Os::Windows,

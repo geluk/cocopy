@@ -3,6 +3,7 @@ use std::{
     slice::Iter,
 };
 
+/// An x86 register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
     // 64-bit wide registers
@@ -96,6 +97,7 @@ impl Display for Register {
     }
 }
 
+/// An x86 instruction (called `Op` to prevent confusion with TAC instructions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code, reason = "We prefer completeness here")]
 pub enum Op {
