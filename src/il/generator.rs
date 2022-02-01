@@ -3,15 +3,15 @@ use crate::{ast::untyped::*, builtins::Builtin};
 use super::{label_generator::*, name_generator::*, tac::*};
 
 pub fn generate(program: Program) -> TacListing {
-    Tac::generate(program)
+    TacGenerator::generate(program)
 }
 
-struct Tac {
+struct TacGenerator {
     listing: TacListing,
     name_generator: NameGenerator,
     label_generator: LabelGenerator,
 }
-impl Tac {
+impl TacGenerator {
     fn generate(program: Program) -> TacListing {
         let mut tac = Self {
             listing: TacListing::new(),
@@ -215,7 +215,7 @@ mod tests {
         ($source:expr, $il:expr) => {{
             let tokens = lex($source).unwrap();
             let program = parse(&tokens).unwrap();
-            let instrs = Tac::generate(program);
+            let instrs = TacGenerator::generate(program);
 
             let instr_lines: Vec<_> = instrs.into_vec().iter().map(|i| i.to_string()).collect();
 
