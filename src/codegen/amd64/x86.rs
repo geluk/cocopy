@@ -113,6 +113,7 @@ pub enum Op {
     Add,
     Sub,
     Imul,
+    Idiv,
     // Bitwise operations
     Xor,
     // Comparison
@@ -150,6 +151,7 @@ impl Display for Op {
             Op::Add => "add",
             Op::Sub => "sub",
             Op::Imul => "imul",
+            Op::Idiv => "idiv",
             Op::Xor => "xor",
             Op::Cmp => "cmp",
             Op::Test => "test",

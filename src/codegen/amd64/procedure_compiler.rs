@@ -86,7 +86,7 @@ impl ProcedureCompiler {
             vec![val_op.operand(), val_op.operand()],
             format!("<jump> {}", comment),
         );
-        self.free_prepared(val_op);
+        self.release_prepared(val_op);
         self.emit(jump_type, vec![Lbl(label.to_string())]);
     }
 
@@ -104,6 +104,35 @@ impl ProcedureCompiler {
         // Comparisons are handled separately, since they should produce a boolean.
         if let Ok(cmp) = op.try_into() {
             self.compile_cmp(tgt, cmp, left, right, comment);
+            return;
+        }
+
+        // Integer division and remainder are handled specially.
+        if op == BinOp::IntDiv || op == BinOp::Remainder {
+            // The lower half of the dividend goes in RDX.
+            // This is also where the remainder is stored.
+            self.reserve(Rdx);
+            // The upper half of the dividend goes in RAX.
+            // This is also where the quotient is stored.
+            let dividend = self.prepare_operand(left, OpSemantics::rax_only());
+            let divisor = self.prepare_operand(right, Idiv.op1_semantics());
+
+            self.emit_cmt(Xor, vec![Reg(Rdx), Reg(Rdx)], "<div> clear upper half")
+                .emit_cmt(Idiv, vec![divisor.operand()], format!("<div> {}", comment));
+
+            match op {
+                BinOp::Remainder => {
+                    self.allocator.bind_to(tgt, Rax);
+                    self.allocator.release(Rdx);
+                }
+                BinOp::IntDiv => {
+                    self.allocator.bind_to(tgt, Rdx);
+                    self.release_prepared(dividend);
+                }
+                _ => unreachable!(),
+            }
+
+            self.release_prepared(divisor);
             return;
         }
 
@@ -152,7 +181,7 @@ impl ProcedureCompiler {
             format!("<store> {}", comment),
         );
 
-        self.free_prepared(left_op);
+        self.release_prepared(left_op);
     }
 
     /// Compile a call to a function with `param_count` parameters.
@@ -197,34 +226,70 @@ impl ProcedureCompiler {
     /// it is first placed in a temporary register. Call `free_operand` after using
     /// the operand to ensure the temporary register is freed again.
     fn prepare_operand(&mut self, value: Value, op_smt: OpSemantics) -> PreparedOperand {
-        match value {
-            Value::Const(lit) => {
-                if op_smt.immediate {
-                    PreparedOperand::other(Lit(lit as i128))
-                } else {
-                    // We found a literal, but this operand cannot be an immediate value,
-                    // so we temporarily allocate a register for it.
-                    let reg = self
-                        .allocator
-                        .allocate()
-                        .expect("Ran out of registers to allocate");
-                    self.emit_cmt(
-                        Mov,
-                        vec![Reg(reg), Lit(lit as i128)],
-                        format!("<op_sem> prepare operand {}", value),
-                    );
-                    PreparedOperand::temp(Reg(reg))
+        match &value {
+            Value::Const(cnst) if op_smt.immediate => {
+                // An immediate value operand is accepted, so we can just pass it on.
+                return PreparedOperand::other(Operand::Lit(*cnst as i128));
+            }
+            Value::Name(name) if op_smt.register == AcceptsReg::AnyReg => {
+                if let Some(reg) = self.allocator.lookup(name) {
+                    // Any register is accepted, and we already have a register binding for this
+                    // operand.
+                    return PreparedOperand::other(Operand::Reg(reg));
                 }
             }
-            Value::Name(name) => PreparedOperand::other(Reg(self.allocator.bind(name))),
+            Value::Name(name)
+                if op_smt.register == AcceptsReg::RaxOnly
+                    && self.allocator.lookup(name) == Some(Rax) =>
+            {
+                // Only RAX is accepted, but this variable already happens to be bound to RAX.
+                return PreparedOperand::other(Operand::Reg(Rax));
+            }
+            _ => (),
         }
+
+        // We now know we need to put the operand in some register.
+        // First, let's allocate the right register.
+        let target_reg = match op_smt.register {
+            AcceptsReg::AnyReg => self
+                .allocator
+                .allocate()
+                .expect("Ran out of registers to allocate"),
+            AcceptsReg::RaxOnly => {
+                self.reserve(Rax);
+                Rax
+            }
+        };
+
+        match value {
+            Value::Const(cnst) => {
+                self.emit_cmt(
+                    Mov,
+                    vec![Reg(target_reg), Lit(cnst as i128)],
+                    format!("<op_sem> prepare operand {}", value),
+                );
+            }
+            Value::Name(name) => match self.allocator.lookup(&name) {
+                Some(orig_reg) => {
+                    self.emit_cmt(
+                        Mov,
+                        vec![Reg(target_reg), Reg(orig_reg)],
+                        "<op_sem> move operand into correct register".to_string(),
+                    );
+                }
+                None => {
+                    panic!("Attempted to prepare an operand for a name that was not allocated yet.")
+                }
+            },
+        }
+        PreparedOperand::temp(Reg(target_reg))
     }
 
-    /// Frees a prepared operand. If a temporary register was allocated for this operand,
+    /// Releases a prepared operand. If a temporary register was allocated for this operand,
     /// it is released.
-    fn free_prepared(&mut self, prep_op: PreparedOperand) {
+    fn release_prepared(&mut self, prep_op: PreparedOperand) {
         if let (true, Reg(reg)) = (prep_op.is_temp, prep_op.operand) {
-            self.allocator.release(&reg);
+            self.allocator.release(reg);
         }
     }
 
@@ -237,14 +302,23 @@ impl ProcedureCompiler {
         }
     }
 
-    /// Free a register, storing its value on the stack.
-    fn free(&mut self, register: Register) {
-        self.emit_cmt(Push, vec![Reg(register)], format!("free {}", register));
-    }
+    /// Reserves a register for usage, moving its value somewhere else if it was already allocated.
+    fn reserve(&mut self, register: Register) {
+        if self.allocator.is_free(register) {
+            self.allocator.allocate_reg(register);
+            return;
+        }
 
-    /// Restore a register, popping its value from the top of the stack.
-    fn restore(&mut self, register: Register) {
-        self.emit_cmt(Pop, vec![Reg(register)], format!("restore {}", register));
+        let renamed_reg = self
+            .allocator
+            .allocate()
+            .expect("Ran out of registers to allocate");
+        self.emit_cmt(
+            Mov,
+            vec![Reg(renamed_reg), Reg(Rax)],
+            format!("<op_sem> free {} -> {}", register, renamed_reg),
+        );
+        self.allocator.notify_move(Rax, renamed_reg);
     }
 
     /// Emit an operation.
@@ -275,6 +349,7 @@ fn translate_binop(op: BinOp) -> Op {
     match op {
         BinOp::Add => Add,
         BinOp::Multiply => Imul,
+        BinOp::IntDiv => Idiv,
         BinOp::Subtract => Sub,
         _ => todo!("Don't know how to translate {:?} to assembly", op),
     }
@@ -302,18 +377,43 @@ impl PreparedOperand {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AcceptsReg {
+    AnyReg,
+    RaxOnly,
+}
+impl Default for AcceptsReg {
+    fn default() -> Self {
+        Self::AnyReg
+    }
+}
+
 /// Describes how an operand may be used.
-#[derive(Default)]
+#[derive(Debug, Default, Clone, Copy)]
 struct OpSemantics {
     immediate: bool,
-    register: bool,
-    memory: bool,
+    register: AcceptsReg,
 }
 impl OpSemantics {
+    /// The operand may be placed in memory or in any register.
+    fn any_reg_or_mem() -> Self {
+        Self {
+            register: AcceptsReg::AnyReg,
+            // memory: true,
+            ..Default::default()
+        }
+    }
     /// The operand may be placed in any register.
     fn any_reg() -> Self {
         Self {
-            register: true,
+            register: AcceptsReg::AnyReg,
+            ..Default::default()
+        }
+    }
+    /// The operand may only be placed in RAX.
+    fn rax_only() -> Self {
+        Self {
+            register: AcceptsReg::RaxOnly,
             ..Default::default()
         }
     }
@@ -324,9 +424,11 @@ trait OpSemanticsFor {
     fn op1_semantics(&self) -> OpSemantics;
 }
 impl OpSemanticsFor for Op {
+    /// Retrieves the operand semantics for the first operand.
     fn op1_semantics(&self) -> OpSemantics {
         match self {
             Test => OpSemantics::any_reg(),
+            Idiv => OpSemantics::any_reg_or_mem(),
             _ => todo!("Determine operand 1 semantics for {}", self),
         }
     }
