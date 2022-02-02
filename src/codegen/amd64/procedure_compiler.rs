@@ -13,15 +13,21 @@ pub struct ProcedureCompiler {
     pending_label: Option<Label>,
 }
 impl ProcedureCompiler {
+    /// Compile the given source code into the given procedure.
     pub fn compile(listing: TacListing, procedure: Procedure) -> Procedure {
-        let mut compiler = Self {
+        let mut compiler = Self::new(procedure);
+        compiler.compile_tac(listing);
+        compiler.procedure
+    }
+
+    /// Construct a new procedure compiler for the given procedure.
+    fn new(procedure: Procedure) -> Self {
+        Self {
             allocator: RegisterAllocator::new(),
             procedure,
             param_stack: vec![],
             pending_label: None,
-        };
-        compiler.compile_tac(listing);
-        compiler.procedure
+        }
     }
 
     /// Compile a three-address code listing.
@@ -121,11 +127,11 @@ impl ProcedureCompiler {
                 .emit_cmt(Idiv, vec![divisor.operand()], format!("<div> {}", comment));
 
             match op {
-                BinOp::Remainder => {
+                BinOp::IntDiv => {
                     self.allocator.bind_to(tgt, Rax);
                     self.allocator.release(Rdx);
                 }
-                BinOp::IntDiv => {
+                BinOp::Remainder => {
                     self.allocator.bind_to(tgt, Rdx);
                     self.release_prepared(dividend);
                 }
@@ -475,46 +481,87 @@ mod tests {
         };
     }
 
-    macro_rules! listing {
+    macro_rules! compile_instr {
         ($instr:expr) => {{
-            let mut listing = TacListing::new();
-            listing.push(Instruction::new($instr));
-            listing
+            let proc = Procedure::new("main", Block::new(), Block::new());
+            let mut compiler = ProcedureCompiler::new(proc);
+            compiler.compile_instr(&Instruction::new($instr));
+
+            println!(
+                "Listing source:\n===============\n{}===============\n",
+                compiler.procedure
+            );
+            compiler
         }};
     }
 
-    macro_rules! compile_listing {
-        ($instr:expr) => {{
-            let listing = listing!($instr);
-            let proc = Procedure::new("main", Block::new(), Block::new());
-            let proc = ProcedureCompiler::compile(listing, proc);
-            println!(
-                "Listing source:\n===============\n{}===============\n",
-                proc
-            );
-            proc
-        }};
+    macro_rules! first_reg {
+        ($compiler:expr) => {
+            $compiler
+                .allocator
+                .iter_allocations()
+                .next()
+                .copied()
+                .unwrap()
+        };
+    }
+
+    macro_rules! assert_allocates {
+        ($compiler:expr, $expected:expr) => {
+            let allocations: Vec<_> = $compiler.allocator.iter_allocations().copied().collect();
+            assert_eq!(
+                &$expected[..],
+                &allocations,
+                "\n\nExpected allocations:\n\t{:?}\nBut found:\n\t{:?}\n\n",
+                $expected,
+                &allocations,
+            )
+        };
     }
 
     #[test]
     fn compile_tac_compiles_instruction_to_assembly() {
-        let procedure =
-            compile_listing!(InstrKind::Bin(sub!("x"), BinOp::Add, cnst!(10), cnst!(99),));
+        let compiler = compile_instr!(InstrKind::Bin(sub!("x"), BinOp::Add, cnst!(10), cnst!(99)));
+        let target_reg = first_reg!(compiler);
 
         let mut expected = Block::new();
-        expected.push(Mov, vec![Reg(Rax), Lit(10)]);
-        expected.push(Add, vec![Reg(Rax), Lit(99)]);
+        expected.push(Mov, vec![Reg(target_reg), Lit(10)]);
+        expected.push(Add, vec![Reg(target_reg), Lit(99)]);
 
-        assert_eq!(expected, procedure.body)
+        assert_eq!(expected, compiler.procedure.body)
     }
 
     #[test]
     fn can_compile_multiplication() {
-        compile_listing!(InstrKind::Bin(
+        compile_instr!(InstrKind::Bin(
             sub!("x"),
             BinOp::Multiply,
             cnst!(10),
             cnst!(3),
         ));
+    }
+
+    #[test]
+    fn integer_division_allocates_to_rax() {
+        let compiler = compile_instr!(InstrKind::Bin(
+            sub!("x"),
+            BinOp::IntDiv,
+            cnst!(101),
+            cnst!(10)
+        ));
+
+        assert_allocates!(compiler, [Rax]);
+    }
+
+    #[test]
+    fn remainder_allocates_to_rdx() {
+        let compiler = compile_instr!(InstrKind::Bin(
+            sub!("x"),
+            BinOp::Remainder,
+            cnst!(101),
+            cnst!(10)
+        ));
+
+        assert_allocates!(compiler, [Rdx]);
     }
 }

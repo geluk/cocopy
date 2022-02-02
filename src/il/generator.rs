@@ -233,7 +233,7 @@ mod tests {
 
             let instr_lines: Vec<_> = instrs.into_vec().iter().map(|i| i.to_string()).collect();
 
-            assert_eq!($il, instr_lines)
+            assert_eq!(&$il[..], instr_lines)
         }};
     }
 
@@ -241,7 +241,7 @@ mod tests {
     fn simple_program_generates_tac() {
         assert_generates!(
             "a:int = 10\na = a + (100 + 1)",
-            vec!["a^1 = 10", "%t1 = 100 + 1", "%t2 = a^1 + %t1", "a^2 = %t2",]
+            ["a^1 = 10", "%t1 = 100 + 1", "%t2 = a^1 + %t1", "a^2 = %t2",]
         )
     }
 
@@ -249,7 +249,7 @@ mod tests {
     fn if_stmt_generates_tac() {
         assert_generates!(
             "a:bool = True\nif a:\n\tprint(1)",
-            vec![
+            [
                 "a^1 = 1",
                 "if_false a^1 goto if_end_1",
                 "param 1",
@@ -261,6 +261,6 @@ mod tests {
 
     #[test]
     fn function_call_generates_param_and_call() {
-        assert_generates!("print(999)", vec!["param 999", "%t1 = call print, 1",])
+        assert_generates!("print(999)", ["param 999", "%t1 = call print, 1",])
     }
 }

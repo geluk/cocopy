@@ -23,6 +23,11 @@ impl RegisterAllocator {
         self.bindings.keys()
     }
 
+    #[cfg(test)]
+    pub fn iter_allocations(&self) -> std::collections::hash_set::Iter<Register> {
+        self.allocations.iter()
+    }
+
     /// Bind a name to a free register. If this name is already bound, returns the bound register.
     pub fn bind(&mut self, name: Name) -> Register {
         if let Entry::Occupied(ocp) = self.bindings.entry(name.clone()) {
