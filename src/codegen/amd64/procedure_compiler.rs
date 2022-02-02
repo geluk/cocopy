@@ -45,6 +45,9 @@ impl ProcedureCompiler {
                 self.allocator.unbind(&name);
             }
         }
+        if self.pending_label.is_some() {
+            self.emit_cmt(Nop, [], "insert trailing label");
+        }
     }
 
     /// Compile a single TAC instruction.
@@ -62,9 +65,7 @@ impl ProcedureCompiler {
             }
             InstrKind::Param(param) => self.compile_param(param.clone()),
             InstrKind::Call(tgt, name, params) => self.compile_call(tgt.clone(), *name, *params),
-            InstrKind::Nop => {
-                self.emit(Nop, []);
-            }
+            InstrKind::Nop => (),
             InstrKind::IfTrue(value, lbl) => {
                 self.compile_jump(value.clone(), lbl.clone(), true, comment)
             }
@@ -192,8 +193,6 @@ impl ProcedureCompiler {
 
     /// Compile a call to a function with `param_count` parameters.
     fn compile_call(&mut self, tgt: Name, name: Builtin, param_count: usize) {
-        let tgt = self.allocator.bind(tgt);
-
         if param_count > 4 {
             todo!("Can't deal with more than 4 parameters yet.");
         }
@@ -202,6 +201,8 @@ impl ProcedureCompiler {
         let target_regs = [Rcx, Rdx, R8, R9];
         for (idx, &reg) in target_regs[0..param_count].iter().enumerate() {
             let value = self.param_stack.pop().expect("Parameter count mismatch!");
+
+            self.reserve(reg);
             self.emit_cmt(
                 Mov,
                 [Reg(reg), value],
@@ -209,15 +210,19 @@ impl ProcedureCompiler {
             );
         }
 
+        // The return value will be placed in RAX.
+        self.reserve(Rax);
+        self.allocator.bind_to(tgt, Rax);
+
         let name = match name {
             Builtin::Print => "print",
         };
 
-        self.emit_cmt(Call, [Id(name)], "call print").emit_cmt(
-            Mov,
-            [Reg(tgt), Reg(Rax)],
-            "store return value",
-        );
+        self.emit_cmt(Call, [Id(name)], "call print");
+
+        for &reg in target_regs[0..param_count].iter() {
+            self.allocator.release(reg);
+        }
     }
 
     /// Compile a function parameter.
@@ -321,10 +326,10 @@ impl ProcedureCompiler {
             .expect("Ran out of registers to allocate");
         self.emit_cmt(
             Mov,
-            [Reg(renamed_reg), Reg(Rax)],
-            format!("<op_sem> free {} -> {}", register, renamed_reg),
+            [Reg(renamed_reg), Reg(register)],
+            format!("<reserve> {} -> {}", register, renamed_reg),
         );
-        self.allocator.notify_move(Rax, renamed_reg);
+        self.allocator.notify_move(register, renamed_reg);
     }
 
     /// Emit an operation.
@@ -481,18 +486,27 @@ mod tests {
         };
     }
 
-    macro_rules! compile_instr {
-        ($instr:expr) => {{
+    macro_rules! compile_instrs {
+        ($instrs:expr) => {{
             let proc = Procedure::new("main", Block::new(), Block::new());
             let mut compiler = ProcedureCompiler::new(proc);
-            compiler.compile_instr(&Instruction::new($instr));
 
+            for instr in $instrs.into_iter() {
+                compiler.compile_instr(&Instruction::new(instr));
+            }
             println!(
                 "Listing source:\n===============\n{}===============\n",
                 compiler.procedure
             );
+            compiler.allocator.debug();
             compiler
         }};
+    }
+
+    macro_rules! compile_instr {
+        ($instr:expr) => {
+            compile_instrs!([$instr])
+        };
     }
 
     macro_rules! first_reg {
@@ -563,5 +577,31 @@ mod tests {
         ));
 
         assert_allocates!(compiler, [Rdx]);
+    }
+
+    #[test]
+    fn function_call_allocates_for_return_value() {
+        let compiler = compile_instrs!([
+            InstrKind::Param(cnst!(10)),
+            InstrKind::Call(sub!("x"), Builtin::Print, 1)
+        ]);
+
+        assert_allocates!(compiler, [Rax]);
+    }
+
+    #[test]
+    fn function_call_moves_if_return_register_already_allocated() {
+        let x = sub!("x");
+        let c = sub!("c");
+        let compiler = compile_instrs!([
+            InstrKind::Assign(c.clone(), cnst!(55)),
+            InstrKind::Param(cnst!(10)),
+            InstrKind::Call(x.clone(), Builtin::Print, 1)
+        ]);
+
+        // `x` should now be in RAX
+        assert_eq!(Some(Rax), compiler.allocator.lookup(&x));
+        // `c` should now be somewhere else
+        assert!(compiler.allocator.lookup(&c).is_some());
     }
 }

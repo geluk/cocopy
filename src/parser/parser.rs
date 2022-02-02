@@ -130,14 +130,23 @@ impl<'a> Parser<'a> {
         self.recognise_structure(Structure::Newline).add_stage(ST)?;
 
         let body = self.block()?;
+
+        // TODO: elif
+        let else_body = if self.recognise_keyword(Keyword::Else).is_ok() {
+            self.recognise_symbol(Symbol::Colon).add_stage(ST)?;
+            self.recognise_structure(Structure::Newline).add_stage(ST)?;
+
+            Some(self.block()?)
+        } else {
+            None
+        };
+
         let if_st = If {
             condition,
             body,
             elifs: vec![],
-            else_block: None,
+            else_body,
         };
-
-        // TODO: elif/else
 
         Ok(Statement {
             span: self.span_from(start),

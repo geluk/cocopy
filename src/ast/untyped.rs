@@ -75,7 +75,7 @@ pub struct If {
     pub condition: Expr,
     pub body: Block,
     pub elifs: Vec<Elif>,
-    pub else_block: Option<Block>,
+    pub else_body: Option<Block>,
 }
 
 #[derive(Debug)]

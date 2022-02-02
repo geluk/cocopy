@@ -61,9 +61,22 @@ impl TacGenerator {
     fn lower_if(&mut self, if_stmt: If) {
         let cond = self.lower_expr(if_stmt.condition);
         let end_lbl = self.label_generator.next_label("if_end");
-        self.emit(InstrKind::IfFalse(cond, end_lbl.clone()));
+        let else_lbl = self.label_generator.next_label("if_else");
+
+        if if_stmt.else_body.is_none() {
+            self.emit(InstrKind::IfFalse(cond, end_lbl.clone()));
+        } else {
+            self.emit(InstrKind::IfFalse(cond, else_lbl.clone()));
+        }
 
         self.lower_block(if_stmt.body);
+
+        if let Some(else_body) = if_stmt.else_body {
+            self.emit(InstrKind::Goto(end_lbl.clone()));
+            self.emit_label(InstrKind::Nop, else_lbl);
+            self.lower_block(else_body);
+            self.emit(InstrKind::Goto(end_lbl.clone()));
+        }
 
         self.emit_label(InstrKind::Nop, end_lbl);
     }

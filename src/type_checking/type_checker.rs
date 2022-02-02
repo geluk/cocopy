@@ -90,9 +90,14 @@ impl<'a> TypeChecker<'a> {
             })
             .collect_errors();
 
-        let mut block_errors = self.check_block(&if_stmt.body);
+        let mut body_errors = self.check_block(&if_stmt.body);
+        errors.append(&mut body_errors);
 
-        errors.append(&mut block_errors);
+        if let Some(else_body) = &if_stmt.else_body {
+            let mut else_body_errors = self.check_block(else_body);
+            errors.append(&mut else_body_errors);
+        }
+
         errors
     }
 
