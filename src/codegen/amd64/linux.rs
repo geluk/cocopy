@@ -22,10 +22,10 @@ fn default() -> Assembly {
     asm.text
         .main
         .body
-        .push(Mov, vec![Reg(Rdi), Id("fmt_int")])
-        .push(Mov, vec![Reg(Rsi), Lit(101)])
-        .push(Call, vec![Id("printf")])
-        .push(Mov, vec![Reg(Rax), Lit(0)]);
+        .push(Mov, [Reg(Rdi), Id("fmt_int")])
+        .push(Mov, [Reg(Rsi), Lit(101)])
+        .push(Call, [Id("printf")])
+        .push(Mov, [Reg(Rax), Lit(0)]);
 
     asm.data.db("fmt_int", "'%i', 0");
 
@@ -42,7 +42,7 @@ fn procedure(name: Str) -> Procedure {
 
 fn prologue() -> Block {
     let mut prologue = Block::new();
-    prologue.push_cmt(Push, vec![Reg(Rbp)], "Store base pointer");
+    prologue.push_cmt(Push, [Reg(Rbp)], "store base pointer");
 
     prologue
 }
@@ -50,8 +50,8 @@ fn prologue() -> Block {
 fn epilogue() -> Block {
     let mut epilogue = Block::new();
     epilogue
-        .push_cmt(Pop, vec![Reg(Rbp)], "Restore previous base pointer")
-        .push_cmt(Ret, vec![], "Return to caller");
+        .push_cmt(Pop, [Reg(Rbp)], "restore previous base pointer")
+        .push_cmt(Ret, [], "return to caller");
 
     epilogue
 }

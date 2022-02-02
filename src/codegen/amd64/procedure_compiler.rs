@@ -63,7 +63,7 @@ impl ProcedureCompiler {
             InstrKind::Param(param) => self.compile_param(param.clone()),
             InstrKind::Call(tgt, name, params) => self.compile_call(tgt.clone(), *name, *params),
             InstrKind::Nop => {
-                self.emit(Nop, vec![]);
+                self.emit(Nop, []);
             }
             InstrKind::IfTrue(value, lbl) => {
                 self.compile_jump(value.clone(), lbl.clone(), true, comment)
@@ -73,7 +73,7 @@ impl ProcedureCompiler {
             }
             InstrKind::Phi(_) => (), // Phi is a no-op
             InstrKind::Goto(tgt) => {
-                self.emit(Jmp, vec![Lbl(tgt.to_string())]);
+                self.emit(Jmp, [Lbl(tgt.to_string())]);
             }
         }
     }
@@ -89,11 +89,11 @@ impl ProcedureCompiler {
         let val_op = self.prepare_operand(value, Test.op1_semantics());
         self.emit_cmt(
             Test,
-            vec![val_op.operand(), val_op.operand()],
+            [val_op.operand(), val_op.operand()],
             format!("<jump> {}", comment),
         );
         self.release_prepared(val_op);
-        self.emit(jump_type, vec![Lbl(label.to_string())]);
+        self.emit(jump_type, [Lbl(label.to_string())]);
     }
 
     /// Compile an assignment.
@@ -101,7 +101,7 @@ impl ProcedureCompiler {
         let target = self.allocator.bind(target);
         let value = self.get_operand(value);
 
-        self.emit_cmt(Mov, vec![Reg(target), value], comment);
+        self.emit_cmt(Mov, [Reg(target), value], comment);
     }
 
     /// Compile a binary operation. Dispatches the operation for the correct compile fuction
@@ -123,8 +123,8 @@ impl ProcedureCompiler {
             let dividend = self.prepare_operand(left, OpSemantics::rax_only());
             let divisor = self.prepare_operand(right, Idiv.op1_semantics());
 
-            self.emit_cmt(Xor, vec![Reg(Rdx), Reg(Rdx)], "<div> clear upper half")
-                .emit_cmt(Idiv, vec![divisor.operand()], format!("<div> {}", comment));
+            self.emit_cmt(Xor, [Reg(Rdx), Reg(Rdx)], "<div> clear upper half")
+                .emit_cmt(Idiv, [divisor.operand()], format!("<div> {}", comment));
 
             match op {
                 BinOp::IntDiv => {
@@ -151,8 +151,8 @@ impl ProcedureCompiler {
         // compiled in one go, so we translate them to the following sequence:
         // x <- y
         // x <>= z
-        self.emit_cmt(Mov, vec![Reg(target), left], format!("<store> {}", comment));
-        self.emit_cmt(op, vec![Reg(target), right], format!("<apply> {}", comment));
+        self.emit_cmt(Mov, [Reg(target), left], format!("<store> {}", comment));
+        self.emit_cmt(op, [Reg(target), right], format!("<apply> {}", comment));
     }
 
     /// Compile a comparison between two values.
@@ -163,12 +163,12 @@ impl ProcedureCompiler {
         let target = self.allocator.bind(tgt);
         self.emit_cmt(
             Xor,
-            vec![Reg(target), Reg(target)],
+            [Reg(target), Reg(target)],
             format!("clear upper bytes of {}", target),
         )
         .emit_cmt(
             Cmp,
-            vec![left_op.operand(), right_op],
+            [left_op.operand(), right_op],
             format!("<compare> {}", comment),
         );
         // The x86 `set` operation copies a comparison flag into a register,
@@ -183,7 +183,7 @@ impl ProcedureCompiler {
         };
         self.emit_cmt(
             set_op,
-            vec![Reg(target.into_byte())],
+            [Reg(target.into_byte())],
             format!("<store> {}", comment),
         );
 
@@ -204,7 +204,7 @@ impl ProcedureCompiler {
             let value = self.param_stack.pop().expect("Parameter count mismatch!");
             self.emit_cmt(
                 Mov,
-                vec![Reg(reg), value],
+                [Reg(reg), value],
                 format!("set parameter #{}", idx + 1),
             );
         }
@@ -213,9 +213,9 @@ impl ProcedureCompiler {
             Builtin::Print => "print",
         };
 
-        self.emit_cmt(Call, vec![Id(name)], "call print").emit_cmt(
+        self.emit_cmt(Call, [Id(name)], "call print").emit_cmt(
             Mov,
-            vec![Reg(tgt), Reg(Rax)],
+            [Reg(tgt), Reg(Rax)],
             "store return value",
         );
     }
@@ -271,7 +271,7 @@ impl ProcedureCompiler {
             Value::Const(cnst) => {
                 self.emit_cmt(
                     Mov,
-                    vec![Reg(target_reg), Lit(cnst as i128)],
+                    [Reg(target_reg), Lit(cnst as i128)],
                     format!("<op_sem> prepare operand {}", value),
                 );
             }
@@ -279,7 +279,7 @@ impl ProcedureCompiler {
                 Some(orig_reg) => {
                     self.emit_cmt(
                         Mov,
-                        vec![Reg(target_reg), Reg(orig_reg)],
+                        [Reg(target_reg), Reg(orig_reg)],
                         "<op_sem> move operand into correct register".to_string(),
                     );
                 }
@@ -321,15 +321,15 @@ impl ProcedureCompiler {
             .expect("Ran out of registers to allocate");
         self.emit_cmt(
             Mov,
-            vec![Reg(renamed_reg), Reg(Rax)],
+            [Reg(renamed_reg), Reg(Rax)],
             format!("<op_sem> free {} -> {}", register, renamed_reg),
         );
         self.allocator.notify_move(Rax, renamed_reg);
     }
 
     /// Emit an operation.
-    fn emit(&mut self, op: Op, operands: Vec<Operand>) -> &mut Self {
-        self.procedure.body.push(op, operands);
+    fn emit<V: Into<Vec<Operand>>>(&mut self, op: Op, operands: V) -> &mut Self {
+        self.procedure.body.push(op, operands.into());
         if let Some(label) = self.pending_label.take() {
             self.procedure.body.add_label(label.to_string());
         }
@@ -337,13 +337,13 @@ impl ProcedureCompiler {
     }
 
     /// Emit an operation with comment.
-    fn emit_cmt<S: Into<String>>(
+    fn emit_cmt<V: Into<Vec<Operand>>, S: Into<String>>(
         &mut self,
         op: Op,
-        operands: Vec<Operand>,
+        operands: V,
         comment: S,
     ) -> &mut Self {
-        self.procedure.body.push_cmt(op, operands, comment);
+        self.procedure.body.push_cmt(op, operands.into(), comment);
         if let Some(label) = self.pending_label.take() {
             self.procedure.body.add_label(label.to_string());
         }

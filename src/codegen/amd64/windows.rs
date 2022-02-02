@@ -19,11 +19,7 @@ pub fn compile(prog: TacListing) -> Assembly {
         .push_decl(Extern("ExitProcess"))
         .push_decl(Extern("printf"));
 
-    asm.text
-        .main
-        .body
-        .push(Op::Call, vec![Id("_CRT_INIT")])
-        .blank();
+    asm.text.main.body.push(Op::Call, [Id("_CRT_INIT")]).blank();
 
     asm.text.main = ProcedureCompiler::compile(prog, asm.text.main);
 
@@ -32,7 +28,7 @@ pub fn compile(prog: TacListing) -> Assembly {
         .body
         .blank()
         .ret_zero()
-        .push(Call, vec![Id("ExitProcess")]);
+        .push(Call, [Id("ExitProcess")]);
 
     asm.text.procedures.push(print());
 
@@ -47,9 +43,9 @@ fn print() -> Procedure {
     let mut print = procedure("print");
     print
         .body
-        .push(Mov, vec![Reg(Rdx), Reg(Rcx)])
-        .push(Lea, vec![Reg(Rcx), Id("[msg_i]")])
-        .push(Call, vec![Id("printf")]);
+        .push(Mov, [Reg(Rdx), Reg(Rcx)])
+        .push(Lea, [Reg(Rcx), Id("[msg_i]")])
+        .push(Call, [Id("printf")]);
     print
 }
 
@@ -65,9 +61,9 @@ fn prologue() -> Block {
     let mut prologue = Block::new();
 
     prologue
-        .push_cmt(Push, vec![Reg(Rbp)], "Store base pointer")
-        .push_cmt(Mov, vec![Reg(Rbp), Reg(Rsp)], "Move base pointer down")
-        .push_cmt(Sub, vec![Reg(Rsp), Lit(32)], "Create shadow space")
+        .push_cmt(Push, [Reg(Rbp)], "store base pointer")
+        .push_cmt(Mov, [Reg(Rbp), Reg(Rsp)], "move base pointer down")
+        .push_cmt(Sub, [Reg(Rsp), Lit(32)], "create shadow space")
         .blank();
 
     prologue
@@ -77,9 +73,9 @@ fn epilogue() -> Block {
     let mut epilogue = Block::new();
     epilogue
         .blank()
-        .push_cmt(Mov, vec![Reg(Rsp), Reg(Rbp)], "Move stack pointer back up")
-        .push_cmt(Pop, vec![Reg(Rbp)], "Restore previous base pointer")
-        .push_cmt(Ret, vec![], "Return to caller");
+        .push_cmt(Mov, [Reg(Rsp), Reg(Rbp)], "move stack pointer back up")
+        .push_cmt(Pop, [Reg(Rbp)], "restore previous base pointer")
+        .push_cmt(Ret, [], "return to caller");
 
     epilogue
 }
@@ -89,7 +85,7 @@ trait BodyExt {
 }
 impl BodyExt for Block {
     fn ret_zero(&mut self) -> &mut Self {
-        self.push_cmt(Xor, vec![Reg(Rax), Reg(Rax)], "Return zero");
+        self.push_cmt(Xor, [Reg(Rax), Reg(Rax)], "return zero");
         self
     }
 }

@@ -159,19 +159,21 @@ impl Block {
         Self { lines: vec![] }
     }
 
-    pub fn push(&mut self, op: Op, operands: Vec<Operand>) -> &mut Self {
-        self.lines.push(Line::new(Instr::new(op, operands)));
+    pub fn push<V: Into<Vec<Operand>>>(&mut self, op: Op, operands: V) -> &mut Self {
+        self.lines.push(Line::new(Instr::new(op, operands.into())));
         self
     }
 
-    pub fn push_cmt<S: Into<String>>(
+    pub fn push_cmt<V: Into<Vec<Operand>>, S: Into<String>>(
         &mut self,
         op: Op,
-        operands: Vec<Operand>,
+        operands: V,
         comment: S,
     ) -> &mut Self {
-        self.lines
-            .push(Line::new_cmt(Instr::new(op, operands), comment.into()));
+        self.lines.push(Line::new_cmt(
+            Instr::new(op, operands.into()),
+            comment.into(),
+        ));
         self
     }
 
