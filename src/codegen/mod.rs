@@ -11,7 +11,7 @@ use std::{
 use anyhow::{bail, Context, Result};
 
 use crate::{
-    ext::{DiscardOk, TryDecode, VerifySuccess},
+    ext::{TryDecode, VerifySuccess},
     il::TacListing,
 };
 
@@ -32,19 +32,15 @@ pub fn generate_native<P: AsRef<Path>>(prog: TacListing, out_dir: P) -> Result<(
 
     let os = current_os()?;
 
-    clean_artifacts_dir(&out_dir)?;
+    clean_artifacts_dir(&out_dir).context("Could not clean artifacts directory")?;
 
     let mut asm_path = out_dir.clone();
     asm_path.push("out.asm");
-    let mut obj_path = out_dir.clone();
-    obj_path.push("out.obj");
-    let mut exe_path = out_dir;
-    exe_path.push("out.exe");
 
-    generate_assembly(prog, &asm_path, os)?;
-    assemble(&asm_path, &obj_path, os)?;
+    generate_assembly(prog, &asm_path, os).context("Failed to generate assembly")?;
+    let obj_path = assemble(&asm_path, &out_dir, os).context("Failed to assemble program")?;
 
-    link(obj_path, exe_path, os)?;
+    link(obj_path, &out_dir, os)?;
 
     Ok(())
 }
@@ -73,24 +69,28 @@ fn generate_assembly<P: AsRef<Path>>(prog: TacListing, asm_path: P, os: Os) -> R
     Ok(())
 }
 
-fn assemble<P: AsRef<Path>>(asm_path: P, obj_path: P, os: Os) -> Result<()> {
+fn assemble<P: AsRef<Path>>(asm_path: P, out_dir: P, os: Os) -> Result<PathBuf> {
     let asm_path = asm_path.try_decode()?;
-    let obj_path = obj_path.try_decode()?;
 
-    let format = match os {
-        Os::Windows => "win64",
-        Os::Linux => "elf64",
+    let (format, nasm_path, obj_name) = match os {
+        Os::Windows => ("win64", "./lib/nasm-2.15.05/nasm.exe", "out.obj"),
+        Os::Linux => ("elf64", "nasm", "out.o"),
     };
-    let output = Command::new("./lib/nasm-2.15.05/nasm.exe")
-        .args(["-f", format, "-o", obj_path, asm_path])
+
+    let mut obj_path = out_dir.as_ref().to_owned();
+    obj_path.push(obj_name);
+
+    let output = Command::new(nasm_path)
+        .args(["-f", format, "-o", obj_path.try_decode()?, asm_path])
         .output()?;
 
     output
         .verify_success()
-        .context("Failed to assemble the program")
-        .discard_ok()
+        .context("Failed to assemble the program")?;
+
+    Ok(obj_path)
 }
 
-fn link<P: AsRef<Path>>(assembly: P, executable: P, os: Os) -> Result<()> {
-    linker::link_object(os, assembly, executable)
+fn link<O1: AsRef<Path>, O2: AsRef<Path>>(object_path: O1, out_dir: O2, os: Os) -> Result<()> {
+    linker::link_object(os, object_path, out_dir)
 }

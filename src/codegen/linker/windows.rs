@@ -16,7 +16,10 @@ const VISUAL_STUDIO_DIR: &str = r#"C:\Program files\Microsoft Visual Studio\"#;
 pub struct WindowsLinker {}
 impl Linker for WindowsLinker {
     /// Link an assembled object into an executable file.
-    fn link_object<P: AsRef<Path>>(object_path: P, executable_path: P) -> Result<()> {
+    fn link_object<O: AsRef<Path>, E: AsRef<Path>>(
+        object_path: O,
+        executable_path: E,
+    ) -> Result<()> {
         let vc = find_visual_studio_dir().context("Could not find Visual Studio directory")?;
         let env =
             prepare_linker_environment(&vc).context("Could not prepare linker environment")?;
