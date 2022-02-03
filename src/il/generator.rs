@@ -1,6 +1,6 @@
 use crate::{ast::untyped::*, builtins::Builtin};
 
-use super::{label_generator::*, name_generator::*, tac::*};
+use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
 
 pub fn generate(program: Program) -> TacListing {
     TacGenerator::generate(program)
@@ -36,29 +36,35 @@ impl TacGenerator {
         self.emit_assign(var_def.name, self.convert_literal(var_def.value));
     }
 
-    /// Lower a statement.
-    fn lower_stmt(&mut self, stmt: Statement) {
+    /// Lower a statement. Returns the variables that were assigned in this statement.
+    fn lower_stmt(&mut self, stmt: Statement) -> Variables {
         match stmt.stmt_kind {
             StmtKind::Pass => (),
             StmtKind::Evaluate(expr) => {
                 self.lower_expr(expr);
             }
             StmtKind::Return(_) => todo!("return statements are not supported yet"),
-            StmtKind::Assign(assign) => self.lower_assign(assign),
-            StmtKind::If(if_stmt) => self.lower_if(if_stmt),
+            StmtKind::Assign(assign) => return Variables::one(self.lower_assign(assign)),
+            StmtKind::If(if_stmt) => return self.lower_if(if_stmt),
         };
+
+        Variables::none()
     }
 
-    /// Lower a block of statements.
-    fn lower_block(&mut self, block: Block) {
-        for stmt in block.statements {
-            self.lower_stmt(stmt);
-        }
+    /// Lower a block of statements. Returns the variables that were assigned in this block.
+    fn lower_block(&mut self, block: Block) -> Variables {
+        Variables::collect(
+            block
+                .statements
+                .into_iter()
+                .map(|stmt| self.lower_stmt(stmt)),
+        )
     }
 
     /// Lower an if-statement. If-statements are lowered to one or more conditional jumps, to
-    /// jump into the correct code block.
-    fn lower_if(&mut self, if_stmt: If) {
+    /// jump into the correct code block. Returns the variables that the statement's ɸ-functions
+    /// assigned to.
+    fn lower_if(&mut self, if_stmt: If) -> Variables {
         let cond = self.lower_expr(if_stmt.condition);
         let end_lbl = self.label_generator.next_label("if_end");
         let else_lbl = self.label_generator.next_label("if_else");
@@ -69,25 +75,51 @@ impl TacGenerator {
             self.emit(InstrKind::IfFalse(cond, else_lbl.clone()));
         }
 
-        self.lower_block(if_stmt.body);
+        let live_variables = self.name_generator.get_live_variables();
+        let true_variables = self.lower_block(if_stmt.body);
+        let mut false_variables = Variables::none();
 
         if let Some(else_body) = if_stmt.else_body {
             self.emit(InstrKind::Goto(end_lbl.clone()));
             self.emit_label(InstrKind::Nop, else_lbl);
-            self.lower_block(else_body);
+            false_variables = self.lower_block(else_body);
             self.emit(InstrKind::Goto(end_lbl.clone()));
         }
 
         self.emit_label(InstrKind::Nop, end_lbl);
+        self.emit_phi(
+            live_variables,
+            [true_variables, false_variables].into_iter().collect(),
+        )
+    }
+
+    /// Given a collection of live variables and the variables assigned in two branches,
+    /// emit a ɸ-function for each variable assigned in one or more branches.
+    /// Returns the variables to which the outcomes of the ɸ-functions were assigned.
+    fn emit_phi(&mut self, live_variables: Variables, others: Vec<Variables>) -> Variables {
+        let phi_functions = live_variables.calculate_phi(others);
+        let mut return_vars = Variables::none();
+
+        for (name, args) in phi_functions {
+            let next = self.name_generator.next_subscript(&name);
+            let subscripts = args
+                .into_iter()
+                .map(|sub| Name::Sub(Variable::new(name.clone(), sub)))
+                .collect();
+
+            return_vars.insert(next.clone());
+            self.emit(InstrKind::Phi(Name::Sub(next), subscripts))
+        }
+        return_vars
     }
 
     /// Lower a variable assignment by evaluating an expression and assigning its result to a
-    /// variable.
-    fn lower_assign(&mut self, assign: Assign) {
+    /// variable. Returns the variable that was assigned to.
+    fn lower_assign(&mut self, assign: Assign) -> Variable {
         let result = self.lower_expr(assign.value);
 
         if let ExprKind::Identifier(tgt) = assign.target.expr_kind {
-            self.emit_assign(tgt, result);
+            self.emit_assign(tgt, result)
         } else {
             todo!("Implement member assignment");
         }
@@ -124,7 +156,7 @@ impl TacGenerator {
         if let Ok(builtin) = id.parse() {
             Value::Name(Name::Builtin(builtin))
         } else {
-            Value::Name(self.name_generator.last_subscript(id))
+            Value::Name(Name::Sub(self.name_generator.last_subscript(id)))
         }
     }
 
@@ -207,10 +239,11 @@ impl TacGenerator {
         Value::Name(res_name)
     }
 
-    /// Emit an assignment, assigning `value` to `id`.
-    fn emit_assign(&mut self, id: String, value: Value) {
-        let name = self.name_generator.next_subscript(id);
-        self.emit(InstrKind::Assign(name, value));
+    /// Emit an assignment, assigning `value` to `id`. Returns the variable that was assigned to.
+    fn emit_assign(&mut self, id: String, value: Value) -> Variable {
+        let variable = self.name_generator.next_subscript(id);
+        self.emit(InstrKind::Assign(Name::Sub(variable.clone()), value));
+        variable
     }
 
     /// Emit an instruction, adding it to the listing.

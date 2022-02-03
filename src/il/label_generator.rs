@@ -20,13 +20,6 @@ impl LabelGenerator {
 
         Label::new(id, *current_subscript)
     }
-
-    /// Returns the most recently generated subscripted name for a label.
-    pub fn last_subscript<S: Into<String>>(&self, id: S) -> Label {
-        let id = id.into();
-        let current_subscript = self.seen_subscripts[&id];
-        Label::new(id, current_subscript)
-    }
 }
 
 #[cfg(test)]
@@ -42,16 +35,6 @@ mod tests {
     }
 
     #[test]
-    fn last_subscript_produces_most_recent_subscript() {
-        let mut name_gen = LabelGenerator::new();
-
-        assert_eq!("lbl_1", name_gen.next_label("lbl").to_string());
-        assert_eq!("lbl_1", name_gen.last_subscript("lbl").to_string());
-        assert_eq!("lbl_2", name_gen.next_label("lbl").to_string());
-        assert_eq!("lbl_2", name_gen.last_subscript("lbl").to_string());
-    }
-
-    #[test]
     fn labels_can_be_mixed_freely() {
         let mut name_gen = LabelGenerator::new();
 
@@ -59,6 +42,6 @@ mod tests {
         assert_eq!("b_1", name_gen.next_label("b").to_string());
         assert_eq!("a_2", name_gen.next_label("a").to_string());
         assert_eq!("c_1", name_gen.next_label("c").to_string());
-        assert_eq!("b_1", name_gen.last_subscript("b").to_string());
+        assert_eq!("b_2", name_gen.next_label("b").to_string());
     }
 }

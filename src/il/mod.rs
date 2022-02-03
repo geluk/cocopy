@@ -13,6 +13,7 @@ mod generator;
 mod label_generator;
 mod name_generator;
 mod optimiser;
+mod phi;
 mod tac;
 
 pub use generator::generate;

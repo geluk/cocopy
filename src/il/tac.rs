@@ -3,6 +3,7 @@
 use std::{
     borrow::Cow,
     fmt::{self, Display, Formatter},
+    hash::Hash,
     iter::Enumerate,
     slice::{Iter, IterMut},
 };
@@ -86,12 +87,29 @@ impl Instruction {
         self.kind.reads_from_name(name)
     }
 
-    pub fn replace(&mut self, src: &Value, dest: Cow<Value>) {
+    pub fn may_replace(&self, name: &Name) -> bool {
+        self.kind.may_replace(name)
+    }
+
+    pub fn may_delete(&self) -> bool {
+        // Instructions with labels on them may be jumped to, and should never be deleted.
+        self.label.is_none()
+    }
+
+    pub fn replace(&mut self, src: &Name, dest: Cow<Value>) {
         self.kind.replace(src, dest)
     }
 
     pub fn as_assign(&self) -> Option<(&Name, &Value)> {
         self.kind.as_assign()
+    }
+
+    pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
+        self.kind.as_phi()
+    }
+
+    pub fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
+        self.kind.replace_assign(src, dest)
     }
 }
 impl Display for Instruction {
@@ -136,8 +154,8 @@ pub enum InstrKind {
     Param(Value),
     /// Call a function, passing `n` parameters.
     Call(Name, Builtin, usize),
-    /// The phi-function.
-    Phi(Name),
+    /// The ɸ-function.
+    Phi(Name, Vec<Name>),
     /// No-op
     Nop,
 }
@@ -154,15 +172,25 @@ impl InstrKind {
             InstrKind::Goto(_) => false,
             InstrKind::IfTrue(value, _) => Self::is_usage_of(name, value),
             InstrKind::IfFalse(value, _) => Self::is_usage_of(name, value),
-            InstrKind::Phi(n) => name == n,
+            InstrKind::Phi(_, names) => names.iter().any(|n| n == name),
+        }
+    }
+
+    pub fn may_replace(&self, name: &Name) -> bool {
+        match self {
+            // Names referenced by the ɸ-function may never be replaced with a value
+            InstrKind::Phi(_, names) => names.iter().all(|n| n != name),
+            _ => true,
         }
     }
 
     /// Replace all occurrences of a value in this instruction with another value.
-    pub fn replace(&mut self, src: &Value, dest: Cow<Value>) {
-        fn try_replace(tgt: &mut Value, src: &Value, dest: Cow<Value>) {
-            if tgt == src {
-                *tgt = dest.into_owned();
+    pub fn replace(&mut self, src: &Name, dest: Cow<Value>) {
+        fn try_replace(tgt: &mut Value, src: &Name, dest: Cow<Value>) {
+            if let Value::Name(name) = tgt {
+                if name == src {
+                    *tgt = dest.into_owned();
+                }
             }
         }
         match self {
@@ -177,19 +205,45 @@ impl InstrKind {
             InstrKind::Goto(_) => (),
             InstrKind::IfTrue(value, _) => try_replace(value, src, dest),
             InstrKind::IfFalse(value, _) => try_replace(value, src, dest),
-            InstrKind::Phi(name) => {
-                assert_ne!(
-                    &Value::Name(name.clone()),
-                    src,
+            InstrKind::Phi(_, values) => {
+                let any_replaced = values.iter().any(|n| n == src);
+                assert!(
+                    !any_replaced,
                     "Optimiser error! Replacing a name used in the phi function is not allowed ({} -> {})", src, dest
                 )
             }
         }
     }
 
+    fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
+        fn try_replace(tgt: &mut Name, src: &Name, dest: Cow<Name>) {
+            if tgt == src {
+                *tgt = dest.into_owned();
+            }
+        }
+        match self {
+            InstrKind::Assign(tgt, _) => try_replace(tgt, src, dest),
+            InstrKind::Bin(tgt, _, _, _) => try_replace(tgt, src, dest),
+            InstrKind::Goto(_) => (),
+            InstrKind::IfTrue(_, _) => (),
+            InstrKind::IfFalse(_, _) => (),
+            InstrKind::Param(_) => (),
+            InstrKind::Call(tgt, _, _) => try_replace(tgt, src, dest),
+            InstrKind::Phi(tgt, _) => try_replace(tgt, src, dest),
+            InstrKind::Nop => (),
+        }
+    }
+
     pub fn as_assign(&self) -> Option<(&Name, &Value)> {
         match self {
             InstrKind::Assign(name, value) => Some((name, value)),
+            _ => None,
+        }
+    }
+
+    pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
+        match self {
+            InstrKind::Phi(target, params) => Some((target, params)),
             _ => None,
         }
     }
@@ -216,7 +270,14 @@ impl Display for InstrKind {
             InstrKind::Goto(label) => write!(f, "goto {}", label),
             InstrKind::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),
             InstrKind::IfFalse(value, lbl) => write!(f, "if_false {} goto {}", value, lbl),
-            InstrKind::Phi(name) => write!(f, "phi {}", name),
+            InstrKind::Phi(name, values) => {
+                let args = values
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "{} = ɸ({})", name, args)
+            }
         }
     }
 }
@@ -243,7 +304,7 @@ impl Display for InstrKind {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Name {
     /// A subscripted variable.
-    Sub(String, usize),
+    Sub(Variable),
     /// A generated, temporary name.
     Temp(String),
     /// A built-in function.
@@ -252,10 +313,27 @@ pub enum Name {
 impl Display for Name {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Name::Sub(name, sub) => write!(f, "{}^{}", name, sub),
+            Name::Sub(sub) => sub.fmt(f),
             Name::Temp(temp) => write!(f, "%{}", temp),
-            Name::Builtin(name) => write!(f, "{}", name),
+            Name::Builtin(name) => name.fmt(f),
         }
+    }
+}
+
+/// A subscripted variable.
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct Variable {
+    pub name: String,
+    pub subscript: usize,
+}
+impl Variable {
+    pub fn new(name: String, subscript: usize) -> Self {
+        Self { name, subscript }
+    }
+}
+impl Display for Variable {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{}^{}", self.name, self.subscript)
     }
 }
 

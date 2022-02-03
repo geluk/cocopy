@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use super::Name;
+use super::{phi::Variables, Name, Variable};
 
 pub struct NameGenerator {
     index: usize,
@@ -21,19 +21,23 @@ impl NameGenerator {
     }
 
     /// Generates a unique subscripted name from an existing identifier.
-    pub fn next_subscript<S: Into<String>>(&mut self, id: S) -> Name {
+    pub fn next_subscript<S: Into<String>>(&mut self, id: S) -> Variable {
         let id = id.into();
         let current_subscript = self.seen_subscripts.entry(id.clone()).or_insert(0);
         *current_subscript += 1;
 
-        Name::Sub(id, *current_subscript)
+        Variable::new(id, *current_subscript)
     }
 
     /// Returns the most recently generated subscripted name for an identifier.
-    pub fn last_subscript<S: Into<String>>(&self, id: S) -> Name {
+    pub fn last_subscript<S: Into<String>>(&self, id: S) -> Variable {
         let id = id.into();
         let current_subscript = self.seen_subscripts[&id];
-        Name::Sub(id, current_subscript)
+        Variable::new(id, current_subscript)
+    }
+
+    pub fn get_live_variables(&self) -> Variables {
+        Variables::new(self.seen_subscripts.clone())
     }
 }
 

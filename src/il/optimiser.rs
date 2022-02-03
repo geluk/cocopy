@@ -19,9 +19,11 @@ impl Optimiser {
     pub fn optimise(&mut self) {
         self.remove_unused_assignments();
         self.merge_assign();
+        self.remove_phi();
     }
 
     /// Remove assignments to names that are never read.
+    ///
     /// Optimises:
     /// ```
     /// a^1 = 10
@@ -48,6 +50,8 @@ impl Optimiser {
 
     /// Looks for single assignments (`x` = `y`), replaces all occurrences
     /// of `x` with `y` and deletes the original assignment instruction.
+    ///
+    /// Optimises:
     /// ```
     /// a^1 = 10
     /// b^1 = a^1 * 2
@@ -62,30 +66,76 @@ impl Optimiser {
     fn merge_assign(&mut self) {
         let mut replacements = HashMap::new();
 
-        let mut assignments = vec![];
         for (line, (name, value)) in self
             .iter_lines()
-            // Instructions with labels on them may be jumped to, and should never be deleted.
-            .filter(|(_, instr)| instr.label.is_none())
+            .filter(|(_, instr)| instr.may_delete())
             .match_instruction(Instruction::as_assign)
         {
-            replacements.insert(name.clone(), value.clone());
-            assignments.push(line);
+            replacements.insert(name.clone(), (line, value.clone()));
         }
 
-        for instr in self.listing.iter_mut() {
-            let usages: Vec<_> = replacements
-                .keys()
-                .filter(|name| instr.reads_from_name(name))
-                .collect();
-
-            for name in usages {
-                let replacement = replacements.get(name).unwrap();
-                instr.replace(&Value::Name(name.clone()), Cow::Borrowed(replacement));
+        let mut assignments = vec![];
+        for (name, (line, value)) in replacements {
+            if self
+                .listing
+                .iter_mut()
+                .all(|instr| instr.may_replace(&name))
+            {
+                for instr in self.listing.iter_mut() {
+                    instr.replace(&name, Cow::Borrowed(&value));
+                }
+                assignments.push(line);
             }
         }
 
         self.remove_lines(assignments);
+    }
+
+    /// Deletes all ɸ-functions, replacing all assignments to the variables it receives as arguments
+    /// with the variable that the ɸ-function assigns to. This is essentially the reverse of
+    /// [`Self::merge_assign`].
+    /// This optimiser step should be the last one to run, since after this step, the code will no
+    /// longer be in static single-assignment form.
+    ///
+    /// Optimises:
+    /// ```
+    /// b^1 = 100
+    /// if_false a^1 goto if_end
+    /// b^2 = 2
+    /// if_end:
+    /// b^3 = ɸ(b^1, b^2)
+    /// arg b^3
+    /// ```
+    /// To:
+    /// ```
+    /// b^3 = 100
+    /// if_false a^1 goto if_end
+    /// b^3 = 2
+    /// if_end:
+    /// arg b^3
+    /// ```
+    fn remove_phi(&mut self) {
+        let mut phi_fns = vec![];
+        let replacements: HashMap<_, _> = self
+            .iter_lines()
+            .match_instruction(Instruction::as_phi)
+            .flat_map(|(line, (dest, sources))| {
+                phi_fns.push(line);
+                sources.iter().map(|src| (src.clone(), dest.clone()))
+            })
+            .collect();
+
+        self.remove_lines(phi_fns);
+
+        for (src_name, dest_name) in replacements {
+            for instr in self.listing.iter_mut() {
+                instr.replace_assign(&src_name, Cow::Borrowed(&dest_name))
+            }
+            let dest_value = Value::Name(dest_name);
+            for instr in self.listing.iter_mut() {
+                instr.replace(&src_name, Cow::Borrowed(&dest_value));
+            }
+        }
     }
 
     fn iter_lines(&self) -> Enumerate<Iter<Instruction>> {

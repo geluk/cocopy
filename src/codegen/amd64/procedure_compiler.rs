@@ -72,7 +72,9 @@ impl ProcedureCompiler {
             InstrKind::IfFalse(value, lbl) => {
                 self.compile_jump(value.clone(), lbl.clone(), false, comment)
             }
-            InstrKind::Phi(_) => (), // Phi is a no-op
+            // If this happens, the optimiser has failed and we won't be able to generate code
+            // for branching statements, so we should bail here.
+            InstrKind::Phi(_, _) => unreachable!("Phi was not optimised away!"),
             InstrKind::Goto(tgt) => {
                 self.emit(Jmp, [Lbl(tgt.to_string())]);
             }
@@ -165,7 +167,7 @@ impl ProcedureCompiler {
         self.emit_cmt(
             Xor,
             [Reg(target), Reg(target)],
-            format!("clear upper bytes of {}", target),
+            format!("<compare> clear upper bytes of {}", target),
         )
         .emit_cmt(
             Cmp,
@@ -289,7 +291,7 @@ impl ProcedureCompiler {
                     );
                 }
                 None => {
-                    panic!("Attempted to prepare an operand for a name that was not allocated yet.")
+                    panic!("Attempted to prepare an operand for a name ({}) that was not allocated yet.", name)
                 }
             },
         }
@@ -366,6 +368,7 @@ fn translate_binop(op: BinOp) -> Op {
     }
 }
 
+#[derive(Debug)]
 struct PreparedOperand {
     operand: Operand,
     is_temp: bool,
@@ -476,7 +479,7 @@ mod tests {
 
     macro_rules! sub {
         ($name:expr) => {
-            Name::Sub($name.to_string(), 1)
+            Name::Sub(Variable::new($name.to_string(), 1))
         };
     }
 

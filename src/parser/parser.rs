@@ -101,9 +101,8 @@ impl<'a> Parser<'a> {
                 span: self.span_from(start),
             });
         }
-        match self.peek_kind() {
-            Some(TokenKind::Keyword(Keyword::If)) => return self.if_statement(),
-            _ => (),
+        if let Some(TokenKind::Keyword(Keyword::If)) = self.peek_kind() {
+            return self.if_statement();
         }
         // TODO: The same can be said for `if`, `while`, and `for`.
 

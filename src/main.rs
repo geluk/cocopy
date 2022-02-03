@@ -31,7 +31,11 @@ fn main() -> Result<()> {
     let content = fs::read_to_string(&args[1])?;
 
     match run_frontend(&content) {
-        Ok(program) => run_backend(program)?,
+        Ok(program) => {
+            run_backend(program)?;
+            println!("finished!");
+            println!("======================\n");
+        }
         Err(errors) => {
             for error in errors.iter() {
                 describe_error(error, &content);
@@ -85,14 +89,16 @@ pub fn run_backend(program: Program) -> Result<()> {
 
     let il = il::optimise(il);
 
-    println!("\n======================");
+    println!("\n========================");
     println!("IL optimisation finished");
-    println!("======================\n");
+    println!("========================\n");
     for instr in il.iter_instructions() {
         println!("{}", instr);
     }
     println!();
 
+    println!("======================");
+    println!("Generating native code");
     codegen::generate_native(il, "out")
 }
 
