@@ -1,6 +1,9 @@
 use crate::{ast::untyped::BinOp, builtins::Builtin, il::*};
 
-use super::{assembly::*, register_allocator::RegisterAllocator, x86::*};
+use super::{
+    assembly::*, calling_convention::CallingConvention, register_allocator::RegisterAllocator,
+    x86::*,
+};
 
 use Op::*;
 use Operand::*;
@@ -9,22 +12,28 @@ use Register::*;
 pub struct ProcedureCompiler {
     allocator: RegisterAllocator,
     procedure: Procedure,
+    calling_convention: CallingConvention,
     param_stack: Vec<Operand>,
     pending_label: Option<Label>,
 }
 impl ProcedureCompiler {
     /// Compile the given source code into the given procedure.
-    pub fn compile(listing: TacListing, procedure: Procedure) -> Procedure {
-        let mut compiler = Self::new(procedure);
+    pub fn compile(
+        listing: TacListing,
+        procedure: Procedure,
+        calling_convention: CallingConvention,
+    ) -> Procedure {
+        let mut compiler = Self::new(procedure, calling_convention);
         compiler.compile_tac(listing);
         compiler.procedure
     }
 
     /// Construct a new procedure compiler for the given procedure.
-    fn new(procedure: Procedure) -> Self {
+    fn new(procedure: Procedure, calling_convention: CallingConvention) -> Self {
         Self {
             allocator: RegisterAllocator::new(),
             procedure,
+            calling_convention,
             param_stack: vec![],
             pending_label: None,
         }
@@ -199,9 +208,8 @@ impl ProcedureCompiler {
             todo!("Can't deal with more than 4 parameters yet.");
         }
 
-        // TODO: this should be made to work for any calling convention, not just fastcall.
-        let target_regs = [Rcx, Rdx, R8, R9];
-        for (idx, &reg) in target_regs[0..param_count].iter().enumerate() {
+        let param_regs: Vec<_> = self.calling_convention.iter_params(param_count).collect();
+        for (idx, reg) in param_regs {
             let value = self.param_stack.pop().expect("Parameter count mismatch!");
 
             self.reserve(reg);
@@ -222,7 +230,7 @@ impl ProcedureCompiler {
 
         self.emit_cmt(Call, [Id(name)], "call print");
 
-        for &reg in target_regs[0..param_count].iter() {
+        for (_, reg) in self.calling_convention.iter_params(param_count) {
             self.allocator.release(reg);
         }
     }
@@ -492,7 +500,7 @@ mod tests {
     macro_rules! compile_instrs {
         ($instrs:expr) => {{
             let proc = Procedure::new("main", Block::new(), Block::new());
-            let mut compiler = ProcedureCompiler::new(proc);
+            let mut compiler = ProcedureCompiler::new(proc, CallingConvention::Microsoft64);
 
             for instr in $instrs.into_iter() {
                 compiler.compile_instr(&Instruction::new(instr));

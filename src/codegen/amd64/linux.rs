@@ -1,5 +1,7 @@
 //! Native code generation for 64-bit Linux.
 
+use crate::codegen::amd64::calling_convention::CallingConvention;
+use crate::codegen::amd64::procedure_compiler::ProcedureCompiler;
 use crate::il::TacListing;
 
 use super::assembly::*;
@@ -9,27 +11,33 @@ use Op::*;
 use Operand::*;
 use Register::*;
 
-pub fn compile(_prog: TacListing) -> Assembly {
-    default()
-}
-
-fn default() -> Assembly {
+pub fn compile(prog: TacListing) -> Assembly {
     use Decl::*;
     let mut asm = make_assembly();
 
-    asm.push_decl(Extern("printf")).push_decl(Global("main"));
+    asm.push_decl(Bits(64))
+        .push_decl(Extern("printf"))
+        .push_decl(Global("main"));
 
-    asm.text
-        .main
-        .body
-        .push(Mov, [Reg(Rdi), Id("fmt_int")])
-        .push(Mov, [Reg(Rsi), Lit(101)])
-        .push(Call, [Id("printf")])
-        .push(Mov, [Reg(Rax), Lit(0)]);
+    asm.text.main = ProcedureCompiler::compile(prog, asm.text.main, CallingConvention::SystemV64);
 
-    asm.data.db("fmt_int", "'%i', 0");
+    asm.text.main.body.blank().push(Mov, [Reg(Rax), Lit(0)]);
+
+    asm.text.procedures.push(print());
+
+    asm.data.db("msg_i", "'The integer is %i', 10, 0");
 
     asm
+}
+
+fn print() -> Procedure {
+    let mut print = procedure("print");
+    print
+        .body
+        .push(Mov, [Reg(Rsi), Reg(Rdi)])
+        .push(Lea, [Reg(Rdi), Id("[msg_i]")])
+        .push(Call, [Id("printf")]);
+    print
 }
 
 fn make_assembly() -> Assembly {

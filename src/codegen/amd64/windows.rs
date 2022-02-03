@@ -1,6 +1,6 @@
 //! Native code generation for 64-bit Windows.
 
-use crate::il::*;
+use crate::{codegen::amd64::calling_convention::CallingConvention, il::*};
 
 use super::{assembly::*, procedure_compiler::ProcedureCompiler, x86::*};
 
@@ -21,7 +21,7 @@ pub fn compile(prog: TacListing) -> Assembly {
 
     asm.text.main.body.push(Op::Call, [Id("_CRT_INIT")]).blank();
 
-    asm.text.main = ProcedureCompiler::compile(prog, asm.text.main);
+    asm.text.main = ProcedureCompiler::compile(prog, asm.text.main, CallingConvention::Microsoft64);
 
     asm.text
         .main
