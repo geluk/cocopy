@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use crate::{ast::untyped::*, builtins::Builtin};
+use crate::{ast::typed::Program, ast::untyped::*, builtins::Builtin};
 
 use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
 
@@ -276,7 +276,7 @@ enum BoolOp {
 
 #[cfg(test)]
 mod tests {
-    use crate::{lexer::lex, parser::parse};
+    use crate::{lexer::lex, parser::parse, type_checking::verify_well_typed};
 
     use super::*;
 
@@ -284,6 +284,7 @@ mod tests {
         ($source:expr, $il:expr) => {{
             let tokens = lex($source).unwrap();
             let program = parse(&tokens).unwrap();
+            let program = verify_well_typed(program).unwrap();
             let instrs = TacGenerator::generate(program);
 
             let instr_lines: Vec<_> = instrs.into_vec().iter().map(|i| i.to_string()).collect();

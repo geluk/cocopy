@@ -1,40 +1,35 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::hash_map::Entry;
 
-use crate::{
-    ast::{untyped::*, TypeSpec},
-    builtins,
-};
+use crate::ast::{typed, typed::Environment, untyped, untyped::*, TypeSpec};
 
 use super::{bin_op_checker::BinOpChecker, error::*};
 
-pub fn verify_well_typed(program: &Program) -> Result<(), Vec<TypeError>> {
-    let type_errors = TypeChecker::new(program).run();
-
-    if type_errors.is_empty() {
-        Ok(())
-    } else {
-        Err(type_errors)
-    }
+pub fn verify_well_typed(program: untyped::Program) -> Result<typed::Program, Vec<TypeError>> {
+    TypeChecker::new(program).run()
 }
 
-struct TypeChecker<'a> {
+struct TypeChecker {
     global_environment: Environment,
-    program: &'a Program,
+    program: untyped::Program,
 }
-impl<'a> TypeChecker<'a> {
-    fn new(program: &'a Program) -> Self {
+impl TypeChecker {
+    fn new(program: untyped::Program) -> Self {
         Self {
             global_environment: Environment::global(),
             program,
         }
     }
 
-    fn run(&mut self) -> Vec<TypeError> {
+    fn run(mut self) -> Result<typed::Program, Vec<TypeError>> {
         let mut type_errors = self.assign_var_defs();
-
+        type_errors.append(&mut self.assign_func_defs());
         type_errors.append(&mut self.check_statements());
 
-        type_errors
+        if type_errors.is_empty() {
+            Ok(self.program.into_typed(self.global_environment))
+        } else {
+            Err(type_errors)
+        }
     }
 
     /// Check variable definitions and write them to the global environment.
@@ -43,7 +38,7 @@ impl<'a> TypeChecker<'a> {
         for var_def in &self.program.var_defs {
             if let Err(kind) = self
                 .global_environment
-                .set_type(var_def.name.to_string(), var_def.type_spec.clone())
+                .set_type(var_def.name.clone(), var_def.type_spec.clone())
             {
                 type_errors.push(TypeError::new(kind, var_def.span));
             }
@@ -266,16 +261,9 @@ impl<'a> TypeChecker<'a> {
     }
 }
 
-pub struct Environment {
-    type_map: HashMap<String, TypeSpec>,
-}
 impl Environment {
-    pub fn global() -> Self {
-        Self {
-            type_map: builtins::get_type_map(),
-        }
-    }
-
+    /// Associate an identifier with a type. Returns an error if the identifier
+    /// was already present.
     pub fn set_type(&mut self, name: String, type_spec: TypeSpec) -> Result<(), TypeErrorKind> {
         if let Entry::Vacant(e) = self.type_map.entry(name.clone()) {
             e.insert(type_spec);
@@ -309,10 +297,10 @@ mod tests {
     macro_rules! assert_variable_type {
         ($source:expr, $type_name:expr, $type_spec:expr) => {{
             let prg = make_program!($source);
-            let mut checker = TypeChecker::new(&prg);
-            checker.run();
+            let checker = TypeChecker::new(prg);
+            let prg = checker.run().unwrap();
 
-            let ty = &checker.global_environment.type_map[$type_name];
+            let ty = &prg.global_environment.type_map[$type_name];
             assert_eq!(
                 ty, &$type_spec,
                 "\n\nExpected the type of '{}' to be '{}', but it was '{}'\n\n",
@@ -324,8 +312,8 @@ mod tests {
     macro_rules! assert_type_checks {
         ($source:expr) => {{
             let prg = make_program!($source);
-            let mut checker = TypeChecker::new(&prg);
-            let res = checker.run();
+            let checker = TypeChecker::new(prg);
+            let res = checker.run().collect_errors();
 
             let errors: Vec<_> = res.iter().map(|e| e.to_string()).collect();
             assert!(res.is_empty(), "\n\nExpected this type check to succeed, but found the following error(s): \n{:#?}\n\n", errors);
@@ -335,8 +323,8 @@ mod tests {
     macro_rules! assert_type_error {
         ($source:expr, $expected_err:expr) => {{
             let prg = make_program!($source);
-            let mut checker = TypeChecker::new(&prg);
-            let res = checker.run();
+            let checker = TypeChecker::new(prg);
+            let res = checker.run().collect_errors();
 
             let errors: Vec<_> = res.iter().map(|e| e.to_string()).collect();
             assert!(
@@ -371,7 +359,7 @@ mod tests {
     /// ChocoPy reference: 5.2
     #[test]
     fn var_def_bool_assigns_correct_type() {
-        assert_variable_type!("a : bool = 10", "a", TypeSpec::Bool);
+        assert_variable_type!("a : bool = False", "a", TypeSpec::Bool);
     }
 
     /// ChocoPy reference: 5.2

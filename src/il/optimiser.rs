@@ -153,7 +153,7 @@ impl Optimiser {
 
 #[cfg(test)]
 mod tests {
-    use crate::{il::generate, lexer::lex, parser::parse};
+    use crate::{il::generate, lexer::lex, parser::parse, type_checking::verify_well_typed};
 
     use super::*;
 
@@ -161,6 +161,7 @@ mod tests {
         ($source:expr, $expected:expr) => {{
             let tokens = lex($source).unwrap();
             let ast = parse(&tokens).unwrap();
+            let ast = verify_well_typed(ast).unwrap();
             let tac = generate(ast);
             println!("Before opt:\n==========");
             print!("{}", tac);

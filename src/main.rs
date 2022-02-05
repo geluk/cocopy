@@ -9,7 +9,7 @@ use std::{env, fs, iter};
 
 use anyhow::Result;
 
-use ast::untyped::Program;
+use ast::typed::Program;
 use error::{CompileError, CompileErrors};
 
 mod ast;
@@ -58,19 +58,19 @@ pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
         println!("{:#?}", token.source.lookup(source));
     }
 
-    let program = parser::parse(&tokens)?;
+    let untyped_prog = parser::parse(&tokens)?;
     println!("\n===============");
     println!("Parser finished");
     println!("===============\n");
-    println!("{:#?}\n", program);
-    println!("{}", program);
+    println!("{:#?}\n", untyped_prog);
+    println!("{}", untyped_prog);
 
-    type_checking::verify_well_typed(&program)?;
+    let typed_prog = type_checking::verify_well_typed(untyped_prog)?;
     println!("\n=====================");
     println!("Type checker finished");
     println!("=====================\n");
 
-    Ok(program)
+    Ok(typed_prog)
 }
 
 /// Run the compiler backend. The backend takes an AST and lowers it into a

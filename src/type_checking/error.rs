@@ -149,10 +149,10 @@ where
                 Err(e) => errors.push(e),
             }
         }
-        if errors.len() > 0 {
-            Err(errors)
-        } else {
+        if errors.is_empty() {
             Ok(successes)
+        } else {
+            Err(errors)
         }
     }
 }

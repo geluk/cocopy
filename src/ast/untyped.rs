@@ -3,17 +3,22 @@ use std::fmt::{self, Display};
 
 use crate::span::Span;
 
-use super::TypeSpec;
+use super::{
+    typed::{self, Environment},
+    TypeSpec,
+};
 
 #[derive(Debug, Default)]
 pub struct Program {
     pub var_defs: Vec<VarDef>,
+    pub func_defs: Vec<FuncDef>,
     pub statements: Vec<Statement>,
 }
 impl Program {
     pub fn new() -> Self {
         Self {
             var_defs: vec![],
+            func_defs: vec![],
             statements: vec![],
         }
     }
@@ -22,8 +27,21 @@ impl Program {
         self.var_defs.push(var_def);
     }
 
+    pub fn add_func_def(&mut self, func_def: FuncDef) {
+        self.func_defs.push(func_def);
+    }
+
     pub fn add_statement(&mut self, statement: Statement) {
         self.statements.push(statement);
+    }
+
+    pub fn into_typed(self, global_environment: Environment) -> typed::Program {
+        typed::Program {
+            var_defs: self.var_defs,
+            func_defs: self.func_defs,
+            statements: self.statements,
+            global_environment,
+        }
     }
 }
 impl Display for Program {
@@ -48,6 +66,32 @@ pub struct VarDef {
 impl Display for VarDef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{} : {} = {}", self.name, self.type_spec, self.value)
+    }
+}
+
+#[derive(Debug)]
+pub struct FuncDef {
+    pub name: String,
+    pub return_type: TypeSpec,
+    pub parameters: Vec<Parameter>,
+    pub decl_span: Span,
+    pub body: Block,
+    pub span: Span,
+}
+impl Display for FuncDef {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "def {}{}:", self.name, self.return_type)
+    }
+}
+
+#[derive(Debug)]
+pub struct Parameter {
+    pub name: String,
+    pub type_spec: TypeSpec,
+}
+impl Display for Parameter {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {}", self.name, self.type_spec)
     }
 }
 
