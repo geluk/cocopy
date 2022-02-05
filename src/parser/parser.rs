@@ -1,6 +1,7 @@
 //! High-level parsing functions for building an AST.
 use crate::{
     ast::{untyped::*, TypeSpec},
+    ext::DiscardOk,
     lexer::tokens::{Keyword, Structure, Symbol, Token, TokenKind},
     span::Bytes,
 };
@@ -27,6 +28,10 @@ impl<'a> Parser<'a> {
             if let Ok(var_def) = self.recognise_parser(Self::var_def) {
                 program.add_var_def(var_def);
             }
+            // ... or function definitions...
+            else if let Ok(func_def) = self.recognise_parser(Self::func_def) {
+                program.add_func_def(func_def);
+            }
             // ... until we encounter an error. Then try a statement...
             else if let Ok(stmt) = self.recognise_parser(Self::statement) {
                 // If that succeeds, add it. From now on, recognise only statements.
@@ -36,8 +41,13 @@ impl<'a> Parser<'a> {
             // ... and if that doesn't work either, return the longest parse error.
             else {
                 self.alt(
-                    |p1| p1.var_def().map(|_| ()),
-                    |p2| p2.statement().map(|_| ()),
+                    |p1| p1.var_def().discard_ok(),
+                    |p2| {
+                        p2.alt(
+                            |p2a| p2a.func_def().discard_ok(),
+                            |p2b| p2b.statement().discard_ok(),
+                        )
+                    },
                 )?;
                 unreachable!("Compiler state borxed! (failed to reproduce parse error)")
             }
@@ -56,10 +66,8 @@ impl<'a> Parser<'a> {
     fn var_def(&mut self) -> Result<VarDef, ParseError> {
         let start = self.position();
         const ST: Stage = Stage::VarDef;
-        let (name, _) = self.recognise_identifier().add_stage(ST)?;
 
-        self.recognise_symbol(Symbol::Colon).add_stage(ST)?;
-        let type_spec = self.type_specification()?;
+        let (name, type_spec) = self.typed_var(ST)?;
         self.recognise_symbol(Symbol::Assign).add_stage(ST)?;
 
         let next = self.next().add_stage(ST)?;
@@ -74,6 +82,67 @@ impl<'a> Parser<'a> {
             value,
             span: self.span_from(start),
         })
+    }
+
+    fn typed_var(&mut self, stage: Stage) -> Result<(String, TypeSpec), ParseError> {
+        let (name, _) = self.recognise_identifier().add_stage(stage)?;
+
+        self.recognise_symbol(Symbol::Colon).add_stage(stage)?;
+        let type_spec = self.type_specification()?;
+
+        Ok((name, type_spec))
+    }
+
+    /// Parse a function definition.
+    fn func_def(&mut self) -> Result<FuncDef, ParseError> {
+        let start = self.position();
+        const ST: Stage = Stage::FuncDef;
+
+        self.recognise_keyword(Keyword::Def).add_stage(ST)?;
+
+        let (name, _) = self.recognise_identifier().add_stage(ST)?;
+        let parameters = self.parameter_list()?;
+
+        let return_type = match self.recognise_symbol(Symbol::Arrow) {
+            Ok(_) => self.type_specification()?,
+            Err(_) => TypeSpec::None,
+        };
+        self.recognise_symbol(Symbol::Colon).add_stage(ST)?;
+        let decl_span = self.span_from(start);
+
+        self.recognise_structure(Structure::Newline).add_stage(ST)?;
+
+        let body = self.block()?;
+
+        Ok(FuncDef {
+            name,
+            return_type,
+            parameters,
+            decl_span,
+            body,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parse a parameter list
+    fn parameter_list(&mut self) -> Result<Vec<Parameter>, ParseError> {
+        const ST: Stage = Stage::ParameterList;
+        self.recognise_symbol(Symbol::OpenParen).add_stage(ST)?;
+
+        let mut parameters = vec![];
+        if self.recognise_symbol(Symbol::CloseParen).is_ok() {
+            return Ok(parameters);
+        }
+        loop {
+            let (name, type_spec) = self.typed_var(ST)?;
+            parameters.push(Parameter { name, type_spec });
+
+            if self.recognise_symbol(Symbol::Comma).is_err() {
+                break;
+            }
+        }
+        self.recognise_symbol(Symbol::CloseParen).add_stage(ST)?;
+        Ok(parameters)
     }
 
     /// Parse an argument list. As a result of the specifics of the expression
@@ -174,11 +243,17 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse a block, starting with an indentation token.
     fn block(&mut self) -> Result<Block, ParseError> {
         let start = self.position();
         self.recognise_structure(Structure::Indent)
             .add_stage(Stage::Block)?;
-        let mut body = Vec::new();
+
+        // The ChocoPy syntax prescribes that a block should always contain at
+        // least one statement. This is required because otherwise the lexer
+        // won't detect any indents, which means it also won't emit any dedents,
+        // which would cause the block parser to fail.
+        let mut body = vec![self.statement()?];
         loop {
             match self.recognise_parser(Self::statement) {
                 Ok(st) => body.push(st),

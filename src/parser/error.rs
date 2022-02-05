@@ -77,6 +77,8 @@ pub enum Stage {
     ParameterList,
     #[error("a variable definition")]
     VarDef,
+    #[error("a function definition")]
+    FuncDef,
     #[error("a type annotation")]
     TypeSpec,
     #[error("a statement")]

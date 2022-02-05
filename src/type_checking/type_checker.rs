@@ -53,6 +53,31 @@ impl TypeChecker {
         type_errors
     }
 
+    /// Check function definitions and write them to the global environment.
+    fn assign_func_defs(&mut self) -> Vec<TypeError> {
+        let mut type_errors = vec![];
+        for func_def in &self.program.func_defs {
+            let param_types = func_def
+                .parameters
+                .iter()
+                .map(|p| p.type_spec.clone())
+                .collect();
+
+            let func_type = TypeSpec::Function(param_types, Box::new(func_def.return_type.clone()));
+
+            if let Err(kind) = self
+                .global_environment
+                .set_type(func_def.name.clone(), func_type)
+            {
+                type_errors.push(TypeError::new(kind, func_def.decl_span));
+            }
+
+            type_errors.append(&mut self.check_block(&func_def.body));
+        }
+
+        type_errors
+    }
+
     /// Verify that all statements are well-typed.
     fn check_statements(&self) -> Vec<TypeError> {
         self.program
