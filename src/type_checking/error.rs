@@ -130,3 +130,29 @@ impl<O1, O2, E> ConcatResult<O1, O2, E> for Result<O1, E> {
         self.map_err(|e| vec![e]).concat_result(other)
     }
 }
+
+pub trait CollectAll<S, E> {
+    fn collect_all(self) -> Result<Vec<S>, Vec<E>>;
+}
+impl<I, S, E> CollectAll<S, E> for I
+where
+    I: Iterator<Item = Result<S, E>>,
+{
+    fn collect_all(self) -> Result<Vec<S>, Vec<E>> {
+        let (lower_bound, _) = self.size_hint();
+        let mut successes = Vec::with_capacity(lower_bound);
+        let mut errors = vec![];
+
+        for item in self {
+            match item {
+                Ok(s) => successes.push(s),
+                Err(e) => errors.push(e),
+            }
+        }
+        if errors.len() > 0 {
+            Err(errors)
+        } else {
+            Ok(successes)
+        }
+    }
+}

@@ -143,31 +143,50 @@ impl<'a> TypeChecker<'a> {
     /// Verify that a function call references an existing function, and that
     /// its arguments have a matching parameter in the function's type.
     fn check_function_call(&self, call: &FunCallExpr) -> Result<TypeSpec, Vec<TypeError>> {
-        let (func_type, param_type) = self
+        let (receiver_type, given_params) = self
             .global_environment
             .lookup(&call.name)
             .add_span(call.name_span)
-            .concat_result(self.check_expression(&call.params))?;
+            .concat_result(
+                call.params
+                    .iter()
+                    .map(|p| self.check_expression(p))
+                    .collect_all()
+                    .map_err(|vecs| vecs.into_iter().flatten().collect()),
+            )?;
 
-        if let TypeSpec::Function(mut args, ret) = func_type {
-            if args.len() != 1 {
-                singleton_error(
-                    TypeErrorKind::ParamCountMismatch(call.name.clone(), 1, args.len()),
-                    call.params.span,
-                )
-            } else if param_type != args[0] {
-                singleton_error(
-                    TypeErrorKind::ParamTypeMismatch(args.remove(0), param_type),
-                    call.params.span,
-                )
-            } else {
-                Ok(*ret)
+        match receiver_type {
+            TypeSpec::Function(expected_params, ret_type) => {
+                if expected_params.len() != given_params.len() {
+                    return singleton_error(
+                        TypeErrorKind::ParamCountMismatch(
+                            call.name.clone(),
+                            expected_params.len(),
+                            given_params.len(),
+                        ),
+                        call.params_span,
+                    );
+                }
+                let param_errors: Vec<_> = expected_params
+                    .into_iter()
+                    .zip(given_params.into_iter())
+                    .zip(&call.params)
+                    .filter(|((exp, act), _)| exp != act)
+                    .map(|((exp, act), expr)| {
+                        TypeError::new(TypeErrorKind::ParamTypeMismatch(exp, act), expr.span)
+                    })
+                    .collect();
+
+                if param_errors.is_empty() {
+                    Ok(*ret_type)
+                } else {
+                    Err(param_errors)
+                }
             }
-        } else {
-            Err(vec![TypeError::new(
-                TypeErrorKind::NotCallable(func_type),
+            _ => Err(vec![TypeError::new(
+                TypeErrorKind::NotCallable(receiver_type),
                 call.name_span,
-            )])
+            )]),
         }
     }
 

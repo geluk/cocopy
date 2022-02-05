@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::{ast::untyped::*, builtins::Builtin};
 
 use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
@@ -163,15 +165,22 @@ impl TacGenerator {
     /// Lower a function call. Its parameters are pushed onto the parameter stack,
     /// then the function is called.
     fn lower_function_call(&mut self, call: FunCallExpr) -> Value {
-        let expr_value = self.lower_expr(call.params);
+        let expr_values: Vec<_> = call
+            .params
+            .into_iter()
+            .map(|p| self.lower_expr(p))
+            .collect();
 
-        self.emit(InstrKind::Param(expr_value));
+        for param in expr_values {
+            self.emit(InstrKind::Param(param));
+        }
 
         let temp_name = self.name_generator.next_temp();
         // TODO: allow calls to other types of functions here.
         self.emit(InstrKind::Call(
             temp_name.clone(),
-            Builtin::Print,
+            Builtin::from_str(&call.name)
+                .unwrap_or_else(|_| panic!("Unimplemented function: {}", call.name)),
             // We'll need to know the function's type to determine the number of parameters.
             1,
         ));

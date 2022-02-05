@@ -131,15 +131,3 @@ fn find_newest_subdir<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
         .map(|ent| ent.path())
         .ok_or_else(|| anyhow!("Path '{}' has no subdirectories", path.as_ref().display()))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    pub fn test() {
-        let dir = find_visual_studio_dir().unwrap();
-
-        println!("{:#?}", dir);
-    }
-}

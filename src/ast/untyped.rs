@@ -198,22 +198,42 @@ impl Display for Literal {
 pub struct FunCallExpr {
     pub name: String,
     pub name_span: Span,
-    pub params: Expr,
+    pub params: Vec<Expr>,
+    pub params_span: Span,
 }
 impl Display for FunCallExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({}({}))", self.name, self.params)
+        write!(
+            f,
+            "({}({}))",
+            self.name,
+            self.params
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 
 #[derive(Debug)]
 pub struct MetCallExpr {
     pub member: MemberExpr,
-    pub params: Expr,
+    pub params: Vec<Expr>,
+    pub params_span: Span,
 }
 impl Display for MetCallExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({}({}))", self.member, self.params)
+        write!(
+            f,
+            "({}({}))",
+            self.member,
+            self.params
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     }
 }
 

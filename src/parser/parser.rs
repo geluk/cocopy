@@ -76,6 +76,25 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse an argument list. As a result of the specifics of the expression
+    /// parser, this function does not parse the opening and closing
+    /// parentheses.
+    fn argument_list(&mut self) -> Result<Vec<Expr>, ParseError> {
+        let mut arguments = vec![];
+        if self.recognise_symbol(Symbol::CloseParen).is_ok() {
+            return Ok(arguments);
+        }
+        loop {
+            let next = self.expression(Fixity::none(), Delimiter::call_parameter())?;
+            arguments.push(next);
+
+            if self.recognise_symbol(Symbol::Comma).is_err() {
+                break;
+            }
+        }
+        Ok(arguments)
+    }
+
     /// Parse a statement. A statement could be an expression evaluation, a variable assignment,
     /// control flow, or a `pass` or `return` statement.
     fn statement(&mut self) -> Result<Statement, ParseError> {
@@ -120,6 +139,8 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Parse an if-statement. It may be followed by zero or more `elif` blocks,
+    /// and optionally an `else` block.
     fn if_statement(&mut self) -> Result<Statement, ParseError> {
         let start = self.position();
         const ST: Stage = Stage::IfStatement;
@@ -304,13 +325,14 @@ impl<'a> Parser<'a> {
                 return Ok(lhs.expr_kind);
             }
 
+            let pos_before_op = self.position();
             // Only advance the parser once we're sure we'll use the operator.
             self.next().unwrap();
 
             let kind = match op {
                 NAryOp::Member => self.parse_member_expr(lhs)?,
                 NAryOp::Index => self.parse_index_expr(lhs)?,
-                NAryOp::FunctionCall => self.parse_function_call(lhs)?,
+                NAryOp::Call => self.parse_call(lhs, pos_before_op)?,
                 NAryOp::Binary(bin) => {
                     let rhs = self.expression(cur_fix, delimiter.for_subexpr())?;
                     let bin_expr = BinExpr { lhs, op: bin, rhs };
@@ -334,36 +356,45 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse a member expression: `x.y`
     fn parse_member_expr(&mut self, lhs: Expr) -> Result<ExprKind, ParseError> {
         let (rhs, _) = self.recognise_identifier().add_stage(Stage::MemberExpr)?;
         let expr = MemberExpr { lhs, rhs };
         Ok(ExprKind::Member(Box::new(expr)))
     }
 
+    /// Parse an index expression: `x[y]`
     fn parse_index_expr(&mut self, lhs: Expr) -> Result<ExprKind, ParseError> {
         let rhs = self.expression(Fixity::none(), Delimiter::index())?;
         let expr = IndexExpr { lhs, rhs };
         Ok(ExprKind::Index(Box::new(expr)))
     }
 
-    fn parse_function_call(&mut self, lhs: Expr) -> Result<ExprKind, ParseError> {
+    /// Parse a function call: `x(y)` or a method call: `x.y(z)`
+    fn parse_call(&mut self, lhs: Expr, params_span_start: Bytes) -> Result<ExprKind, ParseError> {
         Ok(match lhs.expr_kind {
             ExprKind::Identifier(name) => {
-                // TODO: Parse parameter list instead
-                let params = self.expression(Fixity::none(), Delimiter::function_call())?;
+                let params = self.argument_list()?;
+                self.recognise_symbol(Symbol::CloseParen)
+                    .add_stage(Stage::Call)?;
+                let params_span = self.span_from(params_span_start);
                 let call = FunCallExpr {
                     name,
                     name_span: lhs.span,
                     params,
+                    params_span,
                 };
                 ExprKind::FunctionCall(Box::new(call))
             }
             ExprKind::Member(member) => {
-                // TODO: Parse parameter list instead
-                let params = self.expression(Fixity::none(), Delimiter::function_call())?;
+                let params = self.argument_list()?;
+                self.recognise_symbol(Symbol::CloseParen)
+                    .add_stage(Stage::Call)?;
+                let params_span = self.span_from(params_span_start);
                 let call = MetCallExpr {
                     member: *member,
                     params,
+                    params_span,
                 };
                 ExprKind::MethodCall(Box::new(call))
             }
@@ -402,7 +433,7 @@ impl TokenKind {
             }),
             TokenKind::Symbol(Symbol::Period) => NAryOp::Member,
             TokenKind::Symbol(Symbol::OpenBracket) => NAryOp::Index,
-            TokenKind::Symbol(Symbol::OpenParen) => NAryOp::FunctionCall,
+            TokenKind::Symbol(Symbol::OpenParen) => NAryOp::Call,
             TokenKind::Symbol(s) => NAryOp::Binary(match s {
                 Plus => BinOp::Add,
                 Minus => BinOp::Subtract,
@@ -426,8 +457,18 @@ impl TokenKind {
 #[cfg(test)]
 mod tests {
     use crate::lexer::lex;
+    use crate::span::Span;
 
     use super::*;
+
+    macro_rules! tokens {
+        ($($x:expr),+ $(,)?) => (
+            [$($x),+].into_iter().map(|kind| Token {
+                kind,
+                source: Span::zero(),
+            }).collect::<Vec<_>>()
+        );
+    }
 
     macro_rules! assert_parses_with {
         ($target:ident, $source:expr, $expected:expr) => {{
@@ -694,5 +735,17 @@ mod tests {
     #[test]
     fn invalid_evaluation_statement() {
         assert_fails_with!(statement, "a + 10 +", Stage::Expr);
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn blocks_must_contain_at_least_one_statement() {
+        let tokens = tokens![
+            TokenKind::Structure(Structure::Indent),
+            TokenKind::Structure(Structure::Dedent),
+        ];
+        let mut parser = Parser::new(&tokens);
+
+        parser.block().unwrap_err();
     }
 }

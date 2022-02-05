@@ -10,7 +10,7 @@ pub enum NAryOp {
     Ternary(TerOp),
     Member,
     Index,
-    FunctionCall,
+    Call,
 }
 
 pub type Precedence = u8;
@@ -48,7 +48,7 @@ impl Fixity {
         match op {
             NAryOp::Binary(bin) => Self::for_binop(bin),
             NAryOp::Ternary(ter) => Self::for_terop(ter),
-            NAryOp::Member | NAryOp::Index | NAryOp::FunctionCall => Self {
+            NAryOp::Member | NAryOp::Index | NAryOp::Call => Self {
                 assoc: Assoc::Left,
                 precedence: 9,
             },
