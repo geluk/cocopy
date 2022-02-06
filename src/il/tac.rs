@@ -173,8 +173,8 @@ pub enum InstrKind {
     IfTrue(Value, Label),
     /// Jump if a value is false.
     IfFalse(Value, Label),
-    /// Push a parameter to the parameter stack.
-    Param(Value),
+    /// Push an argument to the argument stack.
+    Arg(Value),
     /// Call a function, passing `n` parameters.
     Call(Name, String, usize),
     /// The ɸ-function.
@@ -189,7 +189,7 @@ impl InstrKind {
             InstrKind::Bin(_, _, lhs, rhs) => {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
-            InstrKind::Param(value) => Self::is_usage_of(name, value),
+            InstrKind::Arg(value) => Self::is_usage_of(name, value),
             InstrKind::Call(_, _, _) => false,
             InstrKind::Nop => false,
             InstrKind::Goto(_) => false,
@@ -222,7 +222,7 @@ impl InstrKind {
                 try_replace(l, src, dest.clone());
                 try_replace(r, src, dest);
             }
-            InstrKind::Param(p) => try_replace(p, src, dest),
+            InstrKind::Arg(p) => try_replace(p, src, dest),
             InstrKind::Call(_, _, _) => (),
             InstrKind::Nop => (),
             InstrKind::Goto(_) => (),
@@ -250,7 +250,7 @@ impl InstrKind {
             InstrKind::Goto(_) => (),
             InstrKind::IfTrue(_, _) => (),
             InstrKind::IfFalse(_, _) => (),
-            InstrKind::Param(_) => (),
+            InstrKind::Arg(_) => (),
             InstrKind::Call(tgt, _, _) => try_replace(tgt, src, dest),
             InstrKind::Phi(tgt, _) => try_replace(tgt, src, dest),
             InstrKind::Nop => (),
@@ -285,7 +285,7 @@ impl Display for InstrKind {
             InstrKind::Bin(target, op, lhs, rhs) => {
                 write!(f, "{} = {} {} {}", target, lhs, op, rhs)
             }
-            InstrKind::Param(p) => write!(f, "param {}", p),
+            InstrKind::Arg(p) => write!(f, "param {}", p),
             InstrKind::Call(name, tgt, params) => {
                 write!(f, "{} = call {}, {}", name, tgt, params)
             }

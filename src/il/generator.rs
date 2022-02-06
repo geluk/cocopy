@@ -159,14 +159,10 @@ impl TacGenerator {
     /// Lower a function call. Its parameters are pushed onto the parameter stack,
     /// then the function is called.
     fn lower_function_call(&mut self, call: FunCallExpr) -> Value {
-        let expr_values: Vec<_> = call
-            .params
-            .into_iter()
-            .map(|p| self.lower_expr(p))
-            .collect();
+        let expr_values: Vec<_> = call.args.into_iter().map(|p| self.lower_expr(p)).collect();
 
-        for param in expr_values {
-            self.emit(InstrKind::Param(param));
+        for arg in expr_values {
+            self.emit(InstrKind::Arg(arg));
         }
 
         let temp_name = self.name_generator.next_temp();
@@ -251,14 +247,14 @@ impl TacGenerator {
     /// Emit an instruction, adding it to the listing.
     fn emit(&mut self, kind: InstrKind) {
         let instr = Instruction::new(kind);
-        self.program.top_level.push(instr);
+        self.procedure.push(instr);
     }
 
     /// Emit an instruction, adding it to the listing.
     fn emit_label(&mut self, kind: InstrKind, label: Label) {
         let mut instr = Instruction::new(kind);
         instr.add_label(label);
-        self.program.top_level.push(instr);
+        self.procedure.push(instr);
     }
 }
 
@@ -278,7 +274,7 @@ mod tests {
             let tokens = lex($source).unwrap();
             let program = parse(&tokens).unwrap();
             let program = verify_well_typed(program).unwrap();
-            let instrs = TacGenerator::generate(program).top_level;
+            let instrs = generate(program).top_level;
 
             let instr_lines: Vec<_> = instrs.into_vec().iter().map(|i| i.to_string()).collect();
 
@@ -301,7 +297,7 @@ mod tests {
             [
                 "a^1 = 1",
                 "if_false a^1 goto if_end_1",
-                "param 1",
+                "arg 1",
                 "%t1 = call print, 1",
                 "if_end_1: nop"
             ]
@@ -310,6 +306,6 @@ mod tests {
 
     #[test]
     fn function_call_generates_param_and_call() {
-        assert_generates!("print(999)", ["param 999", "%t1 = call print, 1",])
+        assert_generates!("print(999)", ["arg 999", "%t1 = call print, 1",])
     }
 }

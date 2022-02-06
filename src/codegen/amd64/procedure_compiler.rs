@@ -72,7 +72,7 @@ impl ProcedureCompiler {
             InstrKind::Bin(tgt, op, left, right) => {
                 self.compile_bin(tgt.clone(), *op, left.clone(), right.clone(), comment)
             }
-            InstrKind::Param(param) => self.compile_param(param.clone()),
+            InstrKind::Arg(param) => self.compile_param(param.clone()),
             InstrKind::Call(tgt, name, params) => {
                 self.compile_call(tgt.clone(), name.clone(), *params)
             }
@@ -591,7 +591,7 @@ mod tests {
     #[test]
     fn function_call_allocates_for_return_value() {
         let compiler = compile_instrs!([
-            InstrKind::Param(cnst!(10)),
+            InstrKind::Arg(cnst!(10)),
             InstrKind::Call(sub!("x"), "print".to_string(), 1)
         ]);
 
@@ -604,7 +604,7 @@ mod tests {
         let c = sub!("c");
         let compiler = compile_instrs!([
             InstrKind::Assign(c.clone(), cnst!(55)),
-            InstrKind::Param(cnst!(10)),
+            InstrKind::Arg(cnst!(10)),
             InstrKind::Call(x.clone(), "print".to_string(), 1)
         ]);
 

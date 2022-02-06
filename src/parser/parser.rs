@@ -455,27 +455,27 @@ impl<'a> Parser<'a> {
     fn parse_call(&mut self, lhs: Expr, params_span_start: Bytes) -> Result<ExprKind, ParseError> {
         Ok(match lhs.expr_kind {
             ExprKind::Identifier(name) => {
-                let params = self.argument_list()?;
+                let args = self.argument_list()?;
                 self.recognise_symbol(Symbol::CloseParen)
                     .add_stage(Stage::Call)?;
                 let params_span = self.span_from(params_span_start);
                 let call = FunCallExpr {
                     name,
                     name_span: lhs.span,
-                    params,
-                    params_span,
+                    args,
+                    args_span: params_span,
                 };
                 ExprKind::FunctionCall(Box::new(call))
             }
             ExprKind::Member(member) => {
-                let params = self.argument_list()?;
+                let args = self.argument_list()?;
                 self.recognise_symbol(Symbol::CloseParen)
                     .add_stage(Stage::Call)?;
                 let params_span = self.span_from(params_span_start);
                 let call = MetCallExpr {
                     member: *member,
-                    params,
-                    params_span,
+                    args,
+                    args_span: params_span,
                 };
                 ExprKind::MethodCall(Box::new(call))
             }

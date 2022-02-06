@@ -183,11 +183,11 @@ impl TypeChecker {
     /// Verify that a function call references an existing function, and that
     /// its arguments have a matching parameter in the function's type.
     fn check_function_call(&mut self, call: &FunCallExpr) -> Result<TypeSpec, Vec<TypeError>> {
-        let (receiver_type, given_params) = self
+        let (receiver_type, given_args) = self
             .lookup_function(&call.name)
             .add_span(call.name_span)
             .concat_result(
-                call.params
+                call.args
                     .iter()
                     .map(|p| self.check_expression(p))
                     .collect_all()
@@ -196,20 +196,20 @@ impl TypeChecker {
 
         match receiver_type {
             TypeSpec::Function(expected_params, ret_type) => {
-                if expected_params.len() != given_params.len() {
+                if expected_params.len() != given_args.len() {
                     return singleton_error(
                         TypeErrorKind::ParamCountMismatch(
                             call.name.clone(),
                             expected_params.len(),
-                            given_params.len(),
+                            given_args.len(),
                         ),
-                        call.params_span,
+                        call.args_span,
                     );
                 }
                 let param_errors: Vec<_> = expected_params
                     .into_iter()
-                    .zip(given_params.into_iter())
-                    .zip(&call.params)
+                    .zip(given_args.into_iter())
+                    .zip(&call.args)
                     .filter(|((exp, act), _)| exp != act)
                     .map(|((exp, act), expr)| {
                         TypeError::new(TypeErrorKind::ParamTypeMismatch(exp, act), expr.span)
