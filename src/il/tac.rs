@@ -7,6 +7,7 @@ use std::{
     hash::Hash,
     iter::Enumerate,
     slice::{Iter, IterMut},
+    vec::IntoIter,
 };
 
 use crate::{ast::untyped::BinOp, builtins::Builtin};
@@ -53,7 +54,7 @@ impl Display for TacProgram {
 
 /// A listing of three-address code. This will normally represent a function body
 /// or the top-level function.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TacListing {
     instructions: Vec<Instruction>,
 }
@@ -66,6 +67,10 @@ impl TacListing {
 
     pub fn push(&mut self, instruction: Instruction) {
         self.instructions.push(instruction)
+    }
+
+    pub fn into_lines(self) -> Enumerate<IntoIter<Instruction>> {
+        self.instructions.into_iter().enumerate()
     }
 
     pub fn iter_lines(&self) -> Enumerate<Iter<Instruction>> {
@@ -109,7 +114,7 @@ impl Display for TacListing {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Instruction {
     pub kind: InstrKind,
     pub label: Option<Label>,
@@ -178,7 +183,7 @@ impl Display for Label {
 }
 
 /// A single TAC instruction.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InstrKind {
     /// Assign a value to a name.
     Assign(Name, Value),

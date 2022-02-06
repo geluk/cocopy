@@ -1,5 +1,6 @@
 use std::collections::{
     hash_map::{Entry, Keys},
+    hash_set::Iter,
     HashMap, HashSet,
 };
 
@@ -23,8 +24,7 @@ impl RegisterAllocator {
         self.bindings.keys()
     }
 
-    #[cfg(test)]
-    pub fn iter_allocations(&self) -> std::collections::hash_set::Iter<Register> {
+    pub fn iter_allocations(&self) -> Iter<Register> {
         self.allocations.iter()
     }
 

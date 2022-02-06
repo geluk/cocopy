@@ -12,12 +12,15 @@ use Operand::*;
 use Register::*;
 
 pub struct ProcedureCompiler {
+    listing: TacListing,
+    current_line: usize,
     allocator: RegisterAllocator,
     procedure: Procedure,
     calling_convention: CallingConvention,
     arg_stack: Vec<Operand>,
     param_iter: Iter<'static, Register>,
     pending_label: Option<Label>,
+    stack_offset: usize,
 }
 impl ProcedureCompiler {
     /// Compile the given source code into the given procedure.
@@ -26,38 +29,38 @@ impl ProcedureCompiler {
         procedure: Procedure,
         calling_convention: CallingConvention,
     ) -> Procedure {
-        let mut compiler = Self::new(procedure, calling_convention);
-        compiler.compile_tac(listing);
+        let mut compiler = Self::new(procedure, listing, calling_convention);
+        compiler.compile_tac();
         compiler.procedure
     }
 
     /// Construct a new procedure compiler for the given procedure.
-    fn new(procedure: Procedure, calling_convention: CallingConvention) -> Self {
+    fn new(
+        procedure: Procedure,
+        listing: TacListing,
+        calling_convention: CallingConvention,
+    ) -> Self {
         let param_iter = calling_convention.get_params().iter();
         Self {
+            listing,
+            current_line: 0,
             allocator: RegisterAllocator::new(),
             procedure,
             calling_convention,
             arg_stack: vec![],
             param_iter,
             pending_label: None,
+            stack_offset: 0,
         }
     }
 
     /// Compile a three-address code listing.
-    fn compile_tac(&mut self, listing: TacListing) {
-        for (idx, instr) in listing.iter_lines() {
+    fn compile_tac(&mut self) {
+        let copy = self.listing.clone();
+        for (line_no, instr) in copy.into_lines() {
+            self.current_line = line_no;
             self.compile_instr(instr);
-
-            let may_unbind: Vec<_> = self
-                .allocator
-                .iter_bound_names()
-                .filter(|name| !listing.is_used_after(name, idx))
-                .cloned()
-                .collect();
-            for name in may_unbind {
-                self.allocator.unbind(&name);
-            }
+            self.unbind_regs_after_final_use();
         }
         if self.pending_label.is_some() {
             self.emit_cmt(Nop, [], "insert trailing label");
@@ -65,30 +68,20 @@ impl ProcedureCompiler {
     }
 
     /// Compile a single TAC instruction.
-    fn compile_instr(&mut self, instr: &Instruction) {
+    fn compile_instr(&mut self, instr: Instruction) {
         if let Some(lbl) = &instr.label {
             self.pending_label = Some(lbl.clone());
         }
         let comment = instr.to_string();
-        match &instr.kind {
-            InstrKind::Assign(tgt, value) => {
-                self.compile_assign(tgt.clone(), value.clone(), comment)
-            }
-            InstrKind::Bin(tgt, op, left, right) => {
-                self.compile_bin(tgt.clone(), *op, left.clone(), right.clone(), comment)
-            }
-            InstrKind::Arg(arg) => self.compile_arg(arg.clone()),
-            InstrKind::Param(param) => self.compile_param(param.clone()),
-            InstrKind::Call(tgt, name, params) => {
-                self.compile_call(tgt.clone(), name.clone(), *params)
-            }
+        match instr.kind {
+            InstrKind::Assign(tgt, value) => self.compile_assign(tgt, value, comment),
+            InstrKind::Bin(tgt, op, left, right) => self.compile_bin(tgt, op, left, right, comment),
+            InstrKind::Arg(arg) => self.compile_arg(arg),
+            InstrKind::Param(param) => self.compile_param(param),
+            InstrKind::Call(tgt, name, params) => self.compile_call(tgt, name, params),
             InstrKind::Nop => (),
-            InstrKind::IfTrue(value, lbl) => {
-                self.compile_jump(value.clone(), lbl.clone(), true, comment)
-            }
-            InstrKind::IfFalse(value, lbl) => {
-                self.compile_jump(value.clone(), lbl.clone(), false, comment)
-            }
+            InstrKind::IfTrue(value, lbl) => self.compile_jump(value, lbl, true, comment),
+            InstrKind::IfFalse(value, lbl) => self.compile_jump(value, lbl, false, comment),
             // If this happens, the optimiser has failed and we won't be able to generate code
             // for branching statements, so we should bail here.
             InstrKind::Phi(_, _) => unreachable!("Phi was not optimised away!"),
@@ -212,18 +205,28 @@ impl ProcedureCompiler {
 
     /// Compile a call to a function with `param_count` parameters.
     fn compile_call(&mut self, tgt: Name, name: String, param_count: usize) {
-        if param_count > 4 {
-            todo!("Can't deal with more than 4 parameters yet.");
+        let max_params = self.calling_convention.get_params().len();
+        if param_count > max_params {
+            todo!("Can't deal with more than {} parameters yet.", max_params);
         }
 
-        let param_regs: Vec<_> = self.calling_convention.iter_params(param_count).collect();
+        let param_regs: Vec<_> = self
+            .calling_convention
+            .iter_params(param_count)
+            // Might need some more testing to check if this always behaves nicely,
+            // especially with nested function calls.
+            .rev()
+            .collect();
         for (idx, reg) in param_regs {
             let value = self.arg_stack.pop().expect("Parameter count mismatch!");
 
             if value == Reg(reg) {
                 self.emit_cmt_only(format!("parameter #{} already in {}", idx + 1, reg));
             } else {
+                // The register may be in use, move its value somewhere else if necessary.
                 self.reserve(reg);
+                //
+                self.allocator.release(reg);
                 self.emit_cmt(
                     Mov,
                     [Reg(reg), value],
@@ -231,16 +234,29 @@ impl ProcedureCompiler {
                 );
             }
         }
+        // Now that some registers have been set as parameters, we may be able
+        // to unbind them. This means we won't have to preserve them in the next
+        // step.
+        self.unbind_regs_after_final_use();
+        let saved_regs = self.caller_preserve();
+        // Align the stack as required by the calling convention.
+        let offset = self.align_stack();
 
         // The return value will be placed in RAX.
         self.reserve(Rax);
-        self.allocator.bind_to(tgt, Rax);
+        self.allocator.bind_to(tgt.clone(), Rax);
 
-        self.emit(Call, [Id(name)]);
+        self.emit_cmt(
+            Call,
+            [Id(name.clone())],
+            format!("{} = call {}, {}", tgt, name, param_count),
+        );
 
         for (_, reg) in self.calling_convention.iter_params(param_count) {
             self.allocator.release(reg);
         }
+
+        self.restore_registers(saved_regs, offset);
     }
 
     /// Compile a function argument.
@@ -259,6 +275,51 @@ impl ProcedureCompiler {
 
         self.allocator.allocate_reg(next_reg);
         self.allocator.bind_to(param, next_reg);
+    }
+
+    /// Preserve allocated registers before a function call.
+    fn caller_preserve(&mut self) -> Vec<Register> {
+        let mut preserved = vec![];
+        for reg in self
+            .allocator
+            .iter_allocations()
+            .copied()
+            .filter(|&r| self.calling_convention.is_caller_saved(r))
+            .collect::<Vec<_>>()
+        {
+            self.stack_offset += reg.byte_size();
+            self.emit_cmt(Push, vec![Reg(reg)], "push caller-preserved register");
+            preserved.push(reg);
+        }
+        preserved
+    }
+
+    /// Align the stack on the boundary required by the current calling convention.
+    fn align_stack(&mut self) -> usize {
+        let alignment = self.calling_convention.stack_alignment();
+        match self.stack_offset % alignment {
+            0 => 0,
+            ofs => {
+                let bytes_to_align = alignment - ofs;
+                self.emit_cmt(
+                    Sub,
+                    [Reg(Rsp), Lit(bytes_to_align as i128)],
+                    format!("align stack on {}-byte boundary", alignment),
+                );
+                bytes_to_align
+            }
+        }
+    }
+
+    /// Restore allocated registers from the stack after a function call.
+    ///
+    fn restore_registers(&mut self, to_restore: Vec<Register>, offset: usize) {
+        if offset != 0 {
+            self.emit_cmt(Add, [Reg(Rsp), Lit(offset as i128)], "drop stack offset");
+        }
+        for reg in to_restore.into_iter().rev() {
+            self.emit_cmt(Pop, [Reg(reg)], "restore caller-preserved register");
+        }
     }
 
     /// Prepares an operand with a value according to the given operand semantics.
@@ -323,6 +384,24 @@ impl ProcedureCompiler {
             },
         }
         PreparedOperand::temp(Reg(target_reg))
+    }
+
+    /// Checks the allocator for name bindings that won't be used in the future,
+    /// and removes them.
+    fn unbind_regs_after_final_use(&mut self) {
+        let may_unbind: Vec<_> = self
+            .allocator
+            .iter_bound_names()
+            .filter(|name| !self.listing.is_used_after(name, self.current_line))
+            .cloned()
+            .collect();
+        for name in may_unbind {
+            let reg = self
+                .allocator
+                .unbind(&name)
+                .expect("Failed to unbind register");
+            self.emit_cmt_only(format!("unbind {} -> {}", name, reg));
+        }
     }
 
     /// Releases a prepared operand. If a temporary register was allocated for this operand,
@@ -527,10 +606,12 @@ mod tests {
     macro_rules! compile_instrs {
         ($instrs:expr) => {{
             let proc = Procedure::new("main".to_string(), Block::new(), Block::new());
-            let mut compiler = ProcedureCompiler::new(proc, CallingConvention::Microsoft64);
+            // We may need to construct a listing from the given instructions here.
+            let mut compiler =
+                ProcedureCompiler::new(proc, TacListing::new(), CallingConvention::Microsoft64);
 
             for instr in $instrs.into_iter() {
-                compiler.compile_instr(&Instruction::new(instr));
+                compiler.compile_instr(Instruction::new(instr));
             }
             println!(
                 "Listing source:\n===============\n{}===============\n",
@@ -634,12 +715,30 @@ mod tests {
         let compiler = compile_instrs!([
             InstrKind::Assign(c.clone(), cnst!(55)),
             InstrKind::Arg(cnst!(10)),
-            InstrKind::Call(x.clone(), "print".to_string(), 1)
+            InstrKind::Call(x.clone(), "print".to_string(), 1),
+            // Dummy assignment to ensure `c` is still used after the call.
+            InstrKind::Assign(c.clone(), Value::Name(c.clone()))
         ]);
 
-        // `x` should now be in RAX
+        // `x` should now be in RAX.
         assert_eq!(Some(Rax), compiler.allocator.lookup(&x));
-        // `c` should now be somewhere else
+        // `c` should now be somewhere else.
         assert!(compiler.allocator.lookup(&c).is_some());
+    }
+
+    #[test]
+    fn function_call_does_not_move_if_return_reg_may_be_overwritten() {
+        let x = sub!("x");
+        let c = sub!("c");
+        let compiler = compile_instrs!([
+            InstrKind::Assign(c.clone(), cnst!(55)),
+            InstrKind::Arg(cnst!(10)),
+            InstrKind::Call(x.clone(), "print".to_string(), 1),
+        ]);
+
+        // `x` should now be in RAX.
+        assert_eq!(Some(Rax), compiler.allocator.lookup(&x));
+        // `c` should now be gone.
+        assert!(compiler.allocator.lookup(&c).is_none());
     }
 }

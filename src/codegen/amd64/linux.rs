@@ -28,7 +28,11 @@ pub fn compile(prog: TacProgram) -> Assembly {
         asm.text.procedures.push(proc);
     }
 
-    asm.text.main.body.blank().push(Mov, [Reg(Rax), Lit(0)]);
+    asm.text
+        .main
+        .body
+        .blank()
+        .push_cmt(Mov, [Reg(Rax), Lit(0)], "return 0");
 
     asm.text.procedures.push(print());
 
@@ -57,7 +61,9 @@ fn procedure<S: Into<String>>(name: S) -> Procedure {
 
 fn prologue() -> Block {
     let mut prologue = Block::new();
-    prologue.push_cmt(Push, [Reg(Rbp)], "store base pointer");
+    prologue
+        .push_cmt(Push, [Reg(Rbp)], "store base pointer")
+        .blank();
 
     prologue
 }

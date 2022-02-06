@@ -61,6 +61,17 @@ impl Register {
             other => panic!("Can't convert {} into a byte register", other),
         }
     }
+
+    pub fn byte_size(self) -> usize {
+        use Register::*;
+        match self {
+            Rbp | Rsp | Rdi | Rsi | Rax | Rbx | Rcx | Rdx | R8 | R9 | R10 | R11 | R12 | R13
+            | R14 | R15 => 8,
+            _ => {
+                unimplemented!("Consider the implications of handling variable-size registers.")
+            }
+        }
+    }
 }
 impl Display for Register {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
