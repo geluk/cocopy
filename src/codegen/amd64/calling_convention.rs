@@ -35,7 +35,7 @@ impl CallingConvention {
         self.get_params().len()
     }
 
-    fn get_params(&self) -> &'static [Register] {
+    pub fn get_params(&self) -> &'static [Register] {
         match self {
             CallingConvention::Microsoft64 => MICROSOFT_PARAMS,
             CallingConvention::SystemV64 => SYSTEM_V_PARAMS,

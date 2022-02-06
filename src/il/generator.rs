@@ -3,37 +3,77 @@ use crate::{ast::typed::Program, ast::untyped::*};
 use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
 
 pub fn generate(program: Program) -> TacProgram {
-    TacGenerator::generate(program)
+    let mut tac = TacGenerator::<TacProgram> {
+        procedure: TacProgram::new(),
+        name_generator: NameGenerator::new(),
+        label_generator: LabelGenerator::new(),
+    };
+
+    for var_def in program.var_defs {
+        tac.lower_var_def(var_def);
+    }
+
+    for stmt in program.statements {
+        tac.lower_stmt(stmt);
+    }
+
+    let mut tac_program = tac.procedure;
+    let mut label_generator = tac.label_generator;
+
+    for func in program.func_defs {
+        let mut func_gen = TacGenerator::<TacListing> {
+            procedure: TacListing::new(),
+            name_generator: NameGenerator::new(),
+            // To ensure that we generate globally unique jump labels, all
+            // function bodies (including the main function) should share the
+            // same label generator.
+            // TODO: once we generate function-scoped labels,
+            // we can drop this requirement.
+            label_generator,
+        };
+
+        for parameter in func.parameters {
+            func_gen.lower_parameter(parameter);
+        }
+        func_gen.lower_block(func.body);
+
+        tac_program.functions.insert(func.name, func_gen.procedure);
+        label_generator = func_gen.label_generator;
+    }
+
+    tac_program
 }
 
-struct TacGenerator {
-    program: TacProgram,
+trait TacProcedure {
+    fn push(&mut self, instruction: Instruction);
+}
+
+impl TacProcedure for TacProgram {
+    fn push(&mut self, instruction: Instruction) {
+        self.top_level.push(instruction)
+    }
+}
+impl TacProcedure for TacListing {
+    fn push(&mut self, instruction: Instruction) {
+        self.push(instruction)
+    }
+}
+
+struct TacGenerator<P> {
+    procedure: P,
     name_generator: NameGenerator,
     label_generator: LabelGenerator,
 }
-impl TacGenerator {
-    /// Generate a three-address code listing for a program.
-    fn generate(program: Program) -> TacProgram {
-        let mut tac = Self {
-            program: TacProgram::new(),
-            name_generator: NameGenerator::new(),
-            label_generator: LabelGenerator::new(),
-        };
-
-        for var_def in program.var_defs {
-            tac.lower_var_def(var_def);
-        }
-
-        for stmt in program.statements {
-            tac.lower_stmt(stmt);
-        }
-
-        tac.program
-    }
-
+impl<P: TacProcedure> TacGenerator<P> {
     /// Lower a variable definition to an assignment instruction.
     fn lower_var_def(&mut self, var_def: VarDef) {
         self.emit_assign(var_def.name, self.convert_literal(var_def.value));
+    }
+
+    /// Lower a parameter definition, retrieving it and storing it in a local variable.
+    fn lower_parameter(&mut self, parameter: Parameter) {
+        let variable = self.name_generator.next_subscript(parameter.name);
+        self.emit(InstrKind::Param(Name::Sub(variable)));
     }
 
     /// Lower a statement. Returns the variables that were assigned in this statement.
@@ -161,18 +201,14 @@ impl TacGenerator {
     fn lower_function_call(&mut self, call: FunCallExpr) -> Value {
         let expr_values: Vec<_> = call.args.into_iter().map(|p| self.lower_expr(p)).collect();
 
+        let arg_count = expr_values.len();
         for arg in expr_values {
             self.emit(InstrKind::Arg(arg));
         }
 
         let temp_name = self.name_generator.next_temp();
         // TODO: allow calls to other types of functions here.
-        self.emit(InstrKind::Call(
-            temp_name.clone(),
-            call.name,
-            // We'll need to know the function's type to determine the number of parameters.
-            1,
-        ));
+        self.emit(InstrKind::Call(temp_name.clone(), call.name, arg_count));
 
         Value::Name(temp_name)
     }

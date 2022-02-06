@@ -192,6 +192,8 @@ pub enum InstrKind {
     IfFalse(Value, Label),
     /// Push an argument to the argument stack.
     Arg(Value),
+    /// Pop a parameter from the parameter stack.
+    Param(Name),
     /// Call a function, passing `n` parameters.
     Call(Name, String, usize),
     /// The ɸ-function.
@@ -207,6 +209,7 @@ impl InstrKind {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
             InstrKind::Arg(value) => Self::is_usage_of(name, value),
+            InstrKind::Param(_) => false,
             InstrKind::Call(_, _, _) => false,
             InstrKind::Nop => false,
             InstrKind::Goto(_) => false,
@@ -240,6 +243,7 @@ impl InstrKind {
                 try_replace(r, src, dest);
             }
             InstrKind::Arg(p) => try_replace(p, src, dest),
+            InstrKind::Param(_) => (),
             InstrKind::Call(_, _, _) => (),
             InstrKind::Nop => (),
             InstrKind::Goto(_) => (),
@@ -268,6 +272,7 @@ impl InstrKind {
             InstrKind::IfTrue(_, _) => (),
             InstrKind::IfFalse(_, _) => (),
             InstrKind::Arg(_) => (),
+            InstrKind::Param(tgt) => try_replace(tgt, src, dest),
             InstrKind::Call(tgt, _, _) => try_replace(tgt, src, dest),
             InstrKind::Phi(tgt, _) => try_replace(tgt, src, dest),
             InstrKind::Nop => (),
@@ -302,7 +307,8 @@ impl Display for InstrKind {
             InstrKind::Bin(target, op, lhs, rhs) => {
                 write!(f, "{} = {} {} {}", target, lhs, op, rhs)
             }
-            InstrKind::Arg(p) => write!(f, "param {}", p),
+            InstrKind::Arg(p) => write!(f, "arg {}", p),
+            InstrKind::Param(a) => write!(f, "{} = param", a),
             InstrKind::Call(name, tgt, params) => {
                 write!(f, "{} = call {}, {}", name, tgt, params)
             }

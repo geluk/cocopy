@@ -107,13 +107,13 @@ impl Display for Text {
 
 /// An assembly procedure, marked by a label and optionally surrounded by a prologue and epilogue.
 pub struct Procedure {
-    pub name: Str,
+    pub name: String,
     pub prologue: Block,
     pub body: Block,
     pub epilogue: Block,
 }
 impl Procedure {
-    pub fn new(name: Str, prologue: Block, epilogue: Block) -> Self {
+    pub fn new(name: String, prologue: Block, epilogue: Block) -> Self {
         Self {
             name,
             prologue,
@@ -174,6 +174,13 @@ impl Block {
             Instr::new(op, operands.into()),
             comment.into(),
         ));
+        self
+    }
+
+    pub fn push_cmt_only<S: Into<String>>(&mut self, comment: S) -> &mut Self {
+        let mut line = Line::new_blank();
+        line.comment = Some(comment.into());
+        self.lines.push(line);
         self
     }
 
@@ -252,7 +259,7 @@ impl<T: Display> Display for Line<T> {
 
         match (&self.line, self.comment.as_ref()) {
             (None, None) => Ok(()),
-            (None, Some(cmt)) => write!(f, "                                {}", cmt),
+            (None, Some(cmt)) => write!(f, "                                ; {}", cmt),
             (Some(dir), None) => {
                 write!(f, "{}", dir)
             }

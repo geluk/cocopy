@@ -22,6 +22,12 @@ pub fn compile(prog: TacProgram) -> Assembly {
     asm.text.main =
         ProcedureCompiler::compile(prog.top_level, asm.text.main, CallingConvention::SystemV64);
 
+    for (name, listing) in prog.functions {
+        let proc =
+            ProcedureCompiler::compile(listing, procedure(name), CallingConvention::SystemV64);
+        asm.text.procedures.push(proc);
+    }
+
     asm.text.main.body.blank().push(Mov, [Reg(Rax), Lit(0)]);
 
     asm.text.procedures.push(print());
@@ -45,8 +51,8 @@ fn make_assembly() -> Assembly {
     Assembly::new(procedure("main"))
 }
 
-fn procedure(name: Str) -> Procedure {
-    Procedure::new(name, prologue(), epilogue())
+fn procedure<S: Into<String>>(name: S) -> Procedure {
+    Procedure::new(name.into(), prologue(), epilogue())
 }
 
 fn prologue() -> Block {

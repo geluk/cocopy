@@ -1,3 +1,5 @@
+use std::slice::Iter;
+
 use crate::{ast::untyped::BinOp, il::*};
 
 use super::{
@@ -13,7 +15,8 @@ pub struct ProcedureCompiler {
     allocator: RegisterAllocator,
     procedure: Procedure,
     calling_convention: CallingConvention,
-    param_stack: Vec<Operand>,
+    arg_stack: Vec<Operand>,
+    param_iter: Iter<'static, Register>,
     pending_label: Option<Label>,
 }
 impl ProcedureCompiler {
@@ -30,11 +33,13 @@ impl ProcedureCompiler {
 
     /// Construct a new procedure compiler for the given procedure.
     fn new(procedure: Procedure, calling_convention: CallingConvention) -> Self {
+        let param_iter = calling_convention.get_params().iter();
         Self {
             allocator: RegisterAllocator::new(),
             procedure,
             calling_convention,
-            param_stack: vec![],
+            arg_stack: vec![],
+            param_iter,
             pending_label: None,
         }
     }
@@ -72,7 +77,8 @@ impl ProcedureCompiler {
             InstrKind::Bin(tgt, op, left, right) => {
                 self.compile_bin(tgt.clone(), *op, left.clone(), right.clone(), comment)
             }
-            InstrKind::Arg(param) => self.compile_param(param.clone()),
+            InstrKind::Arg(arg) => self.compile_arg(arg.clone()),
+            InstrKind::Param(param) => self.compile_param(param.clone()),
             InstrKind::Call(tgt, name, params) => {
                 self.compile_call(tgt.clone(), name.clone(), *params)
             }
@@ -212,32 +218,47 @@ impl ProcedureCompiler {
 
         let param_regs: Vec<_> = self.calling_convention.iter_params(param_count).collect();
         for (idx, reg) in param_regs {
-            let value = self.param_stack.pop().expect("Parameter count mismatch!");
+            let value = self.arg_stack.pop().expect("Parameter count mismatch!");
 
-            self.reserve(reg);
-            self.emit_cmt(
-                Mov,
-                [Reg(reg), value],
-                format!("set parameter #{}", idx + 1),
-            );
+            if value == Reg(reg) {
+                self.emit_cmt_only(format!("parameter #{} already in {}", idx + 1, reg));
+            } else {
+                self.reserve(reg);
+                self.emit_cmt(
+                    Mov,
+                    [Reg(reg), value],
+                    format!("set parameter #{}", idx + 1),
+                );
+            }
         }
 
         // The return value will be placed in RAX.
         self.reserve(Rax);
         self.allocator.bind_to(tgt, Rax);
 
-        self.emit_cmt(Call, [Id(name)], "call print");
+        self.emit(Call, [Id(name)]);
 
         for (_, reg) in self.calling_convention.iter_params(param_count) {
             self.allocator.release(reg);
         }
     }
 
-    /// Compile a function parameter.
-    fn compile_param(&mut self, param: Value) {
-        let param = self.get_operand(param);
+    /// Compile a function argument.
+    fn compile_arg(&mut self, arg: Value) {
+        let arg = self.get_operand(arg);
 
-        self.param_stack.push(param);
+        self.arg_stack.push(arg);
+    }
+
+    /// Compile a function parameter.
+    fn compile_param(&mut self, param: Name) {
+        let next_reg = *self
+            .param_iter
+            .next()
+            .expect("Function has too many parameters!");
+
+        self.allocator.allocate_reg(next_reg);
+        self.allocator.bind_to(param, next_reg);
     }
 
     /// Prepares an operand with a value according to the given operand semantics.
@@ -360,6 +381,14 @@ impl ProcedureCompiler {
         if let Some(label) = self.pending_label.take() {
             self.procedure.body.add_label(label.to_string());
         }
+        self
+    }
+
+    fn emit_cmt_only<S: Into<String>>(&mut self, comment: S) -> &mut Self {
+        if let Some(label) = self.pending_label.take() {
+            self.procedure.body.add_label(label.to_string());
+        }
+        self.procedure.body.push_cmt_only(comment);
         self
     }
 }
@@ -497,7 +526,7 @@ mod tests {
 
     macro_rules! compile_instrs {
         ($instrs:expr) => {{
-            let proc = Procedure::new("main", Block::new(), Block::new());
+            let proc = Procedure::new("main".to_string(), Block::new(), Block::new());
             let mut compiler = ProcedureCompiler::new(proc, CallingConvention::Microsoft64);
 
             for instr in $instrs.into_iter() {
