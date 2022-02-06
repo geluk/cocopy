@@ -65,33 +65,35 @@ impl TypeChecker {
     fn assign_func_defs(&mut self, func_defs: Vec<FuncDef>) -> Vec<TypeError> {
         let mut type_errors = vec![];
         for func_def in func_defs {
-            let mut param_types = vec![];
-            for param in func_def.parameters.iter() {
-                param_types.push(param.type_spec.clone());
-                if let Err(kind) = self
-                    .program
-                    .set_type(param.name.clone(), param.type_spec.clone())
-                {
-                    type_errors.push(TypeError::new(kind, param.span));
-                }
-            }
-
-            let param_types = func_def
-                .parameters
-                .iter()
-                .map(|p| p.type_spec.clone())
-                .collect();
-
-            let func_type = TypeSpec::Function(param_types, Box::new(func_def.return_type.clone()));
-
-            if let Err(kind) = self.program.set_type(func_def.name.clone(), func_type) {
-                type_errors.push(TypeError::new(kind, func_def.decl_span));
-            }
-
-            type_errors.append(&mut self.check_block(&func_def.body));
-
-            self.program.func_defs.push(func_def);
+            type_errors.append(&mut self.assign_func_def(func_def))
         }
+        type_errors
+    }
+
+    /// Check a function definition and write it to the global environment.
+    fn assign_func_def(&mut self, func_def: FuncDef) -> Vec<TypeError> {
+        let mut type_errors = vec![];
+        let mut param_types = vec![];
+        for param in func_def.parameters.iter() {
+            param_types.push(param.type_spec.clone());
+
+            if let Err(err) = self
+                .program
+                .set_type(param.name.clone(), param.type_spec.clone())
+                .add_span(param.span)
+            {
+                type_errors.push(err)
+            }
+        }
+
+        let func_type = TypeSpec::Function(param_types, Box::new(func_def.return_type.clone()));
+        if let Err(kind) = self.program.set_type(func_def.name.clone(), func_type) {
+            type_errors.push(TypeError::new(kind, func_def.decl_span));
+        }
+
+        type_errors.append(&mut self.check_block(&func_def.body));
+
+        self.program.func_defs.push(func_def);
         type_errors
     }
 
