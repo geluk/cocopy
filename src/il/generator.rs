@@ -104,16 +104,28 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// Lower an if-statement. If-statements are lowered to one or more conditional jumps, to
     /// jump into the correct code block. Returns the variables that the statement's ɸ-functions
     /// assigned to.
-    fn lower_if(&mut self, if_stmt: If) -> Variables {
-        let cond = self.lower_expr(if_stmt.condition);
+    fn lower_if(&mut self, mut if_stmt: If) -> Variables {
         let end_lbl = self.label_generator.next_label("if_end");
         let else_lbl = self.label_generator.next_label("if_else");
 
-        if if_stmt.else_body.is_none() {
-            self.emit(InstrKind::IfFalse(cond, end_lbl.clone()));
-        } else {
-            self.emit(InstrKind::IfFalse(cond, else_lbl.clone()));
-        }
+        let false_label = match if_stmt.else_body.is_some() {
+            true => else_lbl.clone(),
+            false => end_lbl.clone(),
+        };
+
+        match if_stmt.condition.expr_kind {
+            ExprKind::Binary(bin) => {
+                // TODO: special-case comparison expressions here.
+                if_stmt.condition.expr_kind = ExprKind::Binary(bin);
+                let cond = self.lower_expr(if_stmt.condition);
+                self.emit(InstrKind::IfFalse(cond, false_label));
+            }
+            other => {
+                if_stmt.condition.expr_kind = other;
+                let cond = self.lower_expr(if_stmt.condition);
+                self.emit(InstrKind::IfFalse(cond, false_label));
+            }
+        };
 
         let live_variables = self.name_generator.get_live_variables();
         let true_variables = self.lower_block(if_stmt.body);
