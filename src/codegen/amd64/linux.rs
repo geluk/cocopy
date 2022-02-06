@@ -2,7 +2,7 @@
 
 use crate::codegen::amd64::calling_convention::CallingConvention;
 use crate::codegen::amd64::procedure_compiler::ProcedureCompiler;
-use crate::il::TacListing;
+use crate::il::TacProgram;
 
 use super::assembly::*;
 use super::x86::*;
@@ -11,7 +11,7 @@ use Op::*;
 use Operand::*;
 use Register::*;
 
-pub fn compile(prog: TacListing) -> Assembly {
+pub fn compile(prog: TacProgram) -> Assembly {
     use Decl::*;
     let mut asm = make_assembly();
 
@@ -19,7 +19,8 @@ pub fn compile(prog: TacListing) -> Assembly {
         .push_decl(Extern("printf"))
         .push_decl(Global("main"));
 
-    asm.text.main = ProcedureCompiler::compile(prog, asm.text.main, CallingConvention::SystemV64);
+    asm.text.main =
+        ProcedureCompiler::compile(prog.top_level, asm.text.main, CallingConvention::SystemV64);
 
     asm.text.main.body.blank().push(Mov, [Reg(Rax), Lit(0)]);
 
@@ -35,8 +36,8 @@ fn print() -> Procedure {
     print
         .body
         .push(Mov, [Reg(Rsi), Reg(Rdi)])
-        .push(Lea, [Reg(Rdi), Id("[msg_i]")])
-        .push(Call, [Id("printf")]);
+        .push(Lea, [Reg(Rdi), Id("[msg_i]".to_string())])
+        .push(Call, [Id("printf".to_string())]);
     print
 }
 

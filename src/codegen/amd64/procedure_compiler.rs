@@ -1,4 +1,4 @@
-use crate::{ast::untyped::BinOp, builtins::Builtin, il::*};
+use crate::{ast::untyped::BinOp, il::*};
 
 use super::{
     assembly::*, calling_convention::CallingConvention, register_allocator::RegisterAllocator,
@@ -73,7 +73,9 @@ impl ProcedureCompiler {
                 self.compile_bin(tgt.clone(), *op, left.clone(), right.clone(), comment)
             }
             InstrKind::Param(param) => self.compile_param(param.clone()),
-            InstrKind::Call(tgt, name, params) => self.compile_call(tgt.clone(), *name, *params),
+            InstrKind::Call(tgt, name, params) => {
+                self.compile_call(tgt.clone(), name.clone(), *params)
+            }
             InstrKind::Nop => (),
             InstrKind::IfTrue(value, lbl) => {
                 self.compile_jump(value.clone(), lbl.clone(), true, comment)
@@ -203,7 +205,7 @@ impl ProcedureCompiler {
     }
 
     /// Compile a call to a function with `param_count` parameters.
-    fn compile_call(&mut self, tgt: Name, name: Builtin, param_count: usize) {
+    fn compile_call(&mut self, tgt: Name, name: String, param_count: usize) {
         if param_count > 4 {
             todo!("Can't deal with more than 4 parameters yet.");
         }
@@ -223,10 +225,6 @@ impl ProcedureCompiler {
         // The return value will be placed in RAX.
         self.reserve(Rax);
         self.allocator.bind_to(tgt, Rax);
-
-        let name = match name {
-            Builtin::Print => "print",
-        };
 
         self.emit_cmt(Call, [Id(name)], "call print");
 
@@ -594,7 +592,7 @@ mod tests {
     fn function_call_allocates_for_return_value() {
         let compiler = compile_instrs!([
             InstrKind::Param(cnst!(10)),
-            InstrKind::Call(sub!("x"), Builtin::Print, 1)
+            InstrKind::Call(sub!("x"), "print".to_string(), 1)
         ]);
 
         assert_allocates!(compiler, [Rax]);
@@ -607,7 +605,7 @@ mod tests {
         let compiler = compile_instrs!([
             InstrKind::Assign(c.clone(), cnst!(55)),
             InstrKind::Param(cnst!(10)),
-            InstrKind::Call(x.clone(), Builtin::Print, 1)
+            InstrKind::Call(x.clone(), "print".to_string(), 1)
         ]);
 
         // `x` should now be in RAX

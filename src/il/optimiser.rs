@@ -1,25 +1,31 @@
 use std::{borrow::Cow, collections::HashMap, iter::Enumerate, slice::Iter};
 
-use super::{Instruction, MatchInstruction, TacListing, Value};
+use super::{Instruction, MatchInstruction, TacListing, TacProgram, Value};
 
-pub fn optimise(listing: TacListing) -> TacListing {
-    let mut optimiser = Optimiser::new(listing);
-    optimiser.optimise();
-    optimiser.listing
+pub fn optimise(mut program: TacProgram) -> TacProgram {
+    program.top_level = Optimiser::optimise(program.top_level);
+
+    program.functions = program
+        .functions
+        .into_iter()
+        .map(|(name, func)| (name, Optimiser::optimise(func)))
+        .collect();
+
+    program
 }
 
 struct Optimiser {
     listing: TacListing,
 }
 impl Optimiser {
-    pub fn new(listing: TacListing) -> Self {
-        Self { listing }
-    }
+    pub fn optimise(listing: TacListing) -> TacListing {
+        let mut optimiser = Self { listing };
 
-    pub fn optimise(&mut self) {
-        self.remove_unused_assignments();
-        self.merge_assign();
-        self.remove_phi();
+        optimiser.remove_unused_assignments();
+        optimiser.merge_assign();
+        optimiser.remove_phi();
+
+        optimiser.listing
     }
 
     /// Remove assignments to names that are never read.
@@ -164,13 +170,14 @@ mod tests {
             let ast = verify_well_typed(ast).unwrap();
             let tac = generate(ast);
             println!("Before opt:\n==========");
-            print!("{}", tac);
+            print!("{}", tac.top_level);
             println!("==========");
             let tac = optimise(tac);
             println!("After opt:\n==========");
-            print!("{}", tac);
+            print!("{}", tac.top_level);
             println!("==========");
             let tac = tac
+                .top_level
                 .into_vec()
                 .iter()
                 .map(ToString::to_string)

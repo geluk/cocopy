@@ -3,10 +3,7 @@ use std::fmt::{self, Display};
 
 use crate::span::Span;
 
-use super::{
-    typed::{self, Environment},
-    TypeSpec,
-};
+use super::TypeSpec;
 
 #[derive(Debug, Default)]
 pub struct Program {
@@ -33,15 +30,6 @@ impl Program {
 
     pub fn add_statement(&mut self, statement: Statement) {
         self.statements.push(statement);
-    }
-
-    pub fn into_typed(self, global_environment: Environment) -> typed::Program {
-        typed::Program {
-            var_defs: self.var_defs,
-            func_defs: self.func_defs,
-            statements: self.statements,
-            global_environment,
-        }
     }
 }
 impl Display for Program {
@@ -88,6 +76,7 @@ impl Display for FuncDef {
 pub struct Parameter {
     pub name: String,
     pub type_spec: TypeSpec,
+    pub span: Span,
 }
 impl Display for Parameter {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

@@ -134,8 +134,14 @@ impl<'a> Parser<'a> {
             return Ok(parameters);
         }
         loop {
+            let param_start = self.position();
             let (name, type_spec) = self.typed_var(ST)?;
-            parameters.push(Parameter { name, type_spec });
+            let span = self.span_from(param_start);
+            parameters.push(Parameter {
+                name,
+                type_spec,
+                span,
+            });
 
             if self.recognise_symbol(Symbol::Comma).is_err() {
                 break;

@@ -12,7 +12,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::{
     ext::{TryDecode, VerifySuccess},
-    il::TacListing,
+    il::TacProgram,
 };
 
 /// A target operating system for compilation.
@@ -27,7 +27,7 @@ pub fn generate_llvm() {}
 
 /// Generate native code for the current platform. Assembly code is written to `out_dir`,
 /// which is then assembled and linked into an executable file.
-pub fn generate_native<P: AsRef<Path>>(prog: TacListing, out_dir: P) -> Result<()> {
+pub fn generate_native<P: AsRef<Path>>(prog: TacProgram, out_dir: P) -> Result<()> {
     let out_dir = PathBuf::from(out_dir.as_ref());
 
     let os = current_os()?;
@@ -60,7 +60,7 @@ fn clean_artifacts_dir<P: AsRef<Path>>(dir: P) -> Result<()> {
     Ok(())
 }
 
-fn generate_assembly<P: AsRef<Path>>(prog: TacListing, asm_path: P, os: Os) -> Result<()> {
+fn generate_assembly<P: AsRef<Path>>(prog: TacProgram, asm_path: P, os: Os) -> Result<()> {
     let assembly = match os {
         Os::Linux => amd64::linux::compile(prog),
         Os::Windows => amd64::windows::compile(prog),

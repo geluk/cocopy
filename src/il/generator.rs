@@ -1,23 +1,21 @@
-use std::str::FromStr;
-
-use crate::{ast::typed::Program, ast::untyped::*, builtins::Builtin};
+use crate::{ast::typed::Program, ast::untyped::*};
 
 use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
 
-pub fn generate(program: Program) -> TacListing {
+pub fn generate(program: Program) -> TacProgram {
     TacGenerator::generate(program)
 }
 
 struct TacGenerator {
-    listing: TacListing,
+    program: TacProgram,
     name_generator: NameGenerator,
     label_generator: LabelGenerator,
 }
 impl TacGenerator {
     /// Generate a three-address code listing for a program.
-    fn generate(program: Program) -> TacListing {
+    fn generate(program: Program) -> TacProgram {
         let mut tac = Self {
-            listing: TacListing::new(),
+            program: TacProgram::new(),
             name_generator: NameGenerator::new(),
             label_generator: LabelGenerator::new(),
         };
@@ -30,7 +28,7 @@ impl TacGenerator {
             tac.lower_stmt(stmt);
         }
 
-        tac.listing
+        tac.program
     }
 
     /// Lower a variable definition to an assignment instruction.
@@ -155,11 +153,7 @@ impl TacGenerator {
     /// Convert an identifier to a [`Value`]. This does not result in the emission
     /// of intermediate code.
     fn convert_identifier(&self, id: String) -> Value {
-        if let Ok(builtin) = id.parse() {
-            Value::Name(Name::Builtin(builtin))
-        } else {
-            Value::Name(Name::Sub(self.name_generator.last_subscript(id)))
-        }
+        Value::Name(Name::Sub(self.name_generator.last_subscript(id)))
     }
 
     /// Lower a function call. Its parameters are pushed onto the parameter stack,
@@ -179,8 +173,7 @@ impl TacGenerator {
         // TODO: allow calls to other types of functions here.
         self.emit(InstrKind::Call(
             temp_name.clone(),
-            Builtin::from_str(&call.name)
-                .unwrap_or_else(|_| panic!("Unimplemented function: {}", call.name)),
+            call.name,
             // We'll need to know the function's type to determine the number of parameters.
             1,
         ));
@@ -258,14 +251,14 @@ impl TacGenerator {
     /// Emit an instruction, adding it to the listing.
     fn emit(&mut self, kind: InstrKind) {
         let instr = Instruction::new(kind);
-        self.listing.push(instr);
+        self.program.top_level.push(instr);
     }
 
     /// Emit an instruction, adding it to the listing.
     fn emit_label(&mut self, kind: InstrKind, label: Label) {
         let mut instr = Instruction::new(kind);
         instr.add_label(label);
-        self.listing.push(instr);
+        self.program.top_level.push(instr);
     }
 }
 
@@ -285,7 +278,7 @@ mod tests {
             let tokens = lex($source).unwrap();
             let program = parse(&tokens).unwrap();
             let program = verify_well_typed(program).unwrap();
-            let instrs = TacGenerator::generate(program);
+            let instrs = TacGenerator::generate(program).top_level;
 
             let instr_lines: Vec<_> = instrs.into_vec().iter().map(|i| i.to_string()).collect();
 

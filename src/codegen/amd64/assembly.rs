@@ -314,7 +314,7 @@ pub enum Operand {
     /// A label
     Lbl(String),
     /// An identifier
-    Id(Str),
+    Id(String),
 }
 impl Display for Operand {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {

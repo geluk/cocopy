@@ -1,43 +1,49 @@
 use std::collections::hash_map::Entry;
 
-use crate::ast::{typed, typed::Environment, untyped, untyped::*, TypeSpec};
+use crate::{
+    ast::{typed, typed::Environment, untyped, untyped::*, TypeSpec},
+    builtins,
+};
 
 use super::{bin_op_checker::BinOpChecker, error::*};
 
 pub fn verify_well_typed(program: untyped::Program) -> Result<typed::Program, Vec<TypeError>> {
-    TypeChecker::new(program).run()
+    TypeChecker::run(program)
 }
 
 struct TypeChecker {
-    global_environment: Environment,
-    program: untyped::Program,
+    program: typed::Program,
 }
 impl TypeChecker {
-    fn new(program: untyped::Program) -> Self {
+    fn new() -> Self {
         Self {
-            global_environment: Environment::global(),
-            program,
+            program: typed::Program::new(),
         }
     }
 
-    fn run(mut self) -> Result<typed::Program, Vec<TypeError>> {
-        let mut type_errors = self.assign_var_defs();
-        type_errors.append(&mut self.assign_func_defs());
-        type_errors.append(&mut self.check_statements());
-
+    fn run(program: untyped::Program) -> Result<typed::Program, Vec<TypeError>> {
+        let mut checker = Self::new();
+        let type_errors = checker.check(program);
         if type_errors.is_empty() {
-            Ok(self.program.into_typed(self.global_environment))
+            Ok(checker.program)
         } else {
             Err(type_errors)
         }
     }
 
+    fn check(&mut self, program: untyped::Program) -> Vec<TypeError> {
+        let mut type_errors = self.assign_var_defs(program.var_defs);
+        type_errors.append(&mut self.assign_func_defs(program.func_defs));
+        type_errors.append(&mut self.check_statements(program.statements));
+        type_errors
+    }
+
     /// Check variable definitions and write them to the global environment.
-    fn assign_var_defs(&mut self) -> Vec<TypeError> {
+    fn assign_var_defs(&mut self, var_defs: Vec<VarDef>) -> Vec<TypeError> {
         let mut type_errors = vec![];
-        for var_def in &self.program.var_defs {
+        for var_def in var_defs {
             if let Err(kind) = self
-                .global_environment
+                .program
                 .set_type(var_def.name.clone(), var_def.type_spec.clone())
             {
                 type_errors.push(TypeError::new(kind, var_def.span));
@@ -48,15 +54,28 @@ impl TypeChecker {
             if let Err(kind) = Self::check_assignment(&var_def.type_spec, &lit_type) {
                 type_errors.push(TypeError::new(kind, var_def.span))
             }
+
+            self.program.var_defs.push(var_def);
         }
 
         type_errors
     }
 
     /// Check function definitions and write them to the global environment.
-    fn assign_func_defs(&mut self) -> Vec<TypeError> {
+    fn assign_func_defs(&mut self, func_defs: Vec<FuncDef>) -> Vec<TypeError> {
         let mut type_errors = vec![];
-        for func_def in &self.program.func_defs {
+        for func_def in func_defs {
+            let mut param_types = vec![];
+            for param in func_def.parameters.iter() {
+                param_types.push(param.type_spec.clone());
+                if let Err(kind) = self
+                    .program
+                    .set_type(param.name.clone(), param.type_spec.clone())
+                {
+                    type_errors.push(TypeError::new(kind, param.span));
+                }
+            }
+
             let param_types = func_def
                 .parameters
                 .iter()
@@ -65,30 +84,29 @@ impl TypeChecker {
 
             let func_type = TypeSpec::Function(param_types, Box::new(func_def.return_type.clone()));
 
-            if let Err(kind) = self
-                .global_environment
-                .set_type(func_def.name.clone(), func_type)
-            {
+            if let Err(kind) = self.program.set_type(func_def.name.clone(), func_type) {
                 type_errors.push(TypeError::new(kind, func_def.decl_span));
             }
 
             type_errors.append(&mut self.check_block(&func_def.body));
-        }
 
+            self.program.func_defs.push(func_def);
+        }
         type_errors
     }
 
     /// Verify that all statements are well-typed.
-    fn check_statements(&self) -> Vec<TypeError> {
-        self.program
-            .statements
+    fn check_statements(&mut self, statements: Vec<Statement>) -> Vec<TypeError> {
+        let errors = statements
             .iter()
             .flat_map(|s| self.check_statement(s))
-            .collect()
+            .collect();
+        self.program.statements = statements;
+        errors
     }
 
     /// Verify that a statement is well-typed.
-    fn check_statement(&self, statement: &Statement) -> Vec<TypeError> {
+    fn check_statement(&mut self, statement: &Statement) -> Vec<TypeError> {
         match &statement.stmt_kind {
             StmtKind::Pass => vec![],
             StmtKind::Evaluate(expr) => self.check_expression(expr).collect_errors(),
@@ -98,7 +116,7 @@ impl TypeChecker {
         }
     }
 
-    fn check_if(&self, if_stmt: &If) -> Vec<TypeError> {
+    fn check_if(&mut self, if_stmt: &If) -> Vec<TypeError> {
         let mut errors = self
             .check_expression(&if_stmt.condition)
             .and_then(|ty| {
@@ -121,7 +139,7 @@ impl TypeChecker {
         errors
     }
 
-    fn check_block(&self, block: &Block) -> Vec<TypeError> {
+    fn check_block(&mut self, block: &Block) -> Vec<TypeError> {
         block
             .statements
             .iter()
@@ -130,12 +148,12 @@ impl TypeChecker {
     }
 
     /// Verify that assignment to a variable is well-typed.
-    fn check_assign_stmt(&self, assign: &Assign) -> Result<(), Vec<TypeError>> {
+    fn check_assign_stmt(&mut self, assign: &Assign) -> Result<(), Vec<TypeError>> {
         let expr_type = self.check_expression(&assign.value)?;
 
         match &assign.target.expr_kind {
             ExprKind::Identifier(id) => {
-                let target_type = self.global_environment.lookup(id).add_span(assign.span)?;
+                let target_type = self.program.lookup(id).add_span(assign.span)?;
 
                 Self::check_assignment(&target_type, &expr_type).add_span(assign.value.span)?;
             }
@@ -145,11 +163,11 @@ impl TypeChecker {
     }
 
     /// Verify that an expression is well-typed.
-    fn check_expression(&self, expression: &Expr) -> Result<TypeSpec, Vec<TypeError>> {
+    fn check_expression(&mut self, expression: &Expr) -> Result<TypeSpec, Vec<TypeError>> {
         let span = expression.span;
         match &expression.expr_kind {
             ExprKind::Literal(l) => Ok(self.check_literal(l)),
-            ExprKind::Identifier(id) => Ok(self.global_environment.lookup(id).add_span(span)?),
+            ExprKind::Identifier(id) => Ok(self.program.lookup(id).add_span(span)?),
             ExprKind::Member(_) => todo!("Type check member expressions"),
             ExprKind::Index(_) => todo!("Type check index expressions"),
             ExprKind::FunctionCall(call) => self.check_function_call(call),
@@ -162,10 +180,9 @@ impl TypeChecker {
 
     /// Verify that a function call references an existing function, and that
     /// its arguments have a matching parameter in the function's type.
-    fn check_function_call(&self, call: &FunCallExpr) -> Result<TypeSpec, Vec<TypeError>> {
+    fn check_function_call(&mut self, call: &FunCallExpr) -> Result<TypeSpec, Vec<TypeError>> {
         let (receiver_type, given_params) = self
-            .global_environment
-            .lookup(&call.name)
+            .lookup_function(&call.name)
             .add_span(call.name_span)
             .concat_result(
                 call.params
@@ -210,8 +227,19 @@ impl TypeChecker {
         }
     }
 
+    /// Look up a builtin or global function.
+    fn lookup_function(&mut self, name: &str) -> Result<TypeSpec, TypeErrorKind> {
+        match builtins::get_type_map().get(name) {
+            Some((builtin, ty)) => {
+                self.program.used_builtins.push(*builtin);
+                Ok(ty.clone())
+            }
+            None => self.program.lookup(name),
+        }
+    }
+
     /// Verify that a unary expression is well-typed.
-    fn check_unary(&self, un: &UnExpr) -> Result<TypeSpec, Vec<TypeError>> {
+    fn check_unary(&mut self, un: &UnExpr) -> Result<TypeSpec, Vec<TypeError>> {
         let expr_type = self.check_expression(&un.rhs)?;
 
         Ok(match (un.op, expr_type) {
@@ -223,7 +251,7 @@ impl TypeChecker {
 
     /// Verify that a binary expression is well-typed. This may produce multiple errors, if
     /// evaluating both the left-hand side and the right-hand side results in type errors.
-    fn check_binary(&self, bin: &BinExpr) -> Result<TypeSpec, Vec<TypeError>> {
+    fn check_binary(&mut self, bin: &BinExpr) -> Result<TypeSpec, Vec<TypeError>> {
         let (lhs, rhs) = self
             .check_expression(&bin.lhs)
             .concat_result(self.check_expression(&bin.rhs))?;
@@ -231,7 +259,7 @@ impl TypeChecker {
         BinOpChecker::check(bin, lhs, rhs)
     }
 
-    fn check_ternary(&self, ter: &TerExpr) -> Result<TypeSpec, Vec<TypeError>> {
+    fn check_ternary(&mut self, ter: &TerExpr) -> Result<TypeSpec, Vec<TypeError>> {
         let ((lhs, mhs), rhs) = self
             .check_expression(&ter.lhs)
             .concat_result(self.check_expression(&ter.mhs))
@@ -286,6 +314,16 @@ impl TypeChecker {
     }
 }
 
+impl typed::Program {
+    pub fn set_type(&mut self, name: String, type_spec: TypeSpec) -> Result<(), TypeErrorKind> {
+        self.global_environment.set_type(name, type_spec)
+    }
+
+    pub fn lookup(&self, name: &str) -> Result<TypeSpec, TypeErrorKind> {
+        self.global_environment.lookup(name)
+    }
+}
+
 impl Environment {
     /// Associate an identifier with a type. Returns an error if the identifier
     /// was already present.
@@ -308,7 +346,7 @@ impl Environment {
 
 #[cfg(test)]
 mod tests {
-    use crate::{lexer::lex, parser::parse};
+    use crate::{lexer::lex, parser::parse, span::Span};
 
     use super::*;
 
@@ -319,11 +357,27 @@ mod tests {
         }};
     }
 
+    macro_rules! make_type_checker {
+        ($source:expr) => {{
+            let program = make_program!($source);
+            let mut checker = TypeChecker::new();
+            let res = checker.check(program);
+            (res, checker)
+        }};
+    }
+
+    macro_rules! check_with {
+        ($method:ident, $source:expr, $param:expr) => {{
+            let (_, mut checker) = make_type_checker!($source);
+
+            checker.$method($param)
+        }};
+    }
+
     macro_rules! assert_variable_type {
         ($source:expr, $type_name:expr, $type_spec:expr) => {{
             let prg = make_program!($source);
-            let checker = TypeChecker::new(prg);
-            let prg = checker.run().unwrap();
+            let prg = TypeChecker::run(prg).unwrap();
 
             let ty = &prg.global_environment.type_map[$type_name];
             assert_eq!(
@@ -337,8 +391,7 @@ mod tests {
     macro_rules! assert_type_checks {
         ($source:expr) => {{
             let prg = make_program!($source);
-            let checker = TypeChecker::new(prg);
-            let res = checker.run().collect_errors();
+            let res = TypeChecker::run(prg).collect_errors();
 
             let errors: Vec<_> = res.iter().map(|e| e.to_string()).collect();
             assert!(res.is_empty(), "\n\nExpected this type check to succeed, but found the following error(s): \n{:#?}\n\n", errors);
@@ -348,8 +401,7 @@ mod tests {
     macro_rules! assert_type_error {
         ($source:expr, $expected_err:expr) => {{
             let prg = make_program!($source);
-            let checker = TypeChecker::new(prg);
-            let res = checker.run().collect_errors();
+            let res = TypeChecker::run(prg).collect_errors();
 
             let errors: Vec<_> = res.iter().map(|e| e.to_string()).collect();
             assert!(
@@ -371,9 +423,18 @@ mod tests {
         }};
     }
 
-    /// ChocoPy reference: 2.4
+    /// ChocoPy reference: 5.2 - [VAR-READ]
     #[test]
-    fn test() {}
+    fn var_read() {
+        let expr_type = check_with!(
+            check_expression,
+            "a : int = 10",
+            &Expr::new(ExprKind::Identifier("a".to_string()), Span::zero())
+        )
+        .unwrap();
+
+        assert_eq!(expr_type, TypeSpec::Int)
+    }
 
     /// ChocoPy reference: 5.2
     #[test]

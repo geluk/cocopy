@@ -8,7 +8,7 @@ use Op::*;
 use Operand::*;
 use Register::*;
 
-pub fn compile(prog: TacListing) -> Assembly {
+pub fn compile(prog: TacProgram) -> Assembly {
     use Decl::*;
     let mut asm = make_assembly();
 
@@ -19,16 +19,24 @@ pub fn compile(prog: TacListing) -> Assembly {
         .push_decl(Extern("ExitProcess"))
         .push_decl(Extern("printf"));
 
-    asm.text.main.body.push(Op::Call, [Id("_CRT_INIT")]).blank();
+    asm.text
+        .main
+        .body
+        .push(Op::Call, [Id("_CRT_INIT".to_string())])
+        .blank();
 
-    asm.text.main = ProcedureCompiler::compile(prog, asm.text.main, CallingConvention::Microsoft64);
+    asm.text.main = ProcedureCompiler::compile(
+        prog.top_level,
+        asm.text.main,
+        CallingConvention::Microsoft64,
+    );
 
     asm.text
         .main
         .body
         .blank()
         .ret_zero()
-        .push(Call, [Id("ExitProcess")]);
+        .push(Call, [Id("ExitProcess".to_string())]);
 
     asm.text.procedures.push(print());
 
@@ -44,8 +52,8 @@ fn print() -> Procedure {
     print
         .body
         .push(Mov, [Reg(Rdx), Reg(Rcx)])
-        .push(Lea, [Reg(Rcx), Id("[msg_i]")])
-        .push(Call, [Id("printf")]);
+        .push(Lea, [Reg(Rcx), Id("[msg_i]".to_string())])
+        .push(Call, [Id("printf".to_string())]);
     print
 }
 

@@ -2,6 +2,7 @@
 
 use std::{
     borrow::Cow,
+    collections::HashMap,
     fmt::{self, Display, Formatter},
     hash::Hash,
     iter::Enumerate,
@@ -12,8 +13,30 @@ use crate::{ast::untyped::BinOp, builtins::Builtin};
 
 pub type TargetSize = isize;
 
+#[derive(Debug)]
+pub struct TacProgram {
+    /// User-defined functions.
+    pub functions: HashMap<String, TacListing>,
+    /// Built-in functions. These functions are not compiled from Python source
+    /// code, and are instead directly emitted as assembly code.
+    pub builtins: HashMap<String, Builtin>,
+    /// The top-level (main) function, containing all code not associated
+    /// with another function.
+    pub top_level: TacListing,
+}
+impl TacProgram {
+    pub fn new() -> Self {
+        Self {
+            functions: HashMap::new(),
+            builtins: HashMap::new(),
+            top_level: TacListing::new(),
+        }
+    }
+}
+
 /// A listing of three-address code. This will normally represent a function body
 /// or the top-level function.
+#[derive(Debug)]
 pub struct TacListing {
     instructions: Vec<Instruction>,
 }
@@ -153,7 +176,7 @@ pub enum InstrKind {
     /// Push a parameter to the parameter stack.
     Param(Value),
     /// Call a function, passing `n` parameters.
-    Call(Name, Builtin, usize),
+    Call(Name, String, usize),
     /// The ɸ-function.
     Phi(Name, Vec<Name>),
     /// No-op
@@ -307,15 +330,12 @@ pub enum Name {
     Sub(Variable),
     /// A generated, temporary name.
     Temp(String),
-    /// A built-in function.
-    Builtin(Builtin),
 }
 impl Display for Name {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Name::Sub(sub) => sub.fmt(f),
             Name::Temp(temp) => write!(f, "%{}", temp),
-            Name::Builtin(name) => name.fmt(f),
         }
     }
 }

@@ -83,7 +83,7 @@ pub fn run_backend(program: Program) -> Result<()> {
     println!("\n======================");
     println!("IL generation finished");
     println!("======================\n");
-    for instr in il.iter_instructions() {
+    for instr in il.top_level.iter_instructions() {
         println!("{}", instr);
     }
 
@@ -92,7 +92,7 @@ pub fn run_backend(program: Program) -> Result<()> {
     println!("\n========================");
     println!("IL optimisation finished");
     println!("========================\n");
-    for instr in il.iter_instructions() {
+    for instr in il.top_level.iter_instructions() {
         println!("{}", instr);
     }
     println!();
