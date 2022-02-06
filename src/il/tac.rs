@@ -33,6 +33,23 @@ impl TacProgram {
         }
     }
 }
+impl Display for TacProgram {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        writeln!(f, "function main")?;
+        for instr in self.top_level.iter_instructions() {
+            writeln!(f, "    {}", instr)?;
+        }
+
+        for (name, body) in self.functions.iter() {
+            writeln!(f, "function {}", name)?;
+            for instr in body.iter_instructions() {
+                writeln!(f, "    {}", instr)?;
+            }
+        }
+
+        Ok(())
+    }
+}
 
 /// A listing of three-address code. This will normally represent a function body
 /// or the top-level function.

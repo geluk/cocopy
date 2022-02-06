@@ -83,19 +83,14 @@ pub fn run_backend(program: Program) -> Result<()> {
     println!("\n======================");
     println!("IL generation finished");
     println!("======================\n");
-    for instr in il.top_level.iter_instructions() {
-        println!("{}", instr);
-    }
+    println!("{}", il);
 
     let il = il::optimise(il);
 
     println!("\n========================");
     println!("IL optimisation finished");
     println!("========================\n");
-    for instr in il.top_level.iter_instructions() {
-        println!("{}", instr);
-    }
-    println!();
+    println!("{}", il);
 
     println!("======================");
     println!("Generating native code");
