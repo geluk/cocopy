@@ -306,6 +306,7 @@ impl ProcedureCompiler {
                     [Reg(Rsp), Lit(bytes_to_align as i128)],
                     format!("align stack on {}-byte boundary", alignment),
                 );
+                self.stack_offset += bytes_to_align;
                 bytes_to_align
             }
         }
@@ -316,9 +317,11 @@ impl ProcedureCompiler {
     fn restore_registers(&mut self, to_restore: Vec<Register>, offset: usize) {
         if offset != 0 {
             self.emit_cmt(Add, [Reg(Rsp), Lit(offset as i128)], "drop stack offset");
+            self.stack_offset -= offset;
         }
         for reg in to_restore.into_iter().rev() {
             self.emit_cmt(Pop, [Reg(reg)], "restore caller-preserved register");
+            self.stack_offset -= reg.byte_size();
         }
     }
 
