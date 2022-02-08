@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
     /// parentheses.
     fn argument_list(&mut self) -> Result<Vec<Expr>, ParseError> {
         let mut arguments = vec![];
-        if self.recognise_symbol(Symbol::CloseParen).is_ok() {
+        if self.peek_kind() == Some(&TokenKind::Symbol(Symbol::CloseParen)) {
             return Ok(arguments);
         }
         loop {
@@ -667,7 +667,13 @@ mod tests {
 
     /// ChocoPy Language Reference: 4.1
     #[test]
-    fn function() {
+    fn empty_function_call() {
+        assert_expr_parses!("a()", "(a())");
+    }
+
+    /// ChocoPy Language Reference: 4.1
+    #[test]
+    fn function_call() {
         assert_expr_parses!("a(b)", "(a(b))");
     }
 
