@@ -335,7 +335,7 @@ impl TypeChecker {
             .check_expression(bin.lhs)
             .concat_result(self.check_expression(bin.rhs))?;
 
-        let type_spec = BinOpChecker::check(
+        let (type_spec, op) = BinOpChecker::check(
             bin.op,
             lhs.type_spec.clone(),
             rhs.type_spec.clone(),
@@ -344,7 +344,7 @@ impl TypeChecker {
         )?;
         Ok(typed::BinExpr {
             lhs,
-            op: bin.op,
+            op,
             rhs,
             type_spec,
         })

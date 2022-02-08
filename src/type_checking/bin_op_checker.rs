@@ -1,5 +1,9 @@
 use crate::{
-    ast::{untyped::*, TypeSpec},
+    ast::{
+        typed::{BinOp as Top, BoolOp, CmpOp, IntOp},
+        untyped::{BinOp as Uop, *},
+        TypeSpec,
+    },
     span::Span,
 };
 
@@ -9,7 +13,7 @@ use super::error::*;
 enum Operation {
     /// An associative operation; `a -> a -> a`.
     /// Its input types are the same as the output type.
-    Semigroup(TypeSpec),
+    Semigroup(TypeSpec, Top),
     /// A binary function (?). It may accept several input types, as long as both input parameters
     /// are of the same type. The output type is always the same, regardless of the input type.
     ///
@@ -21,7 +25,7 @@ enum Operation {
     /// ```
     /// The first, vector field specifies the input types that are accepted.
     /// The `TypeSpec` field specifies the output type that is produced.
-    BinFunc(Vec<TypeSpec>, TypeSpec),
+    BinFunc(Vec<TypeSpec>, TypeSpec, Top),
 }
 
 /// Checks whether an operation can be applied to its operands.
@@ -43,7 +47,7 @@ impl BinOpChecker {
         rhs_type: TypeSpec,
         lhs_span: Span,
         rhs_span: Span,
-    ) -> Result<TypeSpec, Vec<TypeError>> {
+    ) -> Result<(TypeSpec, Top), Vec<TypeError>> {
         Self {
             op,
             lhs_type,
@@ -56,18 +60,18 @@ impl BinOpChecker {
         .check_internal()
     }
 
-    fn check_internal(mut self) -> Result<TypeSpec, Vec<TypeError>> {
-        let ret_type = match self.get_op() {
-            Operation::Semigroup(ty) => {
+    fn check_internal(mut self) -> Result<(TypeSpec, Top), Vec<TypeError>> {
+        let op_tuple = match self.get_op() {
+            Operation::Semigroup(ty, op) => {
                 if self.lhs_type != ty {
                     self.err_lhs();
                 }
                 if self.rhs_type != ty {
                     self.err_rhs();
                 }
-                ty
+                (ty, op)
             }
-            Operation::BinFunc(source_types, ret) => {
+            Operation::BinFunc(source_types, ret, op) => {
                 if source_types.contains(&self.lhs_type) {
                     if self.rhs_type != self.lhs_type {
                         self.err_rhs();
@@ -75,13 +79,13 @@ impl BinOpChecker {
                 } else {
                     self.err_lhs();
                 }
-                ret
+                (ret, op)
             }
         };
 
         let errs = self.collect_errors();
         if errs.is_empty() {
-            Ok(ret_type)
+            Ok(op_tuple)
         } else {
             Err(errs)
         }
@@ -89,20 +93,29 @@ impl BinOpChecker {
 
     /// Determines the operation type for the operator we've received.
     fn get_op(&self) -> Operation {
-        use BinOp::*;
         use TypeSpec::*;
+        use Uop::*;
         match self.op {
             // bool or bool -> bool
-            Or | And => Operation::Semigroup(Bool),
-            // One of:
-            //   int == int -> bool
-            //   bool == bool -> bool
-            Equal | NotEqual => Operation::BinFunc(vec![Int, Bool], Bool),
+            Or => Operation::Semigroup(Bool, Top::Bool(BoolOp::Or)),
+            And => Operation::Semigroup(Bool, Top::Bool(BoolOp::And)),
+            // int == int -> bool
+            Equal => Operation::BinFunc(vec![Int, Bool], Bool, Top::Compare(CmpOp::Equal)),
+            NotEqual => Operation::BinFunc(vec![Int, Bool], Bool, Top::Compare(CmpOp::NotEqual)),
             // int + int -> int
-            Add | Subtract | Multiply | IntDiv | Remainder => Operation::Semigroup(Int),
+            Add => Operation::Semigroup(Int, Top::IntArith(IntOp::Add)),
+            Subtract => Operation::Semigroup(Int, Top::IntArith(IntOp::Subtract)),
+            Multiply => Operation::Semigroup(Int, Top::IntArith(IntOp::Multiply)),
+            IntDiv => Operation::Semigroup(Int, Top::IntArith(IntOp::Divide)),
+            Remainder => Operation::Semigroup(Int, Top::IntArith(IntOp::Remainder)),
             // int < int -> bool
-            LessThan | GreaterThan | LessThanEqual | GreaterThanEqual => {
-                Operation::BinFunc(vec![Int], Bool)
+            LessThan => Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::LessThan)),
+            GreaterThan => Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::GreaterThan)),
+            LessThanEqual => {
+                Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::LessThanEqual))
+            }
+            GreaterThanEqual => {
+                Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::GreaterThanEqual))
             }
             Is => todo!("Implement 'is' type check"),
         }

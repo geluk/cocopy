@@ -1,6 +1,6 @@
 use crate::ast::{
     typed::*,
-    untyped::{BinOp, Literal, Parameter},
+    untyped::{Literal, Parameter},
 };
 
 use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
@@ -117,11 +117,16 @@ impl<P: TacProcedure> TacGenerator<P> {
         };
 
         match if_stmt.condition.expr_kind {
-            ExprKind::Binary(bin) => {
-                // TODO: special-case comparison expressions here.
-                if_stmt.condition.expr_kind = ExprKind::Binary(bin);
-                let cond = self.lower_expr(if_stmt.condition);
-                self.emit(InstrKind::IfFalse(cond, false_label));
+            // Ideally we would pattern match against the box here, but we can't.
+            ExprKind::Binary(bin) if bin.op.as_compare().is_some() => {
+                let op = bin.op.as_compare().unwrap();
+
+                let lhs = self.lower_expr(bin.lhs);
+                let rhs = self.lower_expr(bin.rhs);
+
+                // Negate here, because we should jump to the else label if the
+                // comparison fails.
+                self.emit(InstrKind::IfCmp(lhs, op.negate(), rhs, false_label));
             }
             other => {
                 if_stmt.condition.expr_kind = other;
@@ -231,10 +236,8 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// Lower a binary expression. If the expression contains a boolean operator, it is dispatched
     /// to [`Self::lower_bool_expr`].
     fn lower_binexpr(&mut self, expr: BinExpr) -> Value {
-        if expr.op == BinOp::And {
-            return self.lower_bool_expr(expr, BoolOp::And);
-        } else if expr.op == BinOp::Or {
-            return self.lower_bool_expr(expr, BoolOp::Or);
+        if let BinOp::Bool(bop) = expr.op {
+            return self.lower_bool_expr(expr, bop);
         }
 
         let lhs = self.lower_expr(expr.lhs);
@@ -307,11 +310,6 @@ impl<P: TacProcedure> TacGenerator<P> {
         instr.add_label(label);
         self.procedure.push(instr);
     }
-}
-
-enum BoolOp {
-    Or,
-    And,
 }
 
 #[cfg(test)]

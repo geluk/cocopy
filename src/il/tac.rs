@@ -10,7 +10,10 @@ use std::{
     vec::IntoIter,
 };
 
-use crate::{ast::untyped::BinOp, builtins::Builtin};
+use crate::{
+    ast::typed::{BinOp, CmpOp},
+    builtins::Builtin,
+};
 
 pub type TargetSize = isize;
 
@@ -195,6 +198,8 @@ pub enum InstrKind {
     IfTrue(Value, Label),
     /// Jump if a value is false.
     IfFalse(Value, Label),
+    /// Jump if a comparison evaluates to true.
+    IfCmp(Value, CmpOp, Value, Label),
     /// Push an argument to the argument stack.
     Arg(Value),
     /// Pop a parameter from the parameter stack.
@@ -220,6 +225,9 @@ impl InstrKind {
             InstrKind::Goto(_) => false,
             InstrKind::IfTrue(value, _) => Self::is_usage_of(name, value),
             InstrKind::IfFalse(value, _) => Self::is_usage_of(name, value),
+            InstrKind::IfCmp(lhs, _, rhs, _) => {
+                Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
+            }
             InstrKind::Phi(_, names) => names.iter().any(|n| n == name),
         }
     }
@@ -243,17 +251,21 @@ impl InstrKind {
         }
         match self {
             InstrKind::Assign(_, value) => try_replace(value, src, dest),
-            InstrKind::Bin(_, _, l, r) => {
-                try_replace(l, src, dest.clone());
-                try_replace(r, src, dest);
+            InstrKind::Bin(_, _, lhs, rhs) => {
+                try_replace(lhs, src, dest.clone());
+                try_replace(rhs, src, dest);
             }
-            InstrKind::Arg(p) => try_replace(p, src, dest),
+            InstrKind::Arg(arg) => try_replace(arg, src, dest),
             InstrKind::Param(_) => (),
             InstrKind::Call(_, _, _) => (),
             InstrKind::Nop => (),
             InstrKind::Goto(_) => (),
             InstrKind::IfTrue(value, _) => try_replace(value, src, dest),
             InstrKind::IfFalse(value, _) => try_replace(value, src, dest),
+            InstrKind::IfCmp(lhs, _, rhs, _) => {
+                try_replace(lhs, src, dest.clone());
+                try_replace(rhs, src, dest);
+            }
             InstrKind::Phi(_, values) => {
                 let any_replaced = values.iter().any(|n| n == src);
                 assert!(
@@ -276,6 +288,7 @@ impl InstrKind {
             InstrKind::Goto(_) => (),
             InstrKind::IfTrue(_, _) => (),
             InstrKind::IfFalse(_, _) => (),
+            InstrKind::IfCmp(_, _, _, _) => (),
             InstrKind::Arg(_) => (),
             InstrKind::Param(tgt) => try_replace(tgt, src, dest),
             InstrKind::Call(tgt, _, _) => try_replace(tgt, src, dest),
@@ -321,6 +334,9 @@ impl Display for InstrKind {
             InstrKind::Goto(label) => write!(f, "goto {}", label),
             InstrKind::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),
             InstrKind::IfFalse(value, lbl) => write!(f, "if_false {} goto {}", value, lbl),
+            InstrKind::IfCmp(lhs, op, rhs, lbl) => {
+                write!(f, "if {} {} {} goto {}", lhs, op, rhs, lbl)
+            }
             InstrKind::Phi(name, values) => {
                 let args = values
                     .iter()

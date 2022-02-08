@@ -6,7 +6,7 @@ use std::{
 use crate::{builtins::Builtin, span::Span};
 
 use super::{
-    untyped::{BinOp, Literal, Parameter, TerOp, UnOp},
+    untyped::{Literal, Parameter, TerOp, UnOp},
     TypeSpec,
 };
 
@@ -295,6 +295,102 @@ pub struct BinExpr {
 impl Display for BinExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "({} {} {})", self.lhs, self.op, self.rhs)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BinOp {
+    Compare(CmpOp),
+    IntArith(IntOp),
+    Bool(BoolOp),
+}
+impl BinOp {
+    pub fn as_compare(&self) -> Option<CmpOp> {
+        match self {
+            BinOp::Compare(cmp) => Some(*cmp),
+            _ => None,
+        }
+    }
+}
+
+impl Display for BinOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BinOp::Compare(cmp) => cmp.fmt(f),
+            BinOp::IntArith(ar) => ar.fmt(f),
+            BinOp::Bool(bool) => bool.fmt(f),
+        }
+    }
+}
+/// Comparisons (Equal, not equal, greater, less, etc.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CmpOp {
+    Equal,
+    NotEqual,
+    GreaterThan,
+    LessThan,
+    GreaterThanEqual,
+    LessThanEqual,
+}
+impl CmpOp {
+    /// Negate an operator.
+    pub fn negate(self) -> Self {
+        use CmpOp::*;
+        match self {
+            Equal => NotEqual,
+            NotEqual => Equal,
+            GreaterThan => LessThanEqual,
+            LessThan => GreaterThanEqual,
+            GreaterThanEqual => LessThan,
+            LessThanEqual => GreaterThan,
+        }
+    }
+}
+impl Display for CmpOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CmpOp::Equal => f.write_str("=="),
+            CmpOp::NotEqual => f.write_str("!="),
+            CmpOp::GreaterThan => f.write_str(">"),
+            CmpOp::LessThan => f.write_str("<"),
+            CmpOp::GreaterThanEqual => f.write_str(">="),
+            CmpOp::LessThanEqual => f.write_str("<="),
+        }
+    }
+}
+
+/// Integer arithmetic operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Remainder,
+}
+impl Display for IntOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            IntOp::Add => f.write_str("+"),
+            IntOp::Subtract => f.write_str("-"),
+            IntOp::Multiply => f.write_str("*"),
+            IntOp::Divide => f.write_str("//"),
+            IntOp::Remainder => f.write_str("%"),
+        }
+    }
+}
+/// Boolean operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoolOp {
+    And,
+    Or,
+}
+impl Display for BoolOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BoolOp::And => f.write_str("and"),
+            BoolOp::Or => f.write_str("or"),
+        }
     }
 }
 

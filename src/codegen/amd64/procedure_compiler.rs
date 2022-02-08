@@ -1,6 +1,9 @@
 use std::slice::Iter;
 
-use crate::{ast::untyped::BinOp, il::*};
+use crate::{
+    ast::typed::{BinOp, CmpOp, IntOp},
+    il::*,
+};
 
 use super::{
     assembly::*, calling_convention::CallingConvention, register_allocator::RegisterAllocator,
@@ -82,6 +85,9 @@ impl ProcedureCompiler {
             InstrKind::Nop => (),
             InstrKind::IfTrue(value, lbl) => self.compile_jump(value, lbl, true, comment),
             InstrKind::IfFalse(value, lbl) => self.compile_jump(value, lbl, false, comment),
+            InstrKind::IfCmp(lhs, op, rhs, label) => {
+                self.compile_compare_jump(lhs, op, rhs, label, comment)
+            }
             // If this happens, the optimiser has failed and we won't be able to generate code
             // for branching statements, so we should bail here.
             InstrKind::Phi(_, _) => unreachable!("Phi was not optimised away!"),
@@ -109,6 +115,30 @@ impl ProcedureCompiler {
         self.emit(jump_type, [Lbl(label.to_string())]);
     }
 
+    fn compile_compare_jump(
+        &mut self,
+        lhs: Value,
+        op: CmpOp,
+        rhs: Value,
+        label: Label,
+        comment: String,
+    ) {
+        let jump_type = match op {
+            CmpOp::Equal => Je,
+            CmpOp::NotEqual => Jne,
+            CmpOp::GreaterThan => Jg,
+            CmpOp::LessThan => Jl,
+            CmpOp::GreaterThanEqual => Jge,
+            CmpOp::LessThanEqual => Jle,
+        };
+
+        let lhs_op = self.prepare_operand(lhs, Cmp.op1_semantics());
+        let rhs = self.get_operand(rhs);
+        self.emit_cmt(Cmp, [lhs_op.operand(), rhs], format!("<jump> {}", comment));
+        self.release_prepared(lhs_op);
+        self.emit(jump_type, [Lbl(label.to_string())]);
+    }
+
     /// Compile an assignment.
     fn compile_assign(&mut self, target: Name, value: Value, comment: String) {
         let target = self.allocator.bind(target);
@@ -121,13 +151,13 @@ impl ProcedureCompiler {
     /// if the operation represents a comparison or (TODO) boolean operation.
     fn compile_bin(&mut self, tgt: Name, op: BinOp, left: Value, right: Value, comment: String) {
         // Comparisons are handled separately, since they should produce a boolean.
-        if let Ok(cmp) = op.try_into() {
+        if let BinOp::Compare(cmp) = op {
             self.compile_cmp(tgt, cmp, left, right, comment);
             return;
         }
 
         // Integer division and remainder are handled specially.
-        if op == BinOp::IntDiv || op == BinOp::Remainder {
+        if let BinOp::IntArith(int_op @ (IntOp::Divide | IntOp::Remainder)) = op {
             // The lower half of the dividend goes in RDX.
             // This is also where the remainder is stored.
             self.reserve(Rdx);
@@ -139,12 +169,12 @@ impl ProcedureCompiler {
             self.emit_cmt(Xor, [Reg(Rdx), Reg(Rdx)], "<div> clear upper half")
                 .emit_cmt(Idiv, [divisor.operand()], format!("<div> {}", comment));
 
-            match op {
-                BinOp::IntDiv => {
+            match int_op {
+                IntOp::Divide => {
                     self.allocator.bind_to(tgt, Rax);
                     self.allocator.release(Rdx);
                 }
-                BinOp::Remainder => {
+                IntOp::Remainder => {
                     self.allocator.bind_to(tgt, Rdx);
                     self.release_prepared(dividend);
                 }
@@ -169,7 +199,7 @@ impl ProcedureCompiler {
     }
 
     /// Compile a comparison between two values.
-    fn compile_cmp(&mut self, tgt: Name, cmp: Cmp, left: Value, right: Value, comment: String) {
+    fn compile_cmp(&mut self, tgt: Name, cmp: CmpOp, left: Value, right: Value, comment: String) {
         let left_op = self.prepare_operand(left, OpSemantics::any_reg());
         let right_op = self.get_operand(right);
 
@@ -187,12 +217,12 @@ impl ProcedureCompiler {
         // The x86 `set` operation copies a comparison flag into a register,
         // allowing us to treat the value as a boolean.
         let set_op = match cmp {
-            Cmp::Gt => Setg,
-            Cmp::Gte => Setge,
-            Cmp::Lt => Setl,
-            Cmp::Lte => Setle,
-            Cmp::Eq => Sete,
-            Cmp::Neq => Setne,
+            CmpOp::GreaterThan => Setg,
+            CmpOp::GreaterThanEqual => Setge,
+            CmpOp::LessThan => Setl,
+            CmpOp::LessThanEqual => Setle,
+            CmpOp::Equal => Sete,
+            CmpOp::NotEqual => Setne,
         };
         self.emit_cmt(
             set_op,
@@ -477,10 +507,10 @@ impl ProcedureCompiler {
 
 fn translate_binop(op: BinOp) -> Op {
     match op {
-        BinOp::Add => Add,
-        BinOp::Multiply => Imul,
-        BinOp::IntDiv => Idiv,
-        BinOp::Subtract => Sub,
+        BinOp::IntArith(IntOp::Add) => Add,
+        BinOp::IntArith(IntOp::Multiply) => Imul,
+        BinOp::IntArith(IntOp::Divide) => Idiv,
+        BinOp::IntArith(IntOp::Subtract) => Sub,
         _ => todo!("Don't know how to translate {:?} to assembly", op),
     }
 }
@@ -519,7 +549,7 @@ impl Default for AcceptsReg {
     }
 }
 
-/// Describes how an operand may be used.
+/// Describes what types of locations are accepted for an operand.
 #[derive(Debug, Default, Clone, Copy)]
 struct OpSemantics {
     immediate: bool,
@@ -559,34 +589,10 @@ impl OpSemanticsFor for Op {
     fn op1_semantics(&self) -> OpSemantics {
         match self {
             Test => OpSemantics::any_reg(),
+            Cmp => OpSemantics::any_reg_or_mem(),
             Idiv => OpSemantics::any_reg_or_mem(),
             _ => todo!("Determine operand 1 semantics for {}", self),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Cmp {
-    Gt,
-    Gte,
-    Lt,
-    Lte,
-    Eq,
-    Neq,
-}
-impl TryFrom<BinOp> for Cmp {
-    type Error = ();
-
-    fn try_from(value: BinOp) -> Result<Self, ()> {
-        Ok(match value {
-            BinOp::LessThan => Cmp::Lt,
-            BinOp::GreaterThan => Cmp::Gt,
-            BinOp::LessThanEqual => Cmp::Lte,
-            BinOp::GreaterThanEqual => Cmp::Gte,
-            BinOp::Equal => Cmp::Eq,
-            BinOp::NotEqual => Cmp::Neq,
-            _ => return Err(()),
-        })
     }
 }
 
@@ -657,7 +663,12 @@ mod tests {
 
     #[test]
     fn compile_tac_compiles_instruction_to_assembly() {
-        let compiler = compile_instr!(InstrKind::Bin(sub!("x"), BinOp::Add, cnst!(10), cnst!(99)));
+        let compiler = compile_instr!(InstrKind::Bin(
+            sub!("x"),
+            BinOp::IntArith(IntOp::Add),
+            cnst!(10),
+            cnst!(99)
+        ));
         let target_reg = first_reg!(compiler);
 
         let mut expected = Block::new();
@@ -671,7 +682,7 @@ mod tests {
     fn can_compile_multiplication() {
         compile_instr!(InstrKind::Bin(
             sub!("x"),
-            BinOp::Multiply,
+            BinOp::IntArith(IntOp::Multiply),
             cnst!(10),
             cnst!(3),
         ));
@@ -681,7 +692,7 @@ mod tests {
     fn integer_division_allocates_to_rax() {
         let compiler = compile_instr!(InstrKind::Bin(
             sub!("x"),
-            BinOp::IntDiv,
+            BinOp::IntArith(IntOp::Divide),
             cnst!(101),
             cnst!(10)
         ));
@@ -693,7 +704,7 @@ mod tests {
     fn remainder_allocates_to_rdx() {
         let compiler = compile_instr!(InstrKind::Bin(
             sub!("x"),
-            BinOp::Remainder,
+            BinOp::IntArith(IntOp::Remainder),
             cnst!(101),
             cnst!(10)
         ));
