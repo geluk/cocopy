@@ -57,7 +57,9 @@ pub enum TypeErrorKind {
     #[error("cannot assign expression of type 'None' to a primitive variable of type '{0}'")]
     AssignNoneToPrimitive(TypeSpec),
     #[error("cannot assign expression of type '{1}' to a variable of type '{0}'")]
-    Assign(TypeSpec, TypeSpec),
+    AssignType(TypeSpec, TypeSpec),
+    #[error("cannot assign to {0}")]
+    AssignExpr(&'static str),
     #[error("type '{0}' is not a function")]
     NotCallable(TypeSpec),
     #[error("function '{0}' accepts {1} parameter(s), but received {2}")]

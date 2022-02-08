@@ -202,7 +202,16 @@ impl TypeChecker {
                     value,
                 })
             }
-            k => todo!("Cannot check assignment to {}", k),
+            ExprKind::Index(_) => {
+                todo!("Type check array assignment")
+            }
+            ExprKind::Member(_) => {
+                todo!("Type check member assignment")
+            }
+            other => singleton_error(
+                TypeErrorKind::AssignExpr(other.describe()),
+                assign.target.span,
+            ),
         }
     }
 
@@ -412,7 +421,9 @@ impl TypeChecker {
             // is as the result of a compiler bug.
             (None, _) => unreachable!("Illegal <None>-typed variable found"),
             // All remaining assignments are invalid
-            (Int | Bool, Int | Bool) => Err(TypeErrorKind::Assign(target.clone(), value.clone())),
+            (Int | Bool, Int | Bool) => {
+                Err(TypeErrorKind::AssignType(target.clone(), value.clone()))
+            }
             _ => todo!("check this assignment {} <- {}", target, value),
         }
     }

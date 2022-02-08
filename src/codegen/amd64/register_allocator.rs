@@ -112,6 +112,7 @@ impl RegisterAllocator {
         self.allocations.take(&reg)
     }
 
+    #[cfg(test)]
     pub fn debug(&self) {
         println!("Allocator state:");
         for (name, reg) in &self.bindings {
