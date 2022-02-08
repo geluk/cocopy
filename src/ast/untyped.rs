@@ -3,7 +3,7 @@ use std::fmt::{self, Display};
 
 use crate::span::Span;
 
-use super::TypeSpec;
+use super::{typed, TypeSpec};
 
 #[derive(Debug, Default)]
 pub struct Program {
@@ -50,6 +50,16 @@ pub struct VarDef {
     pub type_spec: TypeSpec,
     pub value: Literal,
     pub span: Span,
+}
+impl VarDef {
+    pub fn into_typed(self) -> typed::VarDef {
+        typed::VarDef {
+            name: self.name,
+            type_spec: self.type_spec,
+            value: self.value,
+            span: self.span,
+        }
+    }
 }
 impl Display for VarDef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

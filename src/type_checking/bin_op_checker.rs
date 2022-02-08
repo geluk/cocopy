@@ -1,4 +1,7 @@
-use crate::ast::{untyped::*, TypeSpec};
+use crate::{
+    ast::{untyped::*, TypeSpec},
+    span::Span,
+};
 
 use super::error::*;
 
@@ -22,25 +25,31 @@ enum Operation {
 }
 
 /// Checks whether an operation can be applied to its operands.
-pub struct BinOpChecker<'a> {
-    expr: &'a BinExpr,
+pub struct BinOpChecker {
+    op: BinOp,
     lhs_type: TypeSpec,
     rhs_type: TypeSpec,
+    lhs_span: Span,
+    rhs_span: Span,
     lhs_err: Option<TypeError>,
     rhs_err: Option<TypeError>,
 }
-impl<'a> BinOpChecker<'a> {
+impl BinOpChecker {
     /// Given an operation and two well-typed operands, checks whether the operation can be applied
     /// to its operands.
     pub fn check(
-        expr: &'a BinExpr,
+        op: BinOp,
         lhs_type: TypeSpec,
         rhs_type: TypeSpec,
+        lhs_span: Span,
+        rhs_span: Span,
     ) -> Result<TypeSpec, Vec<TypeError>> {
         Self {
-            expr,
+            op,
             lhs_type,
             rhs_type,
+            lhs_span,
+            rhs_span,
             lhs_err: None,
             rhs_err: None,
         }
@@ -82,7 +91,7 @@ impl<'a> BinOpChecker<'a> {
     fn get_op(&self) -> Operation {
         use BinOp::*;
         use TypeSpec::*;
-        match self.expr.op {
+        match self.op {
             // bool or bool -> bool
             Or | And => Operation::Semigroup(Bool),
             // One of:
@@ -101,14 +110,14 @@ impl<'a> BinOpChecker<'a> {
 
     fn err_lhs(&mut self) {
         self.lhs_err = Some(TypeError::new(
-            TypeErrorKind::BinOperandType(self.expr.op, self.lhs_type.clone()),
-            self.expr.lhs.span,
+            TypeErrorKind::BinOperandType(self.op, self.lhs_type.clone()),
+            self.lhs_span,
         ));
     }
     fn err_rhs(&mut self) {
         self.rhs_err = Some(TypeError::new(
-            TypeErrorKind::BinOperandType(self.expr.op, self.rhs_type.clone()),
-            self.expr.rhs.span,
+            TypeErrorKind::BinOperandType(self.op, self.rhs_type.clone()),
+            self.rhs_span,
         ));
     }
 

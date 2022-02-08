@@ -1,4 +1,7 @@
-use crate::{ast::typed::Program, ast::untyped::*};
+use crate::ast::{
+    typed::*,
+    untyped::{BinOp, Literal, Parameter},
+};
 
 use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
 

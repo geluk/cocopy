@@ -41,3 +41,18 @@ impl VerifySuccess for Output {
         }
     }
 }
+
+pub trait Sequence {
+    type Other;
+    fn sequence(self) -> Self::Other;
+}
+
+impl<S, E> Sequence for Option<Result<S, E>> {
+    type Other = Result<Option<S>, E>;
+    fn sequence(self) -> Self::Other {
+        match self {
+            Some(res) => res.map(|s| Some(s)),
+            None => Ok(None),
+        }
+    }
+}
