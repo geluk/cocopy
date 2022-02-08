@@ -17,6 +17,7 @@ pub fn compile(prog: TacProgram) -> Assembly {
 
     asm.push_decl(Bits(64))
         .push_decl(Extern("printf"))
+        .push_decl(Extern("scanf"))
         .push_decl(Global("main"));
 
     asm.text.main =
@@ -35,8 +36,11 @@ pub fn compile(prog: TacProgram) -> Assembly {
         .push_cmt(Mov, [Reg(Rax), Lit(0)], "return 0");
 
     asm.text.procedures.push(print());
+    asm.text.procedures.push(readint());
 
-    asm.data.db("msg_i", "'The integer is %i', 10, 0");
+    asm.data
+        .db("msg_i", "'The integer is %i', 10, 0")
+        .db("scanf_i", "'%i', 0");
 
     asm
 }
@@ -49,6 +53,32 @@ fn print() -> Procedure {
         .push(Lea, [Reg(Rdi), Id("[msg_i]".to_string())])
         .push(Call, [Id("printf".to_string())]);
     print
+}
+
+fn readint() -> Procedure {
+    let mut readint = procedure("readint");
+    readint
+        .body
+        .push_cmt(
+            Sub,
+            [Reg(Rsp), Lit(16)],
+            "allocate stack space for return value",
+        )
+        .push(Lea, [Reg(Rdi), Id("[scanf_i]".to_string())])
+        .push_cmt(
+            Mov,
+            [Reg(Rsi), Reg(Rsp)],
+            "let scanf write its result to the stack",
+        )
+        .push(Call, [Id("scanf".to_string())])
+        .push_cmt(
+            Mov,
+            [Reg(Rax), Id("[rsp]".to_string())],
+            "fetch result from the stack",
+        )
+        .push_cmt(Add, [Reg(Rsp), Lit(16)], "put stack back");
+
+    readint
 }
 
 fn make_assembly() -> Assembly {
@@ -71,6 +101,7 @@ fn prologue() -> Block {
 fn epilogue() -> Block {
     let mut epilogue = Block::new();
     epilogue
+        .blank()
         .push_cmt(Pop, [Reg(Rbp)], "restore previous base pointer")
         .push_cmt(Ret, [], "return to caller");
 
