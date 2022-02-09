@@ -309,9 +309,9 @@ impl<C: StackConvention> ProcedureCompiler<C> {
 
     /// Compile a function argument.
     fn compile_arg(&mut self, arg: Value) {
-        let arg = self.get_operand(arg);
+        let operand = self.get_operand(arg);
 
-        self.arg_stack.push(arg);
+        self.arg_stack.push(operand);
     }
 
     /// Compile a function parameter.
@@ -391,11 +391,16 @@ impl<C: StackConvention> ProcedureCompiler<C> {
                 }
             }
             Value::Name(name)
-                if op_smt.register == AcceptsReg::RaxOnly
+                if op_smt.register == AcceptsReg::OverwritesRax
                     && self.allocator.lookup(name) == Some(Rax) =>
             {
-                // Only RAX is accepted, but this variable already happens to be bound to RAX.
-                return PreparedOperand::other(Operand::Reg(Rax));
+                // The operator accepts its argument in RAX, but overwrites its value.
+                // We should move the original value to a different register first,
+                // so we don't lose it.
+                self.emit_cmt_only(format!(
+                    "<op_sem> this move looks confusing, but {} may be needed later",
+                    value
+                ));
             }
             _ => (),
         }
@@ -407,7 +412,7 @@ impl<C: StackConvention> ProcedureCompiler<C> {
                 .allocator
                 .allocate()
                 .expect("Ran out of registers to allocate"),
-            AcceptsReg::RaxOnly => {
+            AcceptsReg::OverwritesRax => {
                 self.reserve(Rax);
                 Rax
             }
@@ -447,10 +452,12 @@ impl<C: StackConvention> ProcedureCompiler<C> {
             .cloned()
             .collect();
         for name in may_unbind {
-            let reg = self
-                .allocator
-                .unbind(&name)
-                .expect("Failed to unbind register");
+            let reg = self.allocator.unbind(&name).unwrap_or_else(|| {
+                panic!(
+                    "Failed to unbind register {} while compiling {}",
+                    name, self.procedure.name
+                )
+            });
             self.emit_cmt_only(format!("unbind {} -> {}", name, reg));
         }
     }
@@ -564,7 +571,7 @@ impl PreparedOperand {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AcceptsReg {
     AnyReg,
-    RaxOnly,
+    OverwritesRax,
 }
 impl Default for AcceptsReg {
     fn default() -> Self {
@@ -594,10 +601,10 @@ impl OpSemantics {
             ..Default::default()
         }
     }
-    /// The operand may only be placed in RAX.
+    /// The operand may only be placed in RAX, and will be overwritten.
     fn rax_only() -> Self {
         Self {
-            register: AcceptsReg::RaxOnly,
+            register: AcceptsReg::OverwritesRax,
             ..Default::default()
         }
     }
@@ -781,5 +788,22 @@ mod tests {
         assert_eq!(Some(Rax), compiler.allocator.lookup(&x));
         // `c` should now be gone.
         assert!(compiler.allocator.lookup(&c).is_none());
+    }
+
+    #[test]
+    fn divide_value_already_in_rax_does_not_overwrite() {
+        let x = sub!("x");
+        let y = sub!("y");
+        let compiler = compile_instrs!([
+            InstrKind::Assign(x.clone(), cnst!(55)),
+            InstrKind::Bin(
+                y.clone(),
+                BinOp::IntArith(IntOp::Divide),
+                Value::Name(x.clone()),
+                Value::Const(10)
+            ),
+        ]);
+
+        assert_ne!(compiler.allocator.lookup(&x), compiler.allocator.lookup(&y));
     }
 }
