@@ -64,6 +64,20 @@ impl<'a> CharLexer<'a> {
         }
     }
 
+    /// Tries to recognise `n` characters. When successful, advances the lexer
+    /// and returns `true`. Returns `false` otherwise.`
+    pub fn recognise_n(&mut self, character: char, n: usize) -> bool {
+        let mut sub_lexer = self.clone();
+        for _ in 0..n {
+            if !sub_lexer.recognise(character) {
+                return false;
+            }
+        }
+
+        *self = sub_lexer;
+        true
+    }
+
     /// Consumes `count` characters. Panics if less than `count` characters could be consumed.
     pub fn consume(&mut self, count: Bytes) {
         for _ in 0..count.into() {

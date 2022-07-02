@@ -21,6 +21,8 @@ impl LexError {
 pub enum ErrorType {
     #[error("indentation error")]
     IndentationError,
+    #[error("mismatch between spaces and tabs")]
+    IndentationMismatch,
     #[error("invalid integer literal: {0}")]
     IntegerLiteral(String),
     #[error("unterminated string literal")]

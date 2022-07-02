@@ -8,9 +8,19 @@ use super::{char_ext::*, char_lexer::*, error::*, tokens::*};
 
 type LexResult<T> = Option<Result<T, LexError>>;
 
+/// Indentation types recognised by ChocoPy. An indentation level may consist
+/// of one tab, or several spaces.
+#[derive(PartialEq, Eq, Clone, Copy)]
+enum IndentType {
+    Tab,
+    Spaces,
+}
+
+const SPACE_INDENT_SIZE: usize = 4;
+
 struct Lexer<'s> {
     lexer: CharLexer<'s>,
-    indent_level: usize,
+    indentation: Vec<IndentType>,
     tokens: Vec<Token>,
     errors: Vec<LexError>,
 }
@@ -22,7 +32,7 @@ impl<'s> Lexer<'s> {
     fn new(source: &'s str) -> Self {
         Self {
             lexer: CharLexer::new(source),
-            indent_level: 0,
+            indentation: vec![],
             tokens: vec![],
             errors: vec![],
         }
@@ -91,7 +101,7 @@ impl<'s> Lexer<'s> {
         if had_tokens {
             self.insert_unsized_newline();
         }
-        if self.indent_level > 0 {
+        if !self.indentation.is_empty() {
             self.emit_dedents_to(0);
         }
 
@@ -192,36 +202,59 @@ impl<'s> Lexer<'s> {
     /// Emits as many dedents as required in order to bring the lexer back to the
     /// specified indentation level.
     fn emit_dedents_to(&mut self, new_indent_level: usize) {
-        for _ in new_indent_level..self.indent_level {
+        while self.indentation.len() > new_indent_level {
+            self.indentation.pop();
             self.tokens
                 .push(self.make_sized_token(0, TokenKind::Structure(Structure::Dedent)));
         }
-        self.indent_level = new_indent_level;
     }
 
     /// Consumes the indentation at the start of a line, optionally generating
     /// one or more indents or dedents in the process.
     fn consume_indentation(&mut self) -> Result<(), LexError> {
-        for level in 0..self.indent_level {
+        // Recognise existing indentation levels.
+        for (level, indent) in self.indentation.iter().enumerate() {
             match self.lexer.peek() {
                 Some('\t') => {
-                    self.lexer.next();
+                    if *indent == IndentType::Tab {
+                        self.lexer.next();
+                    } else {
+                        return Err(self.make_error(1, ErrorType::IndentationMismatch));
+                    }
                 }
-                Some(' ') => return Err(self.make_error(1, ErrorType::IndentationError)),
+                Some(' ') => {
+                    if *indent != IndentType::Spaces {
+                        return Err(self.make_error(1, ErrorType::IndentationMismatch));
+                    }
+                    if !self.lexer.recognise_n(' ', SPACE_INDENT_SIZE) {
+                        return Err(self.make_error(1, ErrorType::IndentationMismatch));
+                    }
+                }
                 _ => {
                     self.emit_dedents_to(level);
                     return Ok(());
                 }
             }
         }
-
-        while self.lexer.recognise('\t') {
-            self.tokens.push(self.make_offset_token(
-                -1,
-                1,
-                TokenKind::Structure(Structure::Indent),
-            ));
-            self.indent_level += 1;
+        // Introduce new indentation levels.
+        loop {
+            if self.lexer.recognise('\t') {
+                self.tokens.push(self.make_offset_token(
+                    -1,
+                    1,
+                    TokenKind::Structure(Structure::Indent),
+                ));
+                self.indentation.push(IndentType::Tab);
+            } else if self.lexer.recognise_n(' ', SPACE_INDENT_SIZE) {
+                self.tokens.push(self.make_offset_token(
+                    -(SPACE_INDENT_SIZE as isize),
+                    SPACE_INDENT_SIZE,
+                    TokenKind::Structure(Structure::Indent),
+                ));
+                self.indentation.push(IndentType::Spaces);
+            } else {
+                break;
+            }
         }
         Ok(())
     }
@@ -794,6 +827,37 @@ mod tests {
                 TokenKind::Symbol(Symbol::Minus),
                 TokenKind::Symbol(Symbol::Assign),
                 TokenKind::Structure(Structure::Newline),
+            ],
+        )
+    }
+
+    // Block tests
+    #[test]
+    fn indentation_may_consist_of_one_tab() {
+        assert_lexes(
+            "True\n\tFalse",
+            vec![
+                TokenKind::Keyword(Keyword::True),
+                TokenKind::Structure(Structure::Newline),
+                TokenKind::Structure(Structure::Indent),
+                TokenKind::Keyword(Keyword::False),
+                TokenKind::Structure(Structure::Newline),
+                TokenKind::Structure(Structure::Dedent),
+            ],
+        )
+    }
+
+    #[test]
+    fn indentation_may_consist_of_four_spaces() {
+        assert_lexes(
+            "True\n    False",
+            vec![
+                TokenKind::Keyword(Keyword::True),
+                TokenKind::Structure(Structure::Newline),
+                TokenKind::Structure(Structure::Indent),
+                TokenKind::Keyword(Keyword::False),
+                TokenKind::Structure(Structure::Newline),
+                TokenKind::Structure(Structure::Dedent),
             ],
         )
     }
