@@ -5,7 +5,7 @@
 #![feature(lint_reasons)]
 #![deny(non_snake_case)]
 
-use std::{env, fs, iter};
+use std::{env, fs, iter, process};
 
 use anyhow::Result;
 
@@ -35,15 +35,15 @@ fn main() -> Result<()> {
             run_backend(program)?;
             println!("finished!");
             println!("======================\n");
+            Ok(())
         }
         Err(errors) => {
             for error in errors.iter() {
                 describe_error(error, &content);
             }
+            process::exit(1);
         }
     }
-
-    Ok(())
 }
 
 /// Run the compiler frontend. The frontend converts an input string to a
