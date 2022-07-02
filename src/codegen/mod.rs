@@ -82,11 +82,10 @@ fn assemble<P: AsRef<Path>>(asm_path: P, out_dir: P, os: Os) -> Result<PathBuf> 
 
     let output = Command::new(nasm_path)
         .args(["-f", format, "-o", obj_path.try_decode()?, asm_path])
-        .output()?;
+        .output()
+        .context("Could not execute nasm")?;
 
-    output
-        .verify_success()
-        .context("Failed to assemble the program")?;
+    output.verify_success()?;
 
     Ok(obj_path)
 }
