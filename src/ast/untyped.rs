@@ -1,4 +1,9 @@
-//! Untyped Abstract Syntax Tree nodes.
+//! Untyped Abstract Syntax Tree nodes, representing a program whose well-
+//! typedness is yet to be determined. Furthermore, the evaluation type of
+//! expressions is unknown, and overloaded operators have not been resolved yet.
+//!
+//! The type checker consumes an untyped AST, and produces either a typed
+//! AST (if the program is well-typed) or one or more type errors.
 use std::fmt::{self, Display};
 
 use crate::span::Span;
@@ -128,6 +133,12 @@ pub struct Elif {
 }
 
 #[derive(Debug)]
+pub struct While {
+    pub condition: Expr,
+    pub body: Block,
+}
+
+#[derive(Debug)]
 pub struct Statement {
     pub span: Span,
     pub stmt_kind: StmtKind,
@@ -145,6 +156,7 @@ pub enum StmtKind {
     Return(Option<Expr>),
     Assign(Assign),
     If(If),
+    While(While),
 }
 impl Display for StmtKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -158,6 +170,10 @@ impl Display for StmtKind {
             If(if_st) => {
                 writeln!(f, "if {}:", if_st.condition)?;
                 writeln!(f, "{}", if_st.body)
+            }
+            While(while_st) => {
+                writeln!(f, "while {}: ", while_st.condition)?;
+                writeln!(f, "{}", while_st.body)
             }
         }
     }

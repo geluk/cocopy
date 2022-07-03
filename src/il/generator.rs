@@ -89,6 +89,7 @@ impl<P: TacProcedure> TacGenerator<P> {
             StmtKind::Return(_) => todo!("return statements are not supported yet"),
             StmtKind::Assign(assign) => return Variables::one(self.lower_assign(assign)),
             StmtKind::If(if_stmt) => return self.lower_if(if_stmt),
+            StmtKind::While(while_stmt) => return self.lower_while(while_stmt),
         };
 
         Variables::none()
@@ -107,7 +108,7 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// Lower an if-statement. If-statements are lowered to one or more conditional jumps, to
     /// jump into the correct code block. Returns the variables that the statement's ɸ-functions
     /// assigned to.
-    fn lower_if(&mut self, mut if_stmt: If) -> Variables {
+    fn lower_if(&mut self, if_stmt: If) -> Variables {
         let end_lbl = self.label_generator.next_label("if_end");
         let else_lbl = self.label_generator.next_label("if_else");
 
@@ -116,24 +117,7 @@ impl<P: TacProcedure> TacGenerator<P> {
             false => end_lbl.clone(),
         };
 
-        match if_stmt.condition.expr_kind {
-            // Ideally we would pattern match against the box here, but we can't.
-            ExprKind::Binary(bin) if bin.op.as_compare().is_some() => {
-                let op = bin.op.as_compare().unwrap();
-
-                let lhs = self.lower_expr(bin.lhs);
-                let rhs = self.lower_expr(bin.rhs);
-
-                // Negate here, because we should jump to the else label if the
-                // comparison fails.
-                self.emit(InstrKind::IfCmp(lhs, op.negate(), rhs, false_label));
-            }
-            other => {
-                if_stmt.condition.expr_kind = other;
-                let cond = self.lower_expr(if_stmt.condition);
-                self.emit(InstrKind::IfFalse(cond, false_label));
-            }
-        };
+        self.lower_condition(if_stmt.condition, false_label);
 
         let live_variables = self.name_generator.get_live_variables();
         let true_variables = self.lower_block(if_stmt.body);
@@ -147,17 +131,67 @@ impl<P: TacProcedure> TacGenerator<P> {
         }
 
         self.emit_label(InstrKind::Nop, end_lbl);
-        self.emit_phi(
-            live_variables,
-            [true_variables, false_variables].into_iter().collect(),
-        )
+        self.emit_phi(live_variables, [true_variables, false_variables])
     }
 
-    /// Given a collection of live variables and the variables assigned in two branches,
-    /// emit a ɸ-function for each variable assigned in one or more branches.
-    /// Returns the variables to which the outcomes of the ɸ-functions were assigned.
-    fn emit_phi(&mut self, live_variables: Variables, others: Vec<Variables>) -> Variables {
-        let phi_functions = live_variables.calculate_phi(others);
+    /// Lower a while-statement. While-statements are lowered to an inverted
+    /// conditional jump, which skips past the while-statement body, followed first
+    /// by the body, then by a goto that jumps back to the beginning.
+    /// Returns the variables that the statement's ɸ-functions assigned to.
+    fn lower_while(&mut self, while_stmt: While) -> Variables {
+        let start_lbl = self.label_generator.next_label("while_start");
+        let end_lbl = self.label_generator.next_label("while_end");
+
+        self.emit_label(InstrKind::Nop, start_lbl.clone());
+
+        self.lower_condition(while_stmt.condition, end_lbl.clone());
+
+        let live_variables = self.name_generator.get_live_variables();
+        let block_variables = self.lower_block(while_stmt.body);
+
+        self.emit(InstrKind::Goto(start_lbl));
+        self.emit_label(InstrKind::Nop, end_lbl);
+        // For the purpose of liveness analysis, a while loop has two branches:
+        // in one it is entered at least once (so variables in its block are assigned),
+        // in the other it is never entered (so no variables are ever assigned).
+        self.emit_phi(live_variables, [block_variables, Variables::none()])
+    }
+
+    /// Lower a condition expression as used in an if-statement or a while-statement.
+    fn lower_condition(&mut self, mut condition: Expr, false_label: Label) {
+        match condition.expr_kind {
+            // Ideally we would pattern match against the box here, but we can't.
+            ExprKind::Binary(bin) if bin.op.as_compare().is_some() => {
+                let op = bin.op.as_compare().unwrap();
+
+                let lhs = self.lower_expr(bin.lhs);
+                let rhs = self.lower_expr(bin.rhs);
+
+                // Negate here, because we should jump to the else label if the
+                // comparison fails.
+                self.emit(InstrKind::IfCmp(lhs, op.negate(), rhs, false_label));
+            }
+            other => {
+                condition.expr_kind = other;
+                let cond = self.lower_expr(condition);
+                self.emit(InstrKind::IfFalse(cond, false_label));
+            }
+        };
+    }
+
+    /// Given a collection of live variables and the variables assigned in two or
+    /// more branches, emit a ɸ-function for each variable assigned in one or more
+    /// branches. Returns the variables to which the outcomes of the ɸ-functions
+    /// were assigned.
+    fn emit_phi<const N: usize>(
+        &mut self,
+        live_variables: Variables,
+        // Ideally we would use const generic bounds to provide a compile-time guarantee
+        // that N > 1 as analysing only one branch does not make sense:
+        // no ɸ-function would be needed.
+        others: [Variables; N],
+    ) -> Variables {
+        let phi_functions = live_variables.calculate_phi(others.to_vec());
         let mut return_vars = Variables::none();
 
         for (name, args) in phi_functions {

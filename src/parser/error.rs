@@ -89,6 +89,8 @@ pub enum Stage {
     Condition,
     #[error("an if-statement")]
     IfStatement,
+    #[error("a while-statement")]
+    WhileStatement,
     #[error("an indented block")]
     Block,
 }
@@ -96,7 +98,7 @@ pub enum Stage {
 /// Allows adding a parsing stage to an error.
 pub trait AddStage {
     type Annotated;
-    /// Enrich the error by specifying a parsing stage.
+    /// Enrich a parsing error by specifying a parsing stage.
     fn add_stage(self, stage: Stage) -> Self::Annotated;
 }
 impl<O> AddStage for Result<O, Reason> {

@@ -1,3 +1,6 @@
+//! Typed Abstract Syntax Tree nodes. While they may represent both well-typed
+//! and ill-typed programs, in practice, the type checker will only ever produce
+//! either a well-typed AST or a list of type errors.
 use std::{
     collections::HashMap,
     fmt::{self, Display},
@@ -106,6 +109,12 @@ impl Display for Block {
 }
 
 #[derive(Debug)]
+pub struct While {
+    pub condition: Expr,
+    pub body: Block,
+}
+
+#[derive(Debug)]
 pub struct If {
     pub condition: Expr,
     pub body: Block,
@@ -137,6 +146,7 @@ pub enum StmtKind {
     Return(Option<Expr>),
     Assign(Assign),
     If(If),
+    While(While),
 }
 impl Display for StmtKind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -150,6 +160,10 @@ impl Display for StmtKind {
             If(if_st) => {
                 writeln!(f, "if {}:", if_st.condition)?;
                 writeln!(f, "{}", if_st.body)
+            }
+            While(while_st) => {
+                writeln!(f, "while {}:", while_st.condition)?;
+                writeln!(f, "{}", while_st.body)
             }
         }
     }

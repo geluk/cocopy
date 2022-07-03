@@ -141,6 +141,7 @@ impl TypeChecker {
             StmtKind::Return(_) => todo!("return statements are not supported yet"),
             StmtKind::Assign(assign) => typed::StmtKind::Assign(self.check_assign_stmt(assign)?),
             StmtKind::If(if_stmt) => typed::StmtKind::If(self.check_if(if_stmt)?),
+            StmtKind::While(while_stmt) => typed::StmtKind::While(self.check_while(while_stmt)?),
         };
         Ok(typed::Statement {
             stmt_kind,
@@ -151,7 +152,7 @@ impl TypeChecker {
     fn check_if(&mut self, if_stmt: If) -> Result<typed::If, Vec<TypeError>> {
         let condition_result = self.check_expression(if_stmt.condition).and_then(|expr| {
             if expr.type_spec != TypeSpec::Bool {
-                singleton_error(TypeErrorKind::IfCondition(expr.type_spec), expr.span)
+                singleton_error(TypeErrorKind::ControlCondition(expr.type_spec), expr.span)
             } else {
                 Ok(expr)
             }
@@ -167,6 +168,23 @@ impl TypeChecker {
             elifs: vec![],
             else_body,
         })
+    }
+
+    fn check_while(&mut self, while_stmt: While) -> Result<typed::While, Vec<TypeError>> {
+        let condition_result = self
+            .check_expression(while_stmt.condition)
+            .and_then(|expr| {
+                if expr.type_spec != TypeSpec::Bool {
+                    singleton_error(TypeErrorKind::ControlCondition(expr.type_spec), expr.span)
+                } else {
+                    Ok(expr)
+                }
+            });
+
+        let (condition, body) =
+            condition_result.concat_result(self.check_block(while_stmt.body))?;
+
+        Ok(typed::While { condition, body })
     }
 
     fn check_block(&mut self, block: Block) -> Result<typed::Block, Vec<TypeError>> {

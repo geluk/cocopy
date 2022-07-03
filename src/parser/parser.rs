@@ -174,7 +174,8 @@ impl<'a> Parser<'a> {
     /// control flow, or a `pass` or `return` statement.
     fn statement(&mut self) -> Result<Statement, ParseError> {
         let start = self.position();
-        // If we encounter a `pass` keyword, we can immediately emit it and finish the statement.
+        // At this stage, various keywords allow us to unambiguously determine
+        // the type of statement we're dealing with. We can handle these first.
         if self.recognise_keyword(Keyword::Pass).is_ok() {
             self.recognise_structure(Structure::Newline)
                 .add_stage(Stage::Statement)?;
@@ -183,7 +184,6 @@ impl<'a> Parser<'a> {
                 span: self.span_from(start),
             });
         }
-        // The same applies if we encounter a `return` keyword.
         if self.recognise_keyword(Keyword::Return).is_ok() {
             let return_type = if self.recognise_structure(Structure::Newline).is_ok() {
                 None
@@ -198,7 +198,10 @@ impl<'a> Parser<'a> {
         if let Some(TokenKind::Keyword(Keyword::If)) = self.peek_kind() {
             return self.if_statement();
         }
-        // TODO: The same can be said for `if`, `while`, and `for`.
+        if let Some(TokenKind::Keyword(Keyword::While)) = self.peek_kind() {
+            return self.while_statement();
+        }
+        // TODO: Do the same with `for`.
 
         // At this point, we have two options left. We could either encounter an assignment,
         // or we could encounter an expression evaluation. There is no easy way to find out which
@@ -246,6 +249,25 @@ impl<'a> Parser<'a> {
         Ok(Statement {
             span: self.span_from(start),
             stmt_kind: StmtKind::If(if_st),
+        })
+    }
+
+    /// Parse a while-statement.
+    fn while_statement(&mut self) -> Result<Statement, ParseError> {
+        let start = self.position();
+        const ST: Stage = Stage::WhileStatement;
+        self.recognise_keyword(Keyword::While).add_stage(ST)?;
+
+        let condition = self.expression(Fixity::none(), Delimiter::condition())?;
+        self.recognise_structure(Structure::Newline).add_stage(ST)?;
+
+        let body = self.block()?;
+
+        let while_st = While { condition, body };
+
+        Ok(Statement {
+            span: self.span_from(start),
+            stmt_kind: StmtKind::While(while_st),
         })
     }
 
