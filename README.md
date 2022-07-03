@@ -101,7 +101,7 @@ main:
   - [x] Structure
     - [x] Newline
     - [x] Tab-based indentation
-    - [ ] Space-based indentation (postponed for now)
+    - [x] Space-based indentation
   - [x] Identifiers
   - [x] Integer literals
   - [x] String literals
@@ -114,8 +114,8 @@ main:
 - [x] Literals
 - [x] Variables
   - [x] Type annotations
-- [ ] Functions
-  - [ ] Function body
+- [x] Functions
+  - [x] Function body
   - [ ] `global`
   - [ ] `nonlocal`
 - [ ] Classes
@@ -131,12 +131,12 @@ main:
 - [ ] Statements
   - [x] Expression evaluation
   - [x] Assignment
-  - [ ] `if`
-  - [ ] `while`
+  - [x] `if`
+  - [x] `while`
   - [ ] `for`
   - [x] `pass`
   - [x] `return`
-- [ ] Blocks
+- [x] Blocks
 - [x] Contextual error reporting
 
 ## Type checking
@@ -147,8 +147,8 @@ main:
 - [ ] Statements
   - [x] Expression evaluation
   - [x] Assignment
-  - [ ] `if`
-  - [ ] `while`
+  - [x] `if`
+  - [x] `while`
   - [ ] `for`
   - [x] `pass`
   - [ ] `return`
@@ -170,10 +170,10 @@ main:
   - [ ] Attribute access
   - [ ] Multiple assignment
   - [ ] Function application
-- [ ] Function definitions
+- [x] Function definitions
 - [ ] Class definitions
 - [ ] Global environment
-- [ ] Overload resolution
+- [x] Overload resolution
 
 ## Intermediate code generation
 
@@ -181,8 +181,8 @@ main:
 - [ ] Statements
   - [x] Expression evaluation
   - [x] Assignment
-  - [ ] `if`
-  - [ ] `while`
+  - [x] `if`
+  - [x] `while`
   - [ ] `for`
   - [x] `pass`
   - [ ] `return`
@@ -205,15 +205,15 @@ main:
 - [ ] Convert intermediate code to assembly
   - [x] Integer arithmetic
   - [x] Procedure calls
-  - [ ] Boolean operations
+  - [x] Boolean operations
   - [ ] Array lookup
   - [ ] Pointer dereference
   - [ ] Everything else
 - [ ] Register allocation
   - [x] Naive register allocation
   - [ ] Store on stack when registers are exhausted
-  - [ ] Reuse registers after final reference
-  - [ ] Free registers when required by a different operation
+  - [x] Reuse registers after final reference
+  - [x] Free registers when required by a different operation
 
 ## Operational semantics:
 
