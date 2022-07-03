@@ -1,11 +1,13 @@
 //! Native code generation for 64-bit Linux.
-
-use crate::codegen::amd64::calling_convention::CallingConvention;
-use crate::codegen::amd64::procedure_compiler::ProcedureCompiler;
 use crate::il::TacProgram;
 
-use super::assembly::*;
-use super::x86::*;
+use super::{
+    assembly::*,
+    calling_convention::CallingConvention,
+    procedure_compiler::ProcedureCompiler,
+    stack_convention::{self, Linux64},
+    x86::*,
+};
 
 use Op::*;
 use Operand::*;
@@ -20,12 +22,18 @@ pub fn compile(prog: TacProgram) -> Assembly {
         .push_decl(Extern("scanf"))
         .push_decl(Global("main"));
 
-    asm.text.main =
-        ProcedureCompiler::compile(prog.top_level, asm.text.main, CallingConvention::SystemV64);
+    asm.text.main = ProcedureCompiler::<Linux64>::compile(
+        prog.top_level,
+        asm.text.main,
+        CallingConvention::SystemV64,
+    );
 
     for (name, listing) in prog.functions {
-        let proc =
-            ProcedureCompiler::compile(listing, procedure(name), CallingConvention::SystemV64);
+        let proc = ProcedureCompiler::<Linux64>::compile(
+            listing,
+            procedure(name),
+            CallingConvention::SystemV64,
+        );
         asm.text.procedures.push(proc);
     }
 
@@ -86,24 +94,5 @@ fn make_assembly() -> Assembly {
 }
 
 fn procedure<S: Into<String>>(name: S) -> Procedure {
-    Procedure::new(name.into(), prologue(), epilogue())
-}
-
-fn prologue() -> Block {
-    let mut prologue = Block::new();
-    prologue
-        .push_cmt(Push, [Reg(Rbp)], "store base pointer")
-        .blank();
-
-    prologue
-}
-
-fn epilogue() -> Block {
-    let mut epilogue = Block::new();
-    epilogue
-        .blank()
-        .push_cmt(Pop, [Reg(Rbp)], "restore previous base pointer")
-        .push_cmt(Ret, [], "return to caller");
-
-    epilogue
+    stack_convention::make_procedure::<_, Linux64>(name)
 }

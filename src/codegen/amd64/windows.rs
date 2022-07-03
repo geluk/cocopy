@@ -1,8 +1,14 @@
 //! Native code generation for 64-bit Windows.
 
-use crate::{codegen::amd64::calling_convention::CallingConvention, il::*};
+use crate::il::*;
 
-use super::{assembly::*, procedure_compiler::ProcedureCompiler, x86::*};
+use super::{
+    assembly::*,
+    calling_convention::CallingConvention,
+    procedure_compiler::ProcedureCompiler,
+    stack_convention::{self, StackConvention, Windows64},
+    x86::*,
+};
 
 use Op::*;
 use Operand::*;
@@ -25,15 +31,18 @@ pub fn compile(prog: TacProgram) -> Assembly {
         .push(Op::Call, [Id("_CRT_INIT".to_string())])
         .blank();
 
-    asm.text.main = ProcedureCompiler::compile(
+    asm.text.main = ProcedureCompiler::<Windows64>::compile(
         prog.top_level,
         asm.text.main,
         CallingConvention::Microsoft64,
     );
 
     for (name, listing) in prog.functions {
-        let proc =
-            ProcedureCompiler::compile(listing, procedure(name), CallingConvention::Microsoft64);
+        let proc = ProcedureCompiler::<Windows64>::compile(
+            listing,
+            procedure(name),
+            CallingConvention::Microsoft64,
+        );
         asm.text.procedures.push(proc);
     }
 
@@ -64,34 +73,15 @@ fn print() -> Procedure {
 }
 
 fn make_assembly() -> Assembly {
-    Assembly::new(Procedure::new("main".to_string(), prologue(), Block::new()))
+    Assembly::new(Procedure::new(
+        "main".to_string(),
+        Windows64::prologue(),
+        Block::new(),
+    ))
 }
 
 fn procedure<S: Into<String>>(name: S) -> Procedure {
-    Procedure::new(name.into(), prologue(), epilogue())
-}
-
-fn prologue() -> Block {
-    let mut prologue = Block::new();
-
-    prologue
-        .push_cmt(Push, [Reg(Rbp)], "store base pointer")
-        .push_cmt(Mov, [Reg(Rbp), Reg(Rsp)], "move base pointer down")
-        .push_cmt(Sub, [Reg(Rsp), Lit(32)], "create shadow space")
-        .blank();
-
-    prologue
-}
-
-fn epilogue() -> Block {
-    let mut epilogue = Block::new();
-    epilogue
-        .blank()
-        .push_cmt(Mov, [Reg(Rsp), Reg(Rbp)], "move stack pointer back up")
-        .push_cmt(Pop, [Reg(Rbp)], "restore previous base pointer")
-        .push_cmt(Ret, [], "return to caller");
-
-    epilogue
+    stack_convention::make_procedure::<_, Windows64>(name)
 }
 
 trait BodyExt {

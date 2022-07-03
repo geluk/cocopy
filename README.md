@@ -151,7 +151,7 @@ main:
   - [x] `while`
   - [ ] `for`
   - [x] `pass`
-  - [ ] `return`
+  - [x] `return`
 - [ ] Expressions
   - [x] Unary
     - [x] Negate
@@ -169,7 +169,7 @@ main:
   - [ ] List operators
   - [ ] Attribute access
   - [ ] Multiple assignment
-  - [ ] Function application
+  - [x] Function application
 - [x] Function definitions
 - [ ] Class definitions
 - [ ] Global environment
@@ -185,7 +185,7 @@ main:
   - [x] `while`
   - [ ] `for`
   - [x] `pass`
-  - [ ] `return`
+  - [x] `return`
 - Expressions
   - [x] Literal
   - [x] Identifier
@@ -205,6 +205,7 @@ main:
 - [ ] Convert intermediate code to assembly
   - [x] Integer arithmetic
   - [x] Procedure calls
+  - [x] Procedure return
   - [x] Boolean operations
   - [ ] Array lookup
   - [ ] Pointer dereference

@@ -206,6 +206,8 @@ pub enum InstrKind {
     Param(Name),
     /// Call a function, passing `n` parameters.
     Call(Name, String, usize),
+    /// Return a value from a function body.
+    Return(Option<Value>),
     /// The ɸ-function.
     Phi(Name, Vec<Name>),
     /// No-op
@@ -228,6 +230,8 @@ impl InstrKind {
             InstrKind::IfCmp(lhs, _, rhs, _) => {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
+            InstrKind::Return(None) => false,
+            InstrKind::Return(Some(value)) => Self::is_usage_of(name, value),
             InstrKind::Phi(_, names) => names.iter().any(|n| n == name),
         }
     }
@@ -266,6 +270,8 @@ impl InstrKind {
                 try_replace(lhs, src, dest.clone());
                 try_replace(rhs, src, dest);
             }
+            InstrKind::Return(None) => (),
+            InstrKind::Return(Some(value)) => try_replace(value, src, dest),
             InstrKind::Phi(_, values) => {
                 let any_replaced = values.iter().any(|n| n == src);
                 assert!(
@@ -292,6 +298,7 @@ impl InstrKind {
             InstrKind::Arg(_) => (),
             InstrKind::Param(tgt) => try_replace(tgt, src, dest),
             InstrKind::Call(tgt, _, _) => try_replace(tgt, src, dest),
+            InstrKind::Return(_) => (),
             InstrKind::Phi(tgt, _) => try_replace(tgt, src, dest),
             InstrKind::Nop => (),
         }
@@ -337,6 +344,8 @@ impl Display for InstrKind {
             InstrKind::IfCmp(lhs, op, rhs, lbl) => {
                 write!(f, "if {} {} {} goto {}", lhs, op, rhs, lbl)
             }
+            InstrKind::Return(None) => f.write_str("return"),
+            InstrKind::Return(Some(value)) => write!(f, "return {}", value),
             InstrKind::Phi(name, values) => {
                 let args = values
                     .iter()

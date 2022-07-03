@@ -86,13 +86,18 @@ impl<P: TacProcedure> TacGenerator<P> {
             StmtKind::Evaluate(expr) => {
                 self.lower_expr(expr);
             }
-            StmtKind::Return(_) => todo!("return statements are not supported yet"),
+            StmtKind::Return(expr) => self.lower_return(expr),
             StmtKind::Assign(assign) => return Variables::one(self.lower_assign(assign)),
             StmtKind::If(if_stmt) => return self.lower_if(if_stmt),
             StmtKind::While(while_stmt) => return self.lower_while(while_stmt),
         };
 
         Variables::none()
+    }
+
+    fn lower_return(&mut self, opt_expr: Option<Expr>) {
+        let return_value = opt_expr.map(|e| self.lower_expr(e));
+        self.emit(InstrKind::Return(return_value));
     }
 
     /// Lower a block of statements. Returns the variables that were assigned in this block.

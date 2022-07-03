@@ -55,6 +55,13 @@ impl CallingConvention {
         }
     }
 
+    /// Gets the register used for passing return values back to the caller.
+    pub fn get_return_reg(&self) -> Register {
+        // As long as we only deal with 64-bit wide return values,
+        // this is the same for Microsoft and SystemV.
+        Rax
+    }
+
     /// Gets the maximum amount of parameters that can be passed via registers.
     pub fn reg_param_count(&self) -> usize {
         self.get_params().len()

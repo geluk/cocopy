@@ -1,4 +1,4 @@
-use std::slice::Iter;
+use std::{marker::PhantomData, slice::Iter};
 
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
@@ -7,14 +7,14 @@ use crate::{
 
 use super::{
     assembly::*, calling_convention::CallingConvention, register_allocator::RegisterAllocator,
-    x86::*,
+    stack_convention::StackConvention, x86::*,
 };
 
 use Op::*;
 use Operand::*;
 use Register::*;
 
-pub struct ProcedureCompiler {
+pub struct ProcedureCompiler<C: StackConvention> {
     listing: TacListing,
     current_line: usize,
     allocator: RegisterAllocator,
@@ -24,8 +24,9 @@ pub struct ProcedureCompiler {
     param_iter: Iter<'static, Register>,
     pending_label: Option<Label>,
     stack_offset: usize,
+    _phantom: PhantomData<*const C>,
 }
-impl ProcedureCompiler {
+impl<C: StackConvention> ProcedureCompiler<C> {
     /// Compile the given source code into the given procedure.
     pub fn compile(
         listing: TacListing,
@@ -54,6 +55,7 @@ impl ProcedureCompiler {
             param_iter,
             pending_label: None,
             stack_offset: 0,
+            _phantom: Default::default(),
         }
     }
 
@@ -88,6 +90,7 @@ impl ProcedureCompiler {
             InstrKind::IfCmp(lhs, op, rhs, label) => {
                 self.compile_compare_jump(lhs, op, rhs, label, comment)
             }
+            InstrKind::Return(value) => self.compile_return(value, comment),
             // If this happens, the optimiser has failed and we won't be able to generate code
             // for branching statements, so we should bail here.
             InstrKind::Phi(_, _) => unreachable!("Phi was not optimised away!"),
@@ -95,6 +98,21 @@ impl ProcedureCompiler {
                 self.emit(Jmp, [Lbl(tgt.to_string())]);
             }
         }
+    }
+
+    fn compile_return(&mut self, opt_value: Option<Value>, comment: String) {
+        if let Some(value) = opt_value {
+            let ret_reg = self.calling_convention.get_return_reg();
+            // No need to preserve the register, we're about to return anyway.
+            let operand = self.get_operand(value);
+            self.emit_cmt(Mov, [Reg(ret_reg), operand], comment);
+        } else {
+            self.emit_cmt_only(comment);
+        }
+        // Something to consider: if this return is the final instruction, we don't
+        // need to emit an epilogue anymore. However, at the moment we do not have
+        // sufficient information to determine whether this is the case.
+        self.emit_return();
     }
 
     /// Compile a conditional jump. A jump will be made if `value` evaluates to `jump_when`.
@@ -473,6 +491,11 @@ impl ProcedureCompiler {
         self.allocator.notify_move(register, renamed_reg);
     }
 
+    /// Emit a return from the function. This effectively inserts another epilogue into the body.
+    fn emit_return(&mut self) {
+        C::add_epilogue(&mut self.procedure.body);
+    }
+
     /// Emit an operation.
     fn emit<V: Into<Vec<Operand>>>(&mut self, op: Op, operands: V) -> &mut Self {
         self.procedure.body.push(op, operands.into());
@@ -598,6 +621,7 @@ impl OpSemanticsFor for Op {
 
 #[cfg(test)]
 mod tests {
+    use super::super::stack_convention::Windows64;
     use super::*;
 
     macro_rules! sub {
@@ -616,8 +640,11 @@ mod tests {
         ($instrs:expr) => {{
             let proc = Procedure::new("main".to_string(), Block::new(), Block::new());
             // We may need to construct a listing from the given instructions here.
-            let mut compiler =
-                ProcedureCompiler::new(proc, TacListing::new(), CallingConvention::Microsoft64);
+            let mut compiler = ProcedureCompiler::<Windows64>::new(
+                proc,
+                TacListing::new(),
+                CallingConvention::Microsoft64,
+            );
 
             for instr in $instrs.into_iter() {
                 compiler.compile_instr(Instruction::new(instr));

@@ -5,5 +5,6 @@ mod calling_convention;
 pub mod linux;
 mod procedure_compiler;
 mod register_allocator;
+mod stack_convention;
 pub mod windows;
 mod x86;

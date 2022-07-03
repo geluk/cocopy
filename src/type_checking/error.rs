@@ -68,6 +68,14 @@ pub enum TypeErrorKind {
     ParamTypeMismatch(TypeSpec, TypeSpec),
     #[error("cannot use expression of type '{0}' as the condition for a control statement")]
     ControlCondition(TypeSpec),
+    #[error("can only return inside a function")]
+    UnexpectedReturn,
+    #[error("cannot return a value of type '{0}' from a function without return type")]
+    UnexpectedReturnType(TypeSpec),
+    #[error("return statement should return a value")]
+    ShouldReturnAValue,
+    #[error("cannot return a value of type '{1}' in a function that returns type '{0}'")]
+    ReturnTypeMismatch(TypeSpec, TypeSpec),
 }
 
 pub trait AddSpan {

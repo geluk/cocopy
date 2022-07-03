@@ -4,6 +4,7 @@ use crate::{
     ast::{typed, typed::Environment, untyped, untyped::*, TypeSpec},
     builtins,
     ext::Sequence,
+    span::Span,
 };
 
 use super::{bin_op_checker::BinOpChecker, error::*};
@@ -12,13 +13,20 @@ pub fn verify_well_typed(program: untyped::Program) -> Result<typed::Program, Ve
     TypeChecker::run(program)
 }
 
+#[derive(Default)]
+struct Context {
+    return_type: Option<TypeSpec>,
+}
+
 struct TypeChecker {
     program: typed::Program,
+    context: Context,
 }
 impl TypeChecker {
     fn new() -> Self {
         Self {
             program: typed::Program::new(),
+            context: Default::default(),
         }
     }
 
@@ -96,8 +104,9 @@ impl TypeChecker {
         if let Err(kind) = self.program.set_type(func_def.name.clone(), func_type) {
             type_errors.push(TypeError::new(kind, func_def.decl_span));
         }
+        self.context.return_type = Some(func_def.return_type.clone());
 
-        match self.check_block(func_def.body) {
+        let block_result = match self.check_block(func_def.body) {
             Ok(body) if type_errors.is_empty() => Ok({
                 typed::FuncDef {
                     name: func_def.name,
@@ -113,7 +122,10 @@ impl TypeChecker {
                 type_errors.append(&mut errors);
                 Err(type_errors)
             }
-        }
+        };
+
+        self.context.return_type = None;
+        block_result
     }
 
     /// Verify that all statements are well-typed.
@@ -138,7 +150,9 @@ impl TypeChecker {
         let stmt_kind = match statement.stmt_kind {
             StmtKind::Pass => typed::StmtKind::Pass,
             StmtKind::Evaluate(expr) => typed::StmtKind::Evaluate(self.check_expression(expr)?),
-            StmtKind::Return(_) => todo!("return statements are not supported yet"),
+            StmtKind::Return(expr) => {
+                typed::StmtKind::Return(self.check_return(expr, statement.span)?)
+            }
             StmtKind::Assign(assign) => typed::StmtKind::Assign(self.check_assign_stmt(assign)?),
             StmtKind::If(if_stmt) => typed::StmtKind::If(self.check_if(if_stmt)?),
             StmtKind::While(while_stmt) => typed::StmtKind::While(self.check_while(while_stmt)?),
@@ -188,16 +202,15 @@ impl TypeChecker {
     }
 
     fn check_block(&mut self, block: Block) -> Result<typed::Block, Vec<TypeError>> {
-        let statements: Vec<_> = block
+        block
             .statements
             .into_iter()
-            .flat_map(|stmt| self.check_statement(stmt))
-            .collect();
-
-        Ok(typed::Block {
-            statements,
-            span: block.span,
-        })
+            .map(|stmt| self.check_statement(stmt))
+            .collect::<Result<Vec<_>, _>>()
+            .map(|statements| typed::Block {
+                statements,
+                span: block.span,
+            })
     }
 
     /// Verify that assignment to a variable is well-typed.
@@ -230,6 +243,38 @@ impl TypeChecker {
                 TypeErrorKind::AssignExpr(other.describe()),
                 assign.target.span,
             ),
+        }
+    }
+
+    fn check_return(
+        &mut self,
+        ret_expr: Option<Expr>,
+        span: Span,
+    ) -> Result<Option<typed::Expr>, Vec<TypeError>> {
+        dbg!(&ret_expr);
+        dbg!(&self.context.return_type);
+        match (self.context.return_type.clone(), ret_expr) {
+            (None, _) => singleton_error(TypeErrorKind::UnexpectedReturn, span),
+            (Some(TypeSpec::None), None) => Ok(None),
+            (Some(TypeSpec::None), Some(expr)) => {
+                let typed_expr = self.check_expression(expr)?;
+                singleton_error(
+                    TypeErrorKind::UnexpectedReturnType(typed_expr.type_spec),
+                    span,
+                )
+            }
+            (Some(_), None) => singleton_error(TypeErrorKind::ShouldReturnAValue, span),
+            (Some(ty), Some(expr)) => {
+                let typed_expr = self.check_expression(expr)?;
+                if ty == typed_expr.type_spec {
+                    Ok(Some(typed_expr))
+                } else {
+                    singleton_error(
+                        TypeErrorKind::ReturnTypeMismatch(ty, typed_expr.type_spec),
+                        span,
+                    )
+                }
+            }
         }
     }
 
@@ -630,7 +675,7 @@ if True:
 if 10 * 10:
 	20
 "#,
-            TypeErrorKind::IfCondition(TypeSpec::Int)
+            TypeErrorKind::ControlCondition(TypeSpec::Int)
         )
     }
 
