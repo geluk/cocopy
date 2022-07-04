@@ -277,21 +277,15 @@ impl<'a> Parser<'a> {
         self.recognise_structure(Structure::Indent)
             .add_stage(Stage::Block)?;
 
-        // The ChocoPy syntax prescribes that a block should always contain at
-        // least one statement. This is required because otherwise the lexer
-        // won't detect any indents, which means it also won't emit any dedents,
-        // which would cause the block parser to fail.
-        let mut body = vec![self.statement()?];
+        let mut body = vec![];
         loop {
-            match self.recognise_parser(Self::statement) {
-                Ok(st) => body.push(st),
-                Err(err) => {
-                    if self.recognise_structure(Structure::Dedent).is_ok() {
-                        break;
-                    } else {
-                        return Err(err);
-                    }
-                }
+            // The ChocoPy syntax prescribes that a block should always contain at
+            // least one statement. This is required because otherwise the lexer
+            // won't detect any indents, which means it also won't emit any dedents,
+            // which would cause the block parser to fail.
+            body.push(self.statement()?);
+            if self.recognise_structure(Structure::Dedent).is_ok() {
+                break;
             }
         }
         Ok(Block::new(body, self.span_from(start)))
