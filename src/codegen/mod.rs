@@ -1,6 +1,7 @@
 //! Target code generation.
 mod amd64;
 mod linker;
+mod register_allocation;
 
 use std::{
     env,

@@ -3,6 +3,7 @@
 //! A ChocoPy compiler.
 
 #![feature(lint_reasons)]
+#![cfg_attr(test, feature(assert_matches))]
 #![deny(non_snake_case)]
 
 use std::{env, fs, iter, process};
