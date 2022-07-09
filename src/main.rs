@@ -27,6 +27,8 @@ mod span;
 mod type_checking;
 
 fn main() -> Result<()> {
+    stderrlog::new().verbosity(2).init()?;
+
     let args: Vec<_> = env::args().collect();
 
     let content = fs::read_to_string(&args[1])?;
@@ -34,8 +36,7 @@ fn main() -> Result<()> {
     match run_frontend(&content) {
         Ok(program) => {
             run_backend(program)?;
-            println!("finished!");
-            println!("======================\n");
+            info!("finished!");
             Ok(())
         }
         Err(errors) => {
@@ -51,25 +52,19 @@ fn main() -> Result<()> {
 /// [`Program`], which represents an abstract syntax tree.
 pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
     let tokens = lexer::lex(source)?;
-    println!("\n==============");
-    println!("Lexer finished");
-    println!("==============\n");
+    info!("Lexer finished");
     for token in &tokens {
-        println!("{:?}", token);
-        println!("{:#?}", token.source.lookup(source));
+        let src_str = format!("{:#?}", token.source.lookup(source));
+        debug!("{:<12} = {:?} ", src_str, token);
     }
 
     let untyped_prog = parser::parse(&tokens)?;
-    println!("\n===============");
-    println!("Parser finished");
-    println!("===============\n");
-    println!("{:#?}\n", untyped_prog);
-    println!("{}", untyped_prog);
+    info!("Parser finished");
+    debug!("AST:\n{:#?}\n", untyped_prog);
+    debug!("Pretty-printed:\n{}\n", untyped_prog);
 
     let typed_prog = type_checking::verify_well_typed(untyped_prog)?;
-    println!("\n=====================");
-    println!("Type checker finished");
-    println!("=====================\n");
+    info!("Type checker finished");
 
     Ok(typed_prog)
 }
@@ -81,20 +76,15 @@ pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
 pub fn run_backend(program: Program) -> Result<()> {
     let il = il::generate(program);
 
-    println!("\n======================");
-    println!("IL generation finished");
-    println!("======================\n");
-    println!("{}", il);
+    info!("IL generation finished");
+    debug!("IL source:\n{}", il);
 
     let il = il::optimise(il);
 
-    println!("\n========================");
-    println!("IL optimisation finished");
-    println!("========================\n");
-    println!("{}", il);
+    info!("IL optimisation finished");
+    debug!("Optimised IL source:\n{}", il);
 
-    println!("======================");
-    println!("Generating native code");
+    info!("Generating native code");
     codegen::generate_native(il, "out")
 }
 
@@ -108,9 +98,9 @@ pub fn describe_error(err: &CompileError, content: &str) {
 
     let gutter = format!("{}", context.line_no());
 
-    println!("{} |", pad_char(' ', gutter.len()));
-    println!("{} | {}", gutter, context.for_display());
-    println!(
+    info!("{} |", pad_char(' ', gutter.len()));
+    info!("{} | {}", gutter, context.for_display());
+    info!(
         "{} | {}{}--- {}\n",
         pad_char(' ', gutter.len()),
         pad_char(' ', padding.into()),

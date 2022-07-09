@@ -49,6 +49,7 @@ name = "cocopy"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "log",
  "stderrlog",
  "thiserror",
 ]
