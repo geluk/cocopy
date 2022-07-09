@@ -4,7 +4,7 @@ mod windows;
 
 use std::path::Path;
 
-use anyhow::Result;
+use crate::prelude::*;
 
 use self::{linux::LinuxLinker, windows::WindowsLinker};
 

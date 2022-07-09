@@ -8,10 +8,9 @@
 
 use std::{env, fs, iter, process};
 
-use anyhow::Result;
-
 use ast::typed::Program;
 use error::{CompileError, CompileErrors};
+use prelude::*;
 
 mod ast;
 mod builtins;
@@ -21,6 +20,7 @@ mod ext;
 mod il;
 mod lexer;
 mod parser;
+mod prelude;
 mod pretty_print;
 mod source_map;
 mod span;

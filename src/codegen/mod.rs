@@ -9,11 +9,10 @@ use std::{
     process::Command,
 };
 
-use anyhow::{bail, Context, Result};
-
 use crate::{
     ext::{TryDecode, VerifySuccess},
     il::TacProgram,
+    prelude::*,
 };
 
 /// A target operating system for compilation.

@@ -5,9 +5,10 @@ use std::{
     process::Command,
 };
 
-use anyhow::{anyhow, Context, Result};
-
-use crate::ext::{DiscardOk, TryDecode, VerifySuccess};
+use crate::{
+    ext::{DiscardOk, TryDecode, VerifySuccess},
+    prelude::*,
+};
 
 use super::Linker;
 

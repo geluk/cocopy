@@ -1,6 +1,6 @@
 use std::{path::Path, process::Output};
 
-use anyhow::{anyhow, Result};
+use crate::prelude::*;
 
 pub trait TryDecode {
     fn try_decode(&self) -> Result<&str>;

@@ -1,10 +1,11 @@
 use std::{path::Path, process::Command};
 
-use crate::ext::{DiscardOk, TryDecode, VerifySuccess};
+use crate::{
+    ext::{DiscardOk, TryDecode, VerifySuccess},
+    prelude::*,
+};
 
 use super::Linker;
-
-use anyhow::{Context, Result};
 
 pub struct LinuxLinker {}
 impl Linker for LinuxLinker {
