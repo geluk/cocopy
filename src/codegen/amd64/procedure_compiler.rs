@@ -252,7 +252,7 @@ impl<C: StackConvention> ProcedureCompiler<C> {
     }
 
     /// Compile a call to a function with `param_count` parameters.
-    fn compile_call(&mut self, tgt: Name, name: String, param_count: usize) {
+    fn compile_call(&mut self, tgt: Option<Name>, name: String, param_count: usize) {
         let max_params = self.calling_convention.get_params().len();
         if param_count > max_params {
             todo!("Can't deal with more than {} parameters yet.", max_params);
@@ -292,13 +292,20 @@ impl<C: StackConvention> ProcedureCompiler<C> {
 
         // The return value will be placed in RAX.
         self.reserve(Rax);
-        self.allocator.bind_to(tgt.clone(), Rax);
-
-        self.emit_cmt(
-            Call,
-            [Id(name.clone())],
-            format!("{} = call {}, {}", tgt, name, param_count),
-        );
+        if let Some(tgt) = tgt {
+            self.allocator.bind_to(tgt.clone(), Rax);
+            self.emit_cmt(
+                Call,
+                [Id(name.clone())],
+                format!("{} = call {}, {}", tgt, name, param_count),
+            );
+        } else {
+            self.emit_cmt(
+                Call,
+                [Id(name.clone())],
+                format!("call {}, {}", name, param_count),
+            );
+        }
 
         for (_, reg) in self.calling_convention.iter_params(param_count) {
             self.allocator.release(reg);
@@ -695,6 +702,17 @@ mod tests {
         };
     }
 
+    macro_rules! assert_no_allocations {
+        ($compiler:expr) => {
+            let allocations: Vec<_> = $compiler.allocator.iter_allocations().copied().collect();
+            assert!(
+                allocations.is_empty(),
+                "Expected no allocations, but found: {:?}",
+                allocations,
+            )
+        };
+    }
+
     #[test]
     fn compile_tac_compiles_instruction_to_assembly() {
         let compiler = compile_instr!(InstrKind::Bin(
@@ -747,13 +765,24 @@ mod tests {
     }
 
     #[test]
-    fn function_call_allocates_for_return_value() {
+    fn function_call_with_return_allocates_for_return_value() {
         let compiler = compile_instrs!([
             InstrKind::Arg(cnst!(10)),
-            InstrKind::Call(sub!("x"), "print".to_string(), 1)
+            InstrKind::Call(Some(sub!("x")), "get_x".to_string(), 1)
         ]);
 
         assert_allocates!(compiler, [Rax]);
+    }
+
+    #[test]
+    #[ignore = "Enable this test for the new allocator"]
+    fn function_call_without_return_does_not_allocate() {
+        let compiler = compile_instrs!([
+            InstrKind::Arg(cnst!(10)),
+            InstrKind::Call(None, "print".to_string(), 1)
+        ]);
+
+        assert_no_allocations!(compiler);
     }
 
     #[test]
@@ -763,7 +792,7 @@ mod tests {
         let compiler = compile_instrs!([
             InstrKind::Assign(c.clone(), cnst!(55)),
             InstrKind::Arg(cnst!(10)),
-            InstrKind::Call(x.clone(), "print".to_string(), 1),
+            InstrKind::Call(Some(x.clone()), "print".to_string(), 1),
             // Dummy assignment to ensure `c` is still used after the call.
             InstrKind::Assign(c.clone(), Value::Name(c.clone()))
         ]);
@@ -781,7 +810,7 @@ mod tests {
         let compiler = compile_instrs!([
             InstrKind::Assign(c.clone(), cnst!(55)),
             InstrKind::Arg(cnst!(10)),
-            InstrKind::Call(x.clone(), "print".to_string(), 1),
+            InstrKind::Call(Some(x.clone()), "print".to_string(), 1),
         ]);
 
         // `x` should now be in RAX.

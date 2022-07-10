@@ -1,6 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, iter::Enumerate, slice::Iter};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    iter::Enumerate,
+    slice::{Iter, IterMut},
+};
 
-use super::{Instruction, MatchInstruction, TacListing, TacProgram, Value};
+use super::{InstrKind, Instruction, MatchInstruction, TacListing, TacProgram, Value};
 
 pub fn optimise(mut program: TacProgram) -> TacProgram {
     program.top_level = Optimiser::optimise(program.top_level);
@@ -22,6 +27,7 @@ impl Optimiser {
         let mut optimiser = Self { listing };
 
         optimiser.remove_unused_assignments();
+        optimiser.remove_unused_return_assignments();
         optimiser.merge_assign();
         optimiser.remove_phi();
 
@@ -52,6 +58,25 @@ impl Optimiser {
             .collect();
 
         self.remove_lines(candidates);
+    }
+
+    fn remove_unused_return_assignments(&mut self) {
+        let candidates: HashSet<_> = self
+            .iter_lines()
+            .match_instruction(Instruction::as_call)
+            .filter_map(|(line, (name, _, _))| name.map(|n| (line, n)))
+            .filter(|(line, name)| !self.listing.is_used_after(name, *line))
+            .map(|(line, _)| line)
+            .collect();
+
+        for (_, instr) in self
+            .iter_lines_mut()
+            .filter(|(l, _)| candidates.contains(l))
+        {
+            if let InstrKind::Call(tgt, _, _) = &mut instr.kind {
+                *tgt = None;
+            }
+        }
     }
 
     /// Looks for single assignments (`x` = `y`), replaces all occurrences
@@ -146,6 +171,10 @@ impl Optimiser {
 
     fn iter_lines(&self) -> Enumerate<Iter<Instruction>> {
         self.listing.iter_lines()
+    }
+
+    fn iter_lines_mut(&mut self) -> Enumerate<IterMut<Instruction>> {
+        self.listing.iter_lines_mut()
     }
 
     fn remove_lines(&mut self, mut lines: Vec<usize>) {

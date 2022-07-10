@@ -80,6 +80,10 @@ impl TacListing {
         self.instructions.iter().enumerate()
     }
 
+    pub fn iter_lines_mut(&mut self) -> Enumerate<IterMut<Instruction>> {
+        self.instructions.iter_mut().enumerate()
+    }
+
     pub fn iter_instructions(&self) -> Iter<Instruction> {
         self.instructions.iter()
     }
@@ -95,6 +99,16 @@ impl TacListing {
     #[cfg(test)]
     pub fn into_vec(self) -> Vec<Instruction> {
         self.instructions
+    }
+
+    pub fn get_last_use(&self, name: &Name, first_use: usize) -> usize {
+        self.instructions[first_use..]
+            .iter()
+            .enumerate()
+            .filter(|(_, instr)| instr.reads_from_name(name))
+            .map(|(line, _)| line + first_use)
+            .last()
+            .unwrap_or(first_use)
     }
 
     pub fn is_used_after(&self, name: &Name, index: usize) -> bool {
@@ -152,8 +166,16 @@ impl Instruction {
         self.kind.as_assign()
     }
 
+    pub fn as_call(&self) -> Option<(Option<&Name>, &String, usize)> {
+        self.kind.as_call()
+    }
+
     pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
         self.kind.as_phi()
+    }
+
+    pub fn as_param(&self) -> Option<&Name> {
+        self.kind.as_param()
     }
 
     pub fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
@@ -205,7 +227,7 @@ pub enum InstrKind {
     /// Pop a parameter from the parameter stack.
     Param(Name),
     /// Call a function, passing `n` parameters.
-    Call(Name, String, usize),
+    Call(Option<Name>, String, usize),
     /// Return a value from a function body.
     Return(Option<Value>),
     /// The ɸ-function.
@@ -282,6 +304,46 @@ impl InstrKind {
         }
     }
 
+    /// Returns the name to which this instruction assigns, or [`None`] if this
+    /// instruction does not assign to anything.
+    pub fn assign_target(&self) -> Option<&Name> {
+        match self {
+            InstrKind::Assign(tgt, _) => Some(tgt),
+            InstrKind::Bin(tgt, _, _, _) => Some(tgt),
+            InstrKind::Goto(_) => None,
+            InstrKind::IfTrue(_, _) => None,
+            InstrKind::IfFalse(_, _) => None,
+            InstrKind::IfCmp(_, _, _, _) => None,
+            InstrKind::Arg(_) => None,
+            InstrKind::Param(tgt) => Some(tgt),
+            InstrKind::Call(tgt, _, _) => tgt.as_ref(),
+            InstrKind::Return(_) => None,
+            InstrKind::Phi(tgt, _) => Some(tgt),
+            InstrKind::Nop => None,
+        }
+    }
+
+    pub fn as_assign(&self) -> Option<(&Name, &Value)> {
+        match self {
+            InstrKind::Assign(name, value) => Some((name, value)),
+            _ => None,
+        }
+    }
+
+    fn as_call(&self) -> Option<(Option<&Name>, &String, usize)> {
+        match self {
+            InstrKind::Call(name, function, params) => Some((name.as_ref(), function, *params)),
+            _ => None,
+        }
+    }
+
+    pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
+        match self {
+            InstrKind::Phi(target, params) => Some((target, params)),
+            _ => None,
+        }
+    }
+
     fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
         fn try_replace(tgt: &mut Name, src: &Name, dest: Cow<Name>) {
             if tgt == src {
@@ -297,23 +359,17 @@ impl InstrKind {
             InstrKind::IfCmp(_, _, _, _) => (),
             InstrKind::Arg(_) => (),
             InstrKind::Param(tgt) => try_replace(tgt, src, dest),
-            InstrKind::Call(tgt, _, _) => try_replace(tgt, src, dest),
+            InstrKind::Call(Some(tgt), _, _) => try_replace(tgt, src, dest),
+            InstrKind::Call(_, _, _) => (),
             InstrKind::Return(_) => (),
             InstrKind::Phi(tgt, _) => try_replace(tgt, src, dest),
             InstrKind::Nop => (),
         }
     }
 
-    pub fn as_assign(&self) -> Option<(&Name, &Value)> {
+    fn as_param(&self) -> Option<&Name> {
         match self {
-            InstrKind::Assign(name, value) => Some((name, value)),
-            _ => None,
-        }
-    }
-
-    pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
-        match self {
-            InstrKind::Phi(target, params) => Some((target, params)),
+            InstrKind::Param(name) => Some(name),
             _ => None,
         }
     }
@@ -334,8 +390,11 @@ impl Display for InstrKind {
             }
             InstrKind::Arg(p) => write!(f, "arg {}", p),
             InstrKind::Param(a) => write!(f, "{} = param", a),
-            InstrKind::Call(name, tgt, params) => {
+            InstrKind::Call(Some(name), tgt, params) => {
                 write!(f, "{} = call {}, {}", name, tgt, params)
+            }
+            InstrKind::Call(None, tgt, params) => {
+                write!(f, "call {}, {}", tgt, params)
             }
             InstrKind::Nop => f.write_str("nop"),
             InstrKind::Goto(label) => write!(f, "goto {}", label),

@@ -267,7 +267,11 @@ impl<P: TacProcedure> TacGenerator<P> {
 
         let temp_name = self.name_generator.next_temp();
         // TODO: allow calls to other types of functions here.
-        self.emit(InstrKind::Call(temp_name.clone(), call.name, arg_count));
+        self.emit(InstrKind::Call(
+            Some(temp_name.clone()),
+            call.name,
+            arg_count,
+        ));
 
         Value::Name(temp_name)
     }
