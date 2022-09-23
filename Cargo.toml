@@ -10,3 +10,4 @@ anyhow = "1.0"
 thiserror = "1.0"
 stderrlog = "0.5"
 log = "0.4"
+clap = { features = ["derive"], version = "3.2"}
