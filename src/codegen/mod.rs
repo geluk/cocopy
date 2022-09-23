@@ -27,7 +27,7 @@ pub fn generate_llvm() {}
 
 /// Generate native code for the current platform. Assembly code is written to `out_dir`,
 /// which is then assembled and linked into an executable file.
-pub fn generate_native<P: AsRef<Path>>(prog: TacProgram, out_dir: P) -> Result<()> {
+pub fn generate_native<P: AsRef<Path>>(prog: TacProgram, out_dir: P) -> Result<PathBuf> {
     let out_dir = PathBuf::from(out_dir.as_ref());
 
     let os = current_os()?;
@@ -40,9 +40,7 @@ pub fn generate_native<P: AsRef<Path>>(prog: TacProgram, out_dir: P) -> Result<(
     generate_assembly(prog, &asm_path, os).context("Failed to generate assembly")?;
     let obj_path = assemble(&asm_path, &out_dir, os).context("Failed to assemble program")?;
 
-    link(obj_path, &out_dir, os)?;
-
-    Ok(())
+    link(obj_path, &out_dir, os)
 }
 
 /// Selects the current operating system as target operating system.
@@ -90,6 +88,6 @@ fn assemble<P: AsRef<Path>>(asm_path: P, out_dir: P, os: Os) -> Result<PathBuf> 
     Ok(obj_path)
 }
 
-fn link<O1: AsRef<Path>, O2: AsRef<Path>>(object_path: O1, out_dir: O2, os: Os) -> Result<()> {
+fn link<O1: AsRef<Path>, O2: AsRef<Path>>(object_path: O1, out_dir: O2, os: Os) -> Result<PathBuf> {
     linker::link_object(os, object_path, out_dir)
 }

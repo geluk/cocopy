@@ -2,7 +2,7 @@
 mod linux;
 mod windows;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::prelude::*;
 
@@ -22,7 +22,7 @@ pub fn link_object<O1: AsRef<Path>, O2: AsRef<Path>>(
     os: Os,
     object_path: O1,
     out_dir: O2,
-) -> Result<()> {
+) -> Result<PathBuf> {
     let mut executable_path = out_dir.as_ref().to_owned();
 
     match os {
@@ -32,7 +32,9 @@ pub fn link_object<O1: AsRef<Path>, O2: AsRef<Path>>(
         }
         Os::Linux => {
             executable_path.push("out");
-            LinuxLinker::link_object(object_path, executable_path)
+            LinuxLinker::link_object(object_path, &executable_path)
         }
-    }
+    }?;
+
+    Ok(executable_path)
 }

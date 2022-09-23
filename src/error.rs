@@ -32,6 +32,9 @@ impl CompileErrors {
     pub fn iter(&self) -> Iter<CompileError> {
         self.errors.iter()
     }
+    pub fn len(&self) -> usize {
+        self.errors.len()
+    }
 }
 impl<T> From<Vec<T>> for CompileErrors
 where
