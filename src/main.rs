@@ -70,7 +70,8 @@ fn main() -> Result<()> {
                 Ok(program) => {
                     let executable = run_backend(program, backend.optimise())?;
                     info!("Compiler finished, starting program.");
-                    Command::new(executable).spawn()?;
+                    let mut program = Command::new(executable).spawn()?;
+                    program.wait()?;
                 }
                 Err(errors) => {
                     describe_errors(errors, &content);
