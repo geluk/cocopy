@@ -14,7 +14,7 @@ use std::{
 
 use ast::typed::Program;
 use clap::Parser;
-use commandline::{Args, Operation};
+use commandline::{Operation, Options};
 use error::{CompileError, CompileErrors};
 use prelude::*;
 
@@ -34,11 +34,11 @@ mod span;
 mod type_checking;
 
 fn main() -> Result<()> {
-    stderrlog::new().verbosity(1).init()?;
+    let options = Options::parse();
 
-    let args = Args::parse();
+    stderrlog::new().verbosity(options.verbose).init()?;
 
-    match args.operation {
+    match options.operation {
         Operation::Check { file } => {
             let content = fs::read_to_string(file)?;
             match run_frontend(&content) {
@@ -51,11 +51,11 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Operation::Compile { file } => {
+        Operation::Compile { file, backend } => {
             let content = fs::read_to_string(file)?;
             match run_frontend(&content) {
                 Ok(program) => {
-                    run_backend(program)?;
+                    run_backend(program, backend.optimise())?;
                     info!("Finished!");
                 }
                 Err(errors) => {
@@ -64,11 +64,11 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Operation::Run { file } => {
+        Operation::Run { file, backend } => {
             let content = fs::read_to_string(file)?;
             match run_frontend(&content) {
                 Ok(program) => {
-                    let executable = run_backend(program)?;
+                    let executable = run_backend(program, backend.optimise())?;
                     info!("Compiler finished, starting program.");
                     Command::new(executable).spawn()?;
                 }
@@ -107,16 +107,18 @@ pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
 /// simple intermediate language, which then gets converted to assembly.
 /// Finally, the assembly source code is assembled and linked into
 /// an executable.
-pub fn run_backend(program: Program) -> Result<PathBuf> {
-    let il = il::generate(program);
+pub fn run_backend(program: Program, optimise: bool) -> Result<PathBuf> {
+    let mut il = il::generate(program);
 
     info!("IL generation finished");
     debug!("IL source:\n{}", il);
 
-    let il = il::optimise(il);
+    if optimise {
+        il = il::optimise(il);
 
-    info!("IL optimisation finished");
-    debug!("Optimised IL source:\n{}", il);
+        info!("IL optimisation finished");
+        debug!("Optimised IL source:\n{}", il);
+    }
 
     info!("Generating native code");
     codegen::generate_native(il, "out")
