@@ -23,7 +23,8 @@ pub fn compile(prog: TacProgram) -> Assembly {
         .push_decl(Global("main"))
         .push_decl(Extern("_CRT_INIT"))
         .push_decl(Extern("ExitProcess"))
-        .push_decl(Extern("printf"));
+        .push_decl(Extern("printf"))
+        .push_decl(Extern("scanf"));
 
     asm.text
         .main
@@ -54,10 +55,13 @@ pub fn compile(prog: TacProgram) -> Assembly {
         .push(Call, [Id("ExitProcess".to_string())]);
 
     asm.text.procedures.push(print());
+    asm.text.procedures.push(readint());
 
     asm.data
         .db("msg_ch", "'The char is %c', 13, 10, 0")
-        .db("msg_i", "'The integer is %i', 13, 10, 0");
+        .db("msg_i", "'The integer is %i', 13, 10, 0")
+        .db("msg_scanf_i", "'Input: ', 13, 10, 0")
+        .db("scanf_i", "'%i', 0");
 
     asm
 }
@@ -70,6 +74,32 @@ fn print() -> Procedure {
         .push(Lea, [Reg(Rcx), Id("[msg_i]".to_string())])
         .push(Call, [Id("printf".to_string())]);
     print
+}
+
+fn readint() -> Procedure {
+    let mut readint = procedure("readint");
+    readint
+        .body
+        .push_cmt(
+            Sub,
+            [Reg(Rsp), Lit(16)],
+            "allocate stack space for return value",
+        )
+        .push(Lea, [Reg(Rcx), Id("[scanf_i]".to_string())])
+        .push_cmt(
+            Mov,
+            [Reg(Rdx), Reg(Rsp)],
+            "let scanf write its result to the stack",
+        )
+        .push(Call, [Id("scanf".to_string())])
+        .push_cmt(
+            Mov,
+            [Reg(Rax), Id("[rsp]".to_string())],
+            "fetch result from the stack",
+        )
+        .push_cmt(Add, [Reg(Rsp), Lit(16)], "put stack back");
+
+    readint
 }
 
 fn make_assembly() -> Assembly {
