@@ -41,13 +41,21 @@ impl Display for TacProgram {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         writeln!(f, "function main")?;
         for instr in self.top_level.iter_instructions() {
-            writeln!(f, "    {}", instr)?;
+            if instr.label.is_some() {
+                writeln!(f, "    {}", instr)?;
+            } else {
+                writeln!(f, "        {}", instr)?;
+            }
         }
 
         for (name, body) in self.functions.iter() {
             writeln!(f, "function {}", name)?;
             for instr in body.iter_instructions() {
-                writeln!(f, "    {}", instr)?;
+                if instr.label.is_some() {
+                    writeln!(f, "    {}", instr)?;
+                } else {
+                    writeln!(f, "        {}", instr)?;
+                }
             }
         }
 
