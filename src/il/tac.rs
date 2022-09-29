@@ -109,16 +109,6 @@ impl TacListing {
         self.instructions
     }
 
-    pub fn get_last_use(&self, name: &Name, first_use: usize) -> usize {
-        self.instructions[first_use..]
-            .iter()
-            .enumerate()
-            .filter(|(_, instr)| instr.reads_from_name(name))
-            .map(|(line, _)| line + first_use)
-            .last()
-            .unwrap_or(first_use)
-    }
-
     pub fn is_used_after(&self, name: &Name, index: usize) -> bool {
         // We can probably always subtract 1 from `len` here
         if index >= self.instructions.len() {
@@ -163,6 +153,7 @@ impl Instruction {
 
     pub fn may_delete(&self) -> bool {
         // Instructions with labels on them may be jumped to, and should never be deleted.
+        // TODO: separate instructions from labels to prevent this.
         self.label.is_none()
     }
 
@@ -180,10 +171,6 @@ impl Instruction {
 
     pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
         self.kind.as_phi()
-    }
-
-    pub fn as_param(&self) -> Option<&Name> {
-        self.kind.as_param()
     }
 
     pub fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
@@ -312,25 +299,6 @@ impl InstrKind {
         }
     }
 
-    /// Returns the name to which this instruction assigns, or [`None`] if this
-    /// instruction does not assign to anything.
-    pub fn assign_target(&self) -> Option<&Name> {
-        match self {
-            InstrKind::Assign(tgt, _) => Some(tgt),
-            InstrKind::Bin(tgt, _, _, _) => Some(tgt),
-            InstrKind::Goto(_) => None,
-            InstrKind::IfTrue(_, _) => None,
-            InstrKind::IfFalse(_, _) => None,
-            InstrKind::IfCmp(_, _, _, _) => None,
-            InstrKind::Arg(_) => None,
-            InstrKind::Param(tgt) => Some(tgt),
-            InstrKind::Call(tgt, _, _) => tgt.as_ref(),
-            InstrKind::Return(_) => None,
-            InstrKind::Phi(tgt, _) => Some(tgt),
-            InstrKind::Nop => None,
-        }
-    }
-
     pub fn as_assign(&self) -> Option<(&Name, &Value)> {
         match self {
             InstrKind::Assign(name, value) => Some((name, value)),
@@ -372,13 +340,6 @@ impl InstrKind {
             InstrKind::Return(_) => (),
             InstrKind::Phi(tgt, _) => try_replace(tgt, src, dest),
             InstrKind::Nop => (),
-        }
-    }
-
-    fn as_param(&self) -> Option<&Name> {
-        match self {
-            InstrKind::Param(name) => Some(name),
-            _ => None,
         }
     }
 
@@ -449,7 +410,7 @@ pub enum Name {
     /// A subscripted variable.
     Sub(Variable),
     /// A generated, temporary name.
-    Temp(String),
+    Temp(usize),
 }
 impl Display for Name {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {

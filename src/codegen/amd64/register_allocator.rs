@@ -1,125 +1,113 @@
-use std::collections::{
-    hash_map::{Entry, Keys},
-    hash_set::Iter,
-    HashMap, HashSet,
+use std::collections::HashMap;
+
+use crate::{
+    codegen::register_allocation::{Allocation, Allocator, Lifetime},
+    listing::{Listing, Position},
+    prelude::*,
 };
 
-use crate::il::Name;
+use super::{
+    procedure_compiler::{DeferredLine, DeferredOperand, DeferredReg, Target},
+    x86::*,
+};
 
-use super::x86::Register;
-
-pub struct RegisterAllocator {
-    allocations: HashSet<Register>,
-    bindings: HashMap<Name, Register>,
+pub struct RegisterAllocator<'l> {
+    requests: HashMap<&'l DeferredReg, AllocationRequest>,
+    listing: &'l Listing<DeferredLine>,
 }
-impl RegisterAllocator {
-    pub fn new() -> Self {
-        Self {
-            allocations: HashSet::new(),
-            bindings: HashMap::new(),
-        }
+impl<'l> RegisterAllocator<'l> {
+    pub fn preprocess(listing: &'l Listing<DeferredLine>) -> Allocator<DeferredReg, Register> {
+        let preprocessor = Self {
+            requests: Default::default(),
+            listing,
+        };
+        preprocessor.assign_regs()
     }
 
-    pub fn iter_bound_names(&self) -> Keys<Name, Register> {
-        self.bindings.keys()
-    }
+    fn assign_regs(mut self) -> Allocator<DeferredReg, Register> {
+        self.determine_lifetimes();
 
-    pub fn iter_allocations(&self) -> Iter<Register> {
-        self.allocations.iter()
-    }
-
-    /// Bind a name to a free register. If this name is already bound, returns the bound register.
-    pub fn bind(&mut self, name: Name) -> Register {
-        if let Entry::Occupied(ocp) = self.bindings.entry(name.clone()) {
-            *ocp.get()
-        } else {
-            let reg = self.allocate().expect("Ran out of registers to allocate!");
-            self.bindings.insert(name, reg);
-            reg
-        }
-    }
-
-    /// Bind a name to the given register. The name may not be bound already,
-    /// and the register must have been allocated first.
-    pub fn bind_to(&mut self, name: Name, register: Register) {
-        match self.lookup(&name) {
-            Some(_) => panic!("Cannot bind a name already bound to a different register"),
-            None if self.is_free(register) => {
-                panic!("Cannot bind a name to an unallocated register")
-            }
-            None => {
-                self.bindings.insert(name, register);
+        for (name, rq) in self.requests.iter() {
+            trace!(
+                "Lifetime of {name:?} is {}:{}",
+                rq.lifetime.start().0,
+                rq.lifetime.end().0
+            );
+            for (position, reg) in rq.locks.iter() {
+                trace!(" -> at {}: must live in {reg}", position.0);
             }
         }
-    }
 
-    /// Unbind this name, releasing the register.
-    /// Returns [`Some`] if the name was bound to a register, or [`None`] otherwise.
-    pub fn unbind(&mut self, name: &Name) -> Option<Register> {
-        match self.bindings.remove(name) {
-            Some(reg) => self.release(reg),
-            None => None,
-        }
-    }
+        let mut allocator = Allocator::new(Register::iter().copied().collect());
 
-    /// Notifies the allocator that a value has been moved from `source` to `target`.
-    /// If a binding for `source` exists, it is updated to point to `target`.
-    pub fn notify_move(&mut self, source: Register, target: Register) {
-        if self.is_free(target) {
-            panic!(
-                "Cannot process a binding move into unallocated register {}",
-                target
-            )
-        }
-        if let Some(reg) = self.bindings.values_mut().find(|v| v == &&source) {
-            *reg = target;
-        }
-    }
-
-    /// Lookup a name, returning [`Some`] if it is bound to a register, or [`None`] otherwise.
-    pub fn lookup(&self, name: &Name) -> Option<Register> {
-        self.bindings.get(name).copied()
-    }
-
-    /// Checks if a register has not been allocated yet.
-    pub fn is_free(&self, register: Register) -> bool {
-        !self.allocations.contains(&register)
-    }
-
-    /// Allocate a register. Panics if the register is not free.
-    pub fn allocate_reg(&mut self, register: Register) {
-        if !self.allocations.contains(&register) {
-            self.allocations.insert(register);
-        } else {
-            panic!("{} is already allocated", register)
-        }
-    }
-
-    /// Try to allocate a new register. Returns [`None`] if all registers are occupied.
-    pub fn allocate(&mut self) -> Option<Register> {
-        for &reg in Register::iter() {
-            if !self.allocations.contains(&reg) {
-                self.allocations.insert(reg);
-                return Some(reg);
+        for (name, request) in self.requests {
+            debug!("Allocating {name:?}");
+            match request.locks.len() {
+                0 => {
+                    allocator.allocate(name.clone(), request.lifetime);
+                }
+                1 => {
+                    let (pos, reg) = request.locks.into_iter().next().unwrap();
+                    allocator.lock_to(name, request.lifetime, pos, reg);
+                }
+                _ => (),
             }
         }
-        None
+
+        for alloc in allocator.iter_reg_allocations() {
+            debug!(
+                "At {} {:?} to {}",
+                alloc.lifetime(),
+                alloc.name(),
+                alloc.register()
+            );
+        }
+
+        allocator
     }
 
-    /// Release a register, allowing it to be allocated again later.
-    /// Returns [`Some`] if the register was allocated, or [`None`] otherwise.
-    pub fn release(&mut self, reg: Register) -> Option<Register> {
-        self.allocations.take(&reg)
+    fn determine_lifetimes(&mut self) {
+        // Process instructions
+        for (pos, line) in self.listing.iter_lines() {
+            if let DeferredLine::Instr(instr) = line {
+                if let Some(Target::Deferred(reg)) = &instr.target {
+                    self.expand_lifetime(reg, pos);
+                }
+
+                for operand in instr.operands.iter() {
+                    if let DeferredOperand::Reg(reg, _) = operand {
+                        self.expand_lifetime(reg, pos)
+                    }
+                }
+            } else if let DeferredLine::LockRequest(name, reg) = line {
+                self.add_lock(name, pos, *reg);
+            }
+        }
     }
 
-    #[cfg(test)]
-    pub fn debug(&self) {
-        println!("Allocator state:");
-        for (name, reg) in &self.bindings {
-            println!("    {} -> {}", name, reg);
-        }
-        for reg in &self.allocations {
-            println!("    alloc {}", reg);
+    fn expand_lifetime(&mut self, reg: &'l DeferredReg, position: Position) {
+        self.requests
+            .entry(reg)
+            .and_modify(|r| r.lifetime = r.lifetime.expand(position))
+            .or_insert(AllocationRequest {
+                lifetime: Lifetime::from_position(position),
+                locks: Default::default(),
+            });
+    }
+
+    fn add_lock(&mut self, name: &'l DeferredReg, lock_point: Position, register: Register) {
+        let name = self
+            .requests
+            .get_mut(name)
+            .expect("Attempted to lock unknown name");
+
+        if let Some(existing) = name.locks.insert(lock_point, register) {
+            panic!("Attempted to lock {lock_point:?} to {register:?}, but it was already locked to {existing:?}")
         }
     }
+}
+
+struct AllocationRequest {
+    lifetime: Lifetime,
+    locks: HashMap<Position, Register>,
 }

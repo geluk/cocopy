@@ -26,6 +26,7 @@ mod error;
 mod ext;
 mod il;
 mod lexer;
+mod listing;
 mod parser;
 mod prelude;
 mod pretty_print;

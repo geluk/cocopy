@@ -17,7 +17,7 @@ impl NameGenerator {
     /// Generates a new unique temporary name.
     pub fn next_temp(&mut self) -> Name {
         self.index += 1;
-        Name::Temp(format!("t{}", self.index))
+        Name::Temp(self.index)
     }
 
     /// Generates a unique subscripted name from an existing identifier.

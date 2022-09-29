@@ -1,32 +1,39 @@
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::slice::Iter;
+use std::{collections::HashSet, fmt::Display};
 
-use crate::il::Name;
+use crate::listing::Position;
 
-use super::allocation::{
-    Allocation, BaseOffset, Lifetime, Position, RegAllocation, StackAllocation,
-};
+use super::allocation::{Allocation, BaseOffset, Lifetime, RegAllocation, StackAllocation};
 
 /// Assigns variable names to registers or to a position on the stack.
 /// Also exposes operations to definitively assign a name to a certain
 /// register in case the operational semantics of an instruction require it.
 #[derive(Debug)]
-pub struct Allocator<R: Copy + Eq> {
+pub struct Allocator<N: Eq, R: Copy + Eq> {
     registers: Vec<R>,
-    register_allocations: Vec<RegAllocation<R>>,
-    stack_allocations: Vec<StackAllocation>,
+    register_allocations: Vec<RegAllocation<N, R>>,
+    stack_allocations: Vec<StackAllocation<N>>,
 }
 
 /// A destination in which the value of a variable will be held.
 /// Values can be stored in a register or on the stack.
 #[derive(Debug)]
-pub enum Destination<R: Copy + Eq> {
-    Reg(RegAllocation<R>),
-    Stack(StackAllocation),
+pub enum Destination<N: Eq, R: Copy + Eq> {
+    Reg(RegAllocation<N, R>),
+    Stack(StackAllocation<N>),
+}
+impl<N: Eq, R: Copy + Eq + Display> Destination<N, R> {
+    pub fn describe(&self) -> String {
+        match self {
+            Destination::Reg(reg) => format!("{}", reg.register()),
+            Destination::Stack(ofs) => format!("stack offset {:?}", ofs.offset()),
+        }
+    }
 }
 
-impl<R: Copy + Eq + Hash + Debug> Allocator<R> {
+impl<N: Eq + Clone + Debug, R: Copy + Eq + Hash + Debug> Allocator<N, R> {
     pub fn new(registers: Vec<R>) -> Self {
         Self {
             registers,
@@ -41,10 +48,10 @@ impl<R: Copy + Eq + Hash + Debug> Allocator<R> {
     /// Panics if a conflicting allocation exists. An allocation is considered
     /// to conflict if it applies to the same variable and its lifetime overlaps
     /// the provided lifetime.
-    pub fn allocate(&mut self, name: Name, lifetime: Lifetime) -> Destination<R> {
+    pub fn allocate(&mut self, name: N, lifetime: Lifetime) -> Destination<N, R> {
         assert!(
             !self.has_conflicting_allocation(&name, lifetime),
-            "Conflicting allocations for {}",
+            "Conflicting allocations for {:?}",
             name
         );
 
@@ -57,13 +64,7 @@ impl<R: Copy + Eq + Hash + Debug> Allocator<R> {
     /// choose to store the variable elsewhere before and/or after this point
     /// if another variable also needs to be locked to the same register.
     /// If this happens, a swap instruction is emitted.
-    pub fn lock_to(
-        &mut self,
-        name: &Name,
-        lifetime: Lifetime,
-        lock_point: Position,
-        target_reg: R,
-    ) {
+    pub fn lock_to(&mut self, name: &N, lifetime: Lifetime, lock_point: Position, target_reg: R) {
         let stack_allocation = self
             .stack_allocations
             .iter()
@@ -137,25 +138,45 @@ impl<R: Copy + Eq + Hash + Debug> Allocator<R> {
     }
 
     /// Lookup the storage destination for a variable at the given location.
-    pub fn lookup(&self, name: &Name, location: Position) -> Destination<R> {
+    pub fn lookup(&self, name: &N, position: Position) -> Destination<N, R> {
         self.register_allocations
             .iter()
-            .find(|a| a.contains(name, location))
+            .find(|a| a.contains(name, position))
             .map(|a| Destination::Reg(a.clone()))
             .or_else(|| {
                 self.stack_allocations
                     .iter()
-                    .find(|a| a.contains(name, location))
+                    .find(|a| a.contains(name, position))
                     .map(|a| Destination::Stack(a.clone()))
             })
-            .unwrap_or_else(|| panic!("Could not find allocation for {}", name))
+            .unwrap_or_else(|| panic!("Could not find allocation for {:?}", name))
+    }
+
+    /// Returns `true` if an allocation exists that conflicts with the given
+    /// name and lifetime.
+    pub fn has_conflicting_allocation(&self, name: &N, lifetime: Lifetime) -> bool {
+        let test_regs = || {
+            self.register_allocations
+                .iter()
+                .any(|a| a.conflicts_with(name, lifetime))
+        };
+        let test_stack = || {
+            self.stack_allocations
+                .iter()
+                .any(|a| a.conflicts_with(name, lifetime))
+        };
+        test_regs() || test_stack()
+    }
+
+    pub fn iter_reg_allocations(&self) -> Iter<RegAllocation<N, R>> {
+        self.register_allocations.iter()
     }
 
     /// Assign a register or a stack position to the given variable during the
     /// provided lifetime. Unlike [`Self::allocate()`], it will accept
     /// conflicting allocations. The caller is responsible for resolving
     /// these conflicts afterwards.
-    fn allocate_unchecked(&mut self, name: Name, lifetime: Lifetime) -> Destination<R> {
+    fn allocate_unchecked(&mut self, name: N, lifetime: Lifetime) -> Destination<N, R> {
         let occupied_regs = self.occupied_registers(lifetime);
         let free_reg = self
             .registers
@@ -185,23 +206,23 @@ impl<R: Copy + Eq + Hash + Debug> Allocator<R> {
     /// Add a new register allocation with the given parameters.
     fn add_reg_alloc(
         &mut self,
-        name: Name,
+        name: N,
         register: R,
         lifetime: Lifetime,
         locks: Vec<Position>,
-    ) -> &RegAllocation<R> {
+    ) -> &RegAllocation<N, R> {
         self.register_allocations
             .push(RegAllocation::new(name, register, lifetime, locks));
         self.register_allocations.last().unwrap()
     }
 
     /// Remove the provided register allocation.
-    fn drop_reg_alloc(&mut self, allocation: &RegAllocation<R>) {
+    fn drop_reg_alloc(&mut self, allocation: &RegAllocation<N, R>) {
         self.register_allocations.retain(|e| e != allocation)
     }
 
     /// Remove the provided stack allocation.
-    fn drop_stack_alloc(&mut self, allocation: &StackAllocation) {
+    fn drop_stack_alloc(&mut self, allocation: &StackAllocation<N>) {
         self.stack_allocations.retain(|a| a != allocation)
     }
 
@@ -213,22 +234,6 @@ impl<R: Copy + Eq + Hash + Debug> Allocator<R> {
             .filter(|a| a.lifetime().overlaps(lifetime))
             .map(|a| a.register())
             .collect()
-    }
-
-    /// Returns `true` if an allocation exists that conflicts with the given
-    /// name and lifetime.
-    fn has_conflicting_allocation(&self, name: &Name, lifetime: Lifetime) -> bool {
-        let test_regs = || {
-            self.register_allocations
-                .iter()
-                .any(|a| a.conflicts_with(name, lifetime))
-        };
-        let test_stack = || {
-            self.stack_allocations
-                .iter()
-                .any(|a| a.conflicts_with(name, lifetime))
-        };
-        test_regs() || test_stack()
     }
 }
 
@@ -297,12 +302,6 @@ mod tests {
         }
     }
 
-    macro_rules! name {
-        ($name:expr) => {
-            Name::Temp($name.into())
-        };
-    }
-
     macro_rules! lifetime {
         ($start:expr, $end:expr) => {
             Lifetime::new(Position($start), Position($end))
@@ -329,7 +328,7 @@ mod tests {
 
     macro_rules! allocate {
         ($allocator:expr, $name:expr, $start:expr, $end:expr) => {
-            $allocator.allocate(Name::Temp($name.into()), lifetime!($start, $end))
+            $allocator.allocate($name, lifetime!($start, $end))
         };
     }
 
@@ -393,7 +392,7 @@ mod tests {
         allocate!(allocator, "two", 1, 10);
         allocate!(allocator, "three", 9, 15);
 
-        let allocation = allocator.lookup(&Name::Temp("two".into()), Position(5));
+        let allocation = allocator.lookup(&"two", Position(5));
 
         assert_allocates_reg!(allocation, Reg::B);
     }
@@ -408,7 +407,7 @@ mod tests {
         allocate!(allocator, "d", 1, 10);
         allocate!(allocator, "s", 9, 15);
 
-        let allocation = allocator.lookup(&Name::Temp("s".into()), Position(9));
+        let allocation = allocator.lookup(&"s", Position(9));
 
         assert_allocates_stack!(allocation);
     }
@@ -419,10 +418,10 @@ mod tests {
 
         allocate!(allocator, "one", 0, 10);
 
-        allocator.lock_to(&name!("two"), lifetime!(4, 14), Position(4), Reg::A);
+        allocator.lock_to(&"two", lifetime!(4, 14), Position(4), Reg::A);
 
-        let one = allocator.lookup(&name!("one"), Position(0));
-        let two = allocator.lookup(&name!("two"), Position(4));
+        let one = allocator.lookup(&"one", Position(0));
+        let two = allocator.lookup(&"two", Position(4));
 
         assert_allocates_reg!(one, Reg::B);
         assert_allocates_reg!(two, Reg::A);
