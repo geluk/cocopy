@@ -1,3 +1,4 @@
+#![allow(dead_code, reason = "We prefer completeness here")]
 use std::{
     fmt::{self, Display, Formatter},
     slice::Iter,
@@ -110,7 +111,6 @@ impl Display for Register {
 
 /// An x86 instruction (called `Op` to prevent confusion with TAC instructions).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code, reason = "We prefer completeness here")]
 pub enum Op {
     // Stack manipulation
     Push,

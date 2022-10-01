@@ -22,18 +22,12 @@ pub fn compile(prog: TacProgram) -> Assembly {
         .push_decl(Extern("scanf"))
         .push_decl(Global("main"));
 
-    asm.text.main = ProcedureCompiler::<Linux64>::compile(
-        prog.top_level,
-        asm.text.main,
-        CallingConvention::SystemV64,
-    );
+    asm.text.main =
+        ProcedureCompiler::compile(prog.top_level, asm.text.main, CallingConvention::SystemV64);
 
     for (name, listing) in prog.functions {
-        let proc = ProcedureCompiler::<Linux64>::compile(
-            listing,
-            procedure(name),
-            CallingConvention::SystemV64,
-        );
+        let proc =
+            ProcedureCompiler::compile(listing, procedure(name), CallingConvention::SystemV64);
         asm.text.procedures.push(proc);
     }
 

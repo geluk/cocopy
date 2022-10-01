@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
     codegen::register_allocation::{Allocator, Destination},
@@ -10,7 +8,7 @@ use crate::{
 
 use super::{
     assembly::*, calling_convention::CallingConvention, register_allocator::RegisterAllocator,
-    stack_convention::StackConvention, x86::*,
+    x86::*,
 };
 
 #[derive(Debug)]
@@ -55,7 +53,8 @@ impl DeferredOperand {
         position: Position,
     ) -> Operand {
         match self {
-            Reg(deferred, _) => deferred.resolve(allocator, position),
+            // TODO: Improve position handling to make it clear what's happening here
+            Reg(deferred, _) => deferred.resolve(allocator, position - 1),
             Lit(lit) => Operand::Lit(lit as i128),
             Lbl(lbl) => Operand::Lbl(lbl.to_string()),
             Id(id) => Operand::Id(id),
@@ -96,15 +95,14 @@ pub enum Target {
 use DeferredOperand::*;
 use Op::*;
 
-pub struct ProcedureCompiler<C: StackConvention> {
+pub struct ProcedureCompiler {
     asm_listing: Listing<DeferredLine>,
     calling_convention: CallingConvention,
     arg_stack: Vec<Value>,
     current_param: usize,
     current_temp: usize,
-    _phantom: PhantomData<*const C>,
 }
-impl<C: StackConvention> ProcedureCompiler<C> {
+impl ProcedureCompiler {
     /// Compile the given source code into the given procedure.
     pub fn compile(
         listing: TacListing,
@@ -167,7 +165,6 @@ impl<C: StackConvention> ProcedureCompiler<C> {
             arg_stack: vec![],
             current_param: 0,
             current_temp: 0,
-            _phantom: Default::default(),
         };
 
         for (_, instr) in listing.into_lines() {

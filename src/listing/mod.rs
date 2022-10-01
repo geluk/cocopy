@@ -2,7 +2,7 @@
 
 use std::{
     fmt::{Display, Formatter},
-    ops::Add,
+    ops::{Add, Sub},
     slice::Iter,
     vec::IntoIter,
 };
@@ -84,6 +84,14 @@ impl Add<usize> for Position {
         Self(self.0 + rhs)
     }
 }
+impl Sub<usize> for Position {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        Self(self.0 - rhs)
+    }
+}
+
 impl Display for Position {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         self.0.fmt(f)

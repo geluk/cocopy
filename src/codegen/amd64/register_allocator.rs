@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    codegen::register_allocation::{Allocation, Allocator, Lifetime},
+    codegen::register_allocation::{Allocator, Lifetime},
     listing::{Listing, Position},
     prelude::*,
 };
@@ -42,25 +42,15 @@ impl<'l> RegisterAllocator<'l> {
 
         for (name, request) in self.requests {
             debug!("Allocating {name:?}");
-            match request.locks.len() {
-                0 => {
-                    allocator.allocate(name.clone(), request.lifetime);
-                }
-                1 => {
-                    let (pos, reg) = request.locks.into_iter().next().unwrap();
-                    allocator.lock_to(name, request.lifetime, pos, reg);
-                }
-                _ => (),
+            allocator.allocate(name.clone(), request.lifetime);
+
+            for (pos, reg) in request.locks {
+                allocator.lock_to(name, pos, reg);
             }
         }
 
-        for alloc in allocator.iter_reg_allocations() {
-            debug!(
-                "At {} {:?} to {}",
-                alloc.lifetime(),
-                alloc.name(),
-                alloc.register()
-            );
+        for (name, alloc) in allocator.iter_allocations() {
+            debug!("Allocation: {name:?} into:\n{alloc:#?}");
         }
 
         allocator
@@ -69,18 +59,23 @@ impl<'l> RegisterAllocator<'l> {
     fn determine_lifetimes(&mut self) {
         // Process instructions
         for (pos, line) in self.listing.iter_lines() {
-            if let DeferredLine::Instr(instr) = line {
-                if let Some(Target::Deferred(reg)) = &instr.target {
-                    self.expand_lifetime(reg, pos);
-                }
+            match line {
+                DeferredLine::Instr(instr) => {
+                    if let Some(Target::Deferred(reg)) = &instr.target {
+                        self.expand_lifetime(reg, pos);
+                    }
 
-                for operand in instr.operands.iter() {
-                    if let DeferredOperand::Reg(reg, _) = operand {
-                        self.expand_lifetime(reg, pos)
+                    for operand in instr.operands.iter() {
+                        if let DeferredOperand::Reg(reg, _) = operand {
+                            self.expand_lifetime(reg, pos - 1)
+                        }
                     }
                 }
-            } else if let DeferredLine::LockRequest(name, reg) = line {
-                self.add_lock(name, pos, *reg);
+                DeferredLine::LockRequest(name, reg) => {
+                    self.expand_lifetime(name, pos);
+                    self.add_lock(name, pos, *reg);
+                }
+                _ => (),
             }
         }
     }

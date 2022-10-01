@@ -1,46 +1,258 @@
-use std::fmt::{self, Debug, Display, Formatter};
+use std::{
+    fmt::{self, Debug, Display, Formatter},
+    slice::IterMut,
+};
 
 use crate::listing::Position;
 
+#[derive(Debug)]
+/// A combination of a name and one or more locations to which the name is
+/// allocated.
+pub struct NameAllocation<R: Copy + Eq> {
+    lifetime: Lifetime,
+    reg_slices: Vec<RegAllocation<R>>,
+    stack_slices: Vec<StackAllocation>,
+}
+impl<R: Copy + Eq + Debug> NameAllocation<R> {
+    pub fn from_reg(reg: RegAllocation<R>) -> NameAllocation<R> {
+        Self {
+            lifetime: reg.lifetime,
+            reg_slices: vec![reg],
+            stack_slices: vec![],
+        }
+    }
+
+    pub fn from_stack(stack: StackAllocation) -> NameAllocation<R> {
+        Self {
+            lifetime: stack.lifetime,
+            reg_slices: vec![],
+            stack_slices: vec![stack],
+        }
+    }
+
+    pub fn lifetime(&self) -> Lifetime {
+        self.lifetime
+    }
+
+    pub fn has_stack_allocation(&self) -> bool {
+        !self.stack_slices.is_empty()
+    }
+
+    pub fn slice_at(&self, position: Position) -> Destination<R> {
+        let reg = self
+            .reg_slices
+            .iter()
+            .find(|l| l.lifetime.contains(position))
+            .map(Destination::Reg);
+
+        let stack = self
+            .stack_slices
+            .iter()
+            .find(|l| l.lifetime.contains(position))
+            .copied()
+            .map(Destination::Stack);
+
+        reg.or(stack).unwrap_or_else(|| {
+            panic!(
+                "Attempted to look up invalid position {} from slice {:?}",
+                position, self,
+            )
+        })
+    }
+
+    pub fn reg_slice_at(&self, position: Position) -> &RegAllocation<R> {
+        self.reg_slices
+            .iter()
+            .find(|s| s.lifetime.contains(position))
+            .expect("Attempted to look up invalid position")
+    }
+
+    pub fn reg_slice_at_mut(&mut self, position: Position) -> &mut RegAllocation<R> {
+        self.reg_slices
+            .iter_mut()
+            .find(|s| s.lifetime.contains(position))
+            .expect("Attempted to look up invalid position")
+    }
+
+    pub fn iter_stack_slices_mut(&mut self) -> IterMut<StackAllocation> {
+        self.stack_slices.iter_mut()
+    }
+
+    pub fn reg_slices_within(&self, lifetime: Lifetime) -> Vec<&RegAllocation<R>> {
+        self.reg_slices
+            .iter()
+            .filter(|s| s.lifetime.overlaps(lifetime))
+            .collect()
+    }
+
+    pub fn conflicts_on_point(&self, lock_point: Position, target_reg: R) -> bool {
+        self.reg_slices
+            .iter()
+            .any(|s| s.register == target_reg && s.lifetime.contains(lock_point))
+    }
+
+    pub fn conflicts_on_lifetime(&self, lifetime: Lifetime, target_reg: R) -> bool {
+        self.reg_slices
+            .iter()
+            .any(|s| s.register == target_reg && s.lifetime.overlaps(lifetime))
+    }
+
+    pub fn try_kick_from(&mut self, target_reg: R, lifetime: Lifetime) -> bool {
+        // TODO: Does it make sense to keep stack slices and register slices
+        // in the same collection? They're never ever going to conflict after all.
+        let overlapping_slices: Vec<_> = self
+            .reg_slices
+            .iter_mut()
+            .filter(|s| s.register == target_reg && s.lifetime.overlaps(lifetime))
+            .collect();
+
+        if overlapping_slices.iter().any(|s| s.has_lock()) {
+            return false;
+        }
+
+        for _ in overlapping_slices {
+            todo!("Move slice to a new register.")
+        }
+        true
+    }
+}
+
+// #[derive(Debug)]
+// pub struct AllocationSlice<R: Copy + Eq> {
+//     lifetime: Lifetime,
+//     destination: Destination<R>,
+// }
+// impl<R: Copy + Eq> AllocationSlice<R> {
+//     pub fn new(lifetime: Lifetime, destination: Destination<R>) -> Self {
+//         Self {
+//             lifetime,
+//             destination,
+//         }
+//     }
+
+//     pub fn destination(&self) -> &Destination<R> {
+//         &self.destination
+//     }
+
+//     pub fn lifetime(&self) -> Lifetime {
+//         self.lifetime
+//     }
+
+//     pub fn destination_mut(&mut self) -> &mut Destination<R> {
+//         &mut self.destination
+//     }
+
+//     pub fn move_into_and_lock(&mut self, target_reg: R, lock_point: Position) {
+//         if self
+//             .destination
+//             .as_reg()
+//             .map(|r| r.locks.len() > 0 && r.register != target_reg)
+//             .unwrap_or(false)
+//         {
+//             todo!("Can't move this slice! It is already locked to a different register");
+//         }
+
+//         self.destination = Destination::Reg(RegAllocation::new(target_reg, vec![lock_point]));
+//     }
+// }
+
+/// A destination in which the value of a variable will be held.
+/// Values can be stored in a register or on the stack.
+#[derive(Debug)]
+pub enum Destination<'a, R: Copy + Eq> {
+    Reg(&'a RegAllocation<R>),
+    // Stack allocations are `Copy`, so there is no need to pass references.
+    Stack(StackAllocation),
+}
+impl<'a, R: Copy + Eq + Display> Destination<'a, R> {
+    pub fn describe(&self) -> String {
+        match self {
+            Destination::Reg(reg) => format!("{}", reg.register()),
+            Destination::Stack(stack) => format!("stack offset {:?}", stack.offset()),
+        }
+    }
+}
+impl<'a, R: Copy + Eq> Destination<'a, R> {
+    pub fn as_stack_mut(&mut self) -> Option<&mut StackAllocation> {
+        match self {
+            Destination::Reg(_) => None,
+            Destination::Stack(stack) => Some(stack),
+        }
+    }
+    pub fn as_stack(&self) -> Option<&StackAllocation> {
+        match self {
+            Destination::Reg(_) => None,
+            Destination::Stack(stack) => Some(stack),
+        }
+    }
+    pub fn as_reg(&self) -> Option<&RegAllocation<R>> {
+        match self {
+            Destination::Reg(reg) => Some(reg),
+            Destination::Stack(_) => None,
+        }
+    }
+    pub fn lifetime(&self) -> Lifetime {
+        match self {
+            Destination::Reg(reg) => reg.lifetime,
+            Destination::Stack(stack) => stack.lifetime,
+        }
+    }
+}
+
 /// An allocation assigning a variable to a register during a certain lifetime.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegAllocation<N: Eq, R: Copy + Eq> {
-    name: N,
+pub struct RegAllocation<R: Copy + Eq> {
     register: R,
     lifetime: Lifetime,
     locks: Vec<Position>,
 }
-impl<N: Eq, R: Copy + Eq> RegAllocation<N, R> {
-    pub fn new(name: N, register: R, lifetime: Lifetime, locks: Vec<Position>) -> Self {
+impl<R: Copy + Eq> RegAllocation<R> {
+    pub fn new(register: R, lifetime: Lifetime, locks: Vec<Position>) -> Self {
         Self {
-            name,
             register,
-            lifetime,
             locks,
+            lifetime,
         }
     }
+
     pub fn register(&self) -> R {
         self.register
     }
+
+    pub fn lifetime(&self) -> Lifetime {
+        self.lifetime
+    }
+
     pub fn locks(&self) -> &Vec<Position> {
         &self.locks
+    }
+
+    pub fn move_and_lock_to(&mut self, target_reg: R, lock_point: Position) {
+        if self.locks.len() > 0 {
+            panic!("Can't move this slice! It is already locked to a different register")
+        }
+
+        self.register = target_reg;
+        self.locks = vec![lock_point];
+    }
+
+    fn has_lock(&self) -> bool {
+        !self.locks.is_empty()
     }
 }
 
 /// An allocation assigning a variable to a point on the stack during a certain
 /// lifetime.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StackAllocation<N> {
-    name: N,
-    lifetime: Lifetime,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StackAllocation {
     offset: BaseOffset,
+    lifetime: Lifetime,
 }
-impl<N> StackAllocation<N> {
-    pub fn new(name: N, lifetime: Lifetime) -> Self {
+impl StackAllocation {
+    pub fn new(lifetime: Lifetime) -> Self {
         Self {
-            name,
-            lifetime,
             offset: Default::default(),
+            lifetime,
         }
     }
     pub fn offset(&self) -> BaseOffset {
@@ -51,51 +263,9 @@ impl<N> StackAllocation<N> {
     }
 }
 
-/// Functionality common to both register and stack allocations.
-pub trait Allocation<N: Eq> {
-    fn name(&self) -> &N;
-    fn lifetime(&self) -> Lifetime;
-
-    /// Returns `true` if the given name and lifetime exactly match the current
-    /// allocation.
-    fn matches(&self, name: &N, lifetime: Lifetime) -> bool {
-        self.name() == name && self.lifetime() == lifetime
-    }
-
-    /// Returns `true` if the given name matches the current allocation and
-    /// their lifetimes overlap.
-    fn conflicts_with(&self, name: &N, lifetime: Lifetime) -> bool {
-        self.name() == name && self.lifetime().overlaps(lifetime)
-    }
-
-    /// Returns `true` if the given name matches the current allocation and
-    /// the current allocation's lifetime contains the given position.
-    fn contains(&self, name: &N, location: Position) -> bool {
-        self.name() == name && self.lifetime().contains(location)
-    }
-}
-impl<N: Eq, R: Copy + Eq> Allocation<N> for RegAllocation<N, R> {
-    fn name(&self) -> &N {
-        &self.name
-    }
-
-    fn lifetime(&self) -> Lifetime {
-        self.lifetime
-    }
-}
-impl<N: Eq> Allocation<N> for StackAllocation<N> {
-    fn name(&self) -> &N {
-        &self.name
-    }
-
-    fn lifetime(&self) -> Lifetime {
-        self.lifetime
-    }
-}
-
 /// A lifetime of an allocation, indicated by a start position (inclusive) and
 /// an end position (exclusive) in the source code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Lifetime {
     start: Position,
     end: Position,
@@ -142,6 +312,11 @@ impl Lifetime {
 impl Display for Lifetime {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}:{}", self.start.0, self.end.0)
+    }
+}
+impl Debug for Lifetime {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_fmt(format_args!("Lifetime({}:{})", self.start, self.end))
     }
 }
 
