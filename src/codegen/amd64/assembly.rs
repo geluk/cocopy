@@ -254,7 +254,11 @@ impl<T: PartialEq> PartialEq for Line<T> {
 impl<T: Display> Display for Line<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         if let Some(lbl) = &self.label {
-            writeln!(f, "{}:", lbl)?;
+            if lbl.starts_with(".") {
+                writeln!(f, "  {}:", lbl)?;
+            } else {
+                writeln!(f, "{}:", lbl)?;
+            }
         }
 
         match (&self.line, self.comment.as_ref()) {

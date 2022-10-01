@@ -11,7 +11,7 @@ const SYSTEM_V_PARAMS: &[Register] = &[Rdi, Rsi, Rdx, Rcx, R8, R9];
 const SYSTEM_V_CALLEE_SAVE: &[Register] = &[Rbx, Rsp, Rbp, R12, R13, R14, R15];
 const MICROSOFT_CALLEE_SAVE: &[Register] = &[Rbx, Rsp, Rbp, Rsi, Rdi, R12, R13, R14, R15];
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum CallingConvention {
     /// The Microsoft x64 calling convention
     Microsoft64,

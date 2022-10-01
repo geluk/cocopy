@@ -63,7 +63,12 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
         trace!("Try to lock {name:?} (with lifetime {alloc_lifetime}) to {target_reg:?} at {lock_point}");
 
         // Maybe we already assigned it to the right register by sheer dumb luck?
-        if allocation.reg_slice_at(lock_point).register() == target_reg {
+        if allocation
+            .reg_slice_at(lock_point)
+            .expect("Attempted to look up invalid position")
+            .register()
+            == target_reg
+        {
             // Well now that's convenient!
             trace!("No need to lock {name:?} to {target_reg:?}, it's already there");
             // Don't forget to put it back though:
@@ -138,6 +143,13 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
 
     pub fn iter_allocations(&self) -> Iter<N, NameAllocation<R>> {
         self.name_allocations.iter()
+    }
+
+    pub fn live_regs_at(&self, position: Position) -> Vec<&RegAllocation<R>> {
+        self.name_allocations
+            .values()
+            .filter_map(|a| a.reg_slice_at(position))
+            .collect()
     }
 
     /// Assign a register or a stack position to the given variable during the

@@ -1,11 +1,10 @@
 //! Native code generation for 64-bit Windows.
 
-use crate::il::*;
+use crate::{codegen::amd64::procedure_compiler, il::*};
 
 use super::{
     assembly::*,
     calling_convention::CallingConvention,
-    procedure_compiler::ProcedureCompiler,
     stack_convention::{self, StackConvention, Windows64},
     x86::*,
 };
@@ -32,15 +31,18 @@ pub fn compile(prog: TacProgram) -> Assembly {
         .push(Op::Call, [Id("_CRT_INIT".to_string())])
         .blank();
 
-    asm.text.main = ProcedureCompiler::compile(
+    asm.text.main = procedure_compiler::compile::<Windows64>(
         prog.top_level,
         asm.text.main,
         CallingConvention::Microsoft64,
     );
 
     for (name, listing) in prog.functions {
-        let proc =
-            ProcedureCompiler::compile(listing, procedure(name), CallingConvention::Microsoft64);
+        let proc = procedure_compiler::compile::<Windows64>(
+            listing,
+            procedure(name),
+            CallingConvention::Microsoft64,
+        );
         asm.text.procedures.push(proc);
     }
 

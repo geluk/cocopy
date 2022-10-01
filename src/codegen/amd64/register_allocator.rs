@@ -11,22 +11,23 @@ use super::{
     x86::*,
 };
 
-pub struct RegisterAllocator<'l> {
+pub struct LifetimeAnalysis<'l> {
     requests: HashMap<&'l DeferredReg, AllocationRequest>,
     listing: &'l Listing<DeferredLine>,
 }
-impl<'l> RegisterAllocator<'l> {
-    pub fn preprocess(listing: &'l Listing<DeferredLine>) -> Allocator<DeferredReg, Register> {
-        let preprocessor = Self {
+impl<'l> LifetimeAnalysis<'l> {
+    pub fn create_allocator_for(
+        listing: &'l Listing<DeferredLine>,
+    ) -> Allocator<DeferredReg, Register> {
+        let mut analysis = Self {
             requests: Default::default(),
             listing,
         };
-        preprocessor.assign_regs()
+        analysis.determine_lifetimes();
+        analysis.make_allocator()
     }
 
-    fn assign_regs(mut self) -> Allocator<DeferredReg, Register> {
-        self.determine_lifetimes();
-
+    fn make_allocator(self) -> Allocator<DeferredReg, Register> {
         for (name, rq) in self.requests.iter() {
             trace!(
                 "Lifetime of {name:?} is {}:{}",
@@ -67,7 +68,7 @@ impl<'l> RegisterAllocator<'l> {
 
                     for operand in instr.operands.iter() {
                         if let DeferredOperand::Reg(reg, _) = operand {
-                            self.expand_lifetime(reg, pos - 1)
+                            self.expand_lifetime(&reg, pos - 1)
                         }
                     }
                 }

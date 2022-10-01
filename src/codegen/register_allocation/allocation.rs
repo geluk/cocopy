@@ -60,11 +60,10 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
         })
     }
 
-    pub fn reg_slice_at(&self, position: Position) -> &RegAllocation<R> {
+    pub fn reg_slice_at(&self, position: Position) -> Option<&RegAllocation<R>> {
         self.reg_slices
             .iter()
             .find(|s| s.lifetime.contains(position))
-            .expect("Attempted to look up invalid position")
     }
 
     pub fn reg_slice_at_mut(&mut self, position: Position) -> &mut RegAllocation<R> {
@@ -116,45 +115,6 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
         true
     }
 }
-
-// #[derive(Debug)]
-// pub struct AllocationSlice<R: Copy + Eq> {
-//     lifetime: Lifetime,
-//     destination: Destination<R>,
-// }
-// impl<R: Copy + Eq> AllocationSlice<R> {
-//     pub fn new(lifetime: Lifetime, destination: Destination<R>) -> Self {
-//         Self {
-//             lifetime,
-//             destination,
-//         }
-//     }
-
-//     pub fn destination(&self) -> &Destination<R> {
-//         &self.destination
-//     }
-
-//     pub fn lifetime(&self) -> Lifetime {
-//         self.lifetime
-//     }
-
-//     pub fn destination_mut(&mut self) -> &mut Destination<R> {
-//         &mut self.destination
-//     }
-
-//     pub fn move_into_and_lock(&mut self, target_reg: R, lock_point: Position) {
-//         if self
-//             .destination
-//             .as_reg()
-//             .map(|r| r.locks.len() > 0 && r.register != target_reg)
-//             .unwrap_or(false)
-//         {
-//             todo!("Can't move this slice! It is already locked to a different register");
-//         }
-
-//         self.destination = Destination::Reg(RegAllocation::new(target_reg, vec![lock_point]));
-//     }
-// }
 
 /// A destination in which the value of a variable will be held.
 /// Values can be stored in a register or on the stack.
@@ -228,7 +188,7 @@ impl<R: Copy + Eq> RegAllocation<R> {
     }
 
     pub fn move_and_lock_to(&mut self, target_reg: R, lock_point: Position) {
-        if self.locks.len() > 0 {
+        if !self.locks.is_empty() {
             panic!("Can't move this slice! It is already locked to a different register")
         }
 

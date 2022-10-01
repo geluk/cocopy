@@ -25,6 +25,10 @@ impl<T> Listing<T> {
             position: Position(0),
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.lines.len()
+    }
 }
 
 pub struct LinesIter<'item, T> {

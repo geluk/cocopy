@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
     codegen::register_allocation::{Allocator, Destination},
@@ -7,8 +9,8 @@ use crate::{
 };
 
 use super::{
-    assembly::*, calling_convention::CallingConvention, register_allocator::RegisterAllocator,
-    x86::*,
+    assembly::*, calling_convention::CallingConvention, register_allocator::LifetimeAnalysis,
+    stack_convention::StackConvention, x86::*,
 };
 
 #[derive(Debug)]
@@ -56,7 +58,7 @@ impl DeferredOperand {
             // TODO: Improve position handling to make it clear what's happening here
             Reg(deferred, _) => deferred.resolve(allocator, position - 1),
             Lit(lit) => Operand::Lit(lit as i128),
-            Lbl(lbl) => Operand::Lbl(lbl.to_string()),
+            Lbl(lbl) => Operand::Lbl(format!(".{lbl}")),
             Id(id) => Operand::Id(id),
         }
     }
@@ -95,67 +97,112 @@ pub enum Target {
 use DeferredOperand::*;
 use Op::*;
 
-pub struct ProcedureCompiler {
+pub fn compile<S: StackConvention>(
+    listing: TacListing,
+    procedure: Procedure,
+    calling_convention: CallingConvention,
+) -> Procedure {
+    debug!("Compiling procedure '{}'", procedure.name);
+    let instrs = DeferringCompiler::compile_deferred(calling_convention, listing);
+    for instr in instrs.iter_lines() {
+        trace!("{instr:?}")
+    }
+
+    debug!("Performing lifetime analysis");
+    let allocator = LifetimeAnalysis::create_allocator_for(&instrs);
+
+    resolve_deferred_instrs::<S>(instrs, procedure, allocator, calling_convention)
+}
+
+fn resolve_deferred_instrs<S: StackConvention>(
+    instrs: Listing<DeferredLine>,
+    mut procedure: Procedure,
+    allocator: Allocator<DeferredReg, Register>,
+    calling_convention: CallingConvention,
+) -> Procedure {
+    let mut pushed_regs = vec![];
+    let callee_saved: HashSet<_> = calling_convention.get_callee_saved_regs().iter().collect();
+    let last_line = Position(instrs.len() - 1);
+    let mut stack_size = 0;
+    let mut aligned_bytes = 0;
+
+    for (position, line) in instrs.into_iter() {
+        match line {
+            DeferredLine::Comment(cmt) => {
+                procedure.body.push_cmt_only(cmt);
+            }
+            DeferredLine::Label(lbl) => procedure.body.add_label(format!(".{lbl}")),
+            DeferredLine::Instr(instr) => {
+                let mut operands: Vec<_> = instr
+                    .operands
+                    .into_iter()
+                    .map(|o| o.resolve(&allocator, position))
+                    .collect();
+
+                if let Some(target) = instr.target {
+                    let tgt_op = match target {
+                        Target::Deferred(df) => df.resolve(&allocator, position),
+                        Target::Reg(r) => Operand::Reg(r),
+                    };
+                    operands.insert(0, tgt_op);
+                }
+
+                procedure.body.push(instr.op, operands);
+            }
+            DeferredLine::LockRequest(_, _) => (),
+            DeferredLine::CallerPreserve => {
+                for reg_to_push in allocator
+                    .live_regs_at(position)
+                    .into_iter()
+                    .map(|a| a.register())
+                    .filter(|r| !callee_saved.contains(&r))
+                {
+                    procedure.body.push(Push, [Operand::Reg(reg_to_push)]);
+                    stack_size += reg_to_push.byte_size();
+                    pushed_regs.push(reg_to_push);
+                }
+                let alignment = calling_convention.stack_alignment();
+                let misaligned_bytes = stack_size % alignment;
+                if misaligned_bytes != 0 {
+                    aligned_bytes = (alignment - misaligned_bytes) as i128;
+                    procedure.body.push(
+                        Sub,
+                        [Operand::Reg(Register::Rsp), Operand::Lit(aligned_bytes)],
+                    );
+                }
+            }
+            DeferredLine::CallerRestore => {
+                procedure.body.push(
+                    Add,
+                    [Operand::Reg(Register::Rsp), Operand::Lit(aligned_bytes)],
+                );
+                for reg_to_pop in pushed_regs.drain(..).rev() {
+                    procedure.body.push(Pop, [Operand::Reg(reg_to_pop)]);
+                    stack_size -= reg_to_pop.byte_size();
+                }
+            }
+            DeferredLine::AlignStack => {}
+            DeferredLine::Return => {
+                if position != last_line {
+                    S::add_epilogue(&mut procedure.body);
+                }
+            }
+        }
+    }
+
+    procedure
+}
+
+pub struct DeferringCompiler {
     asm_listing: Listing<DeferredLine>,
     calling_convention: CallingConvention,
     arg_stack: Vec<Value>,
     current_param: usize,
     current_temp: usize,
 }
-impl ProcedureCompiler {
-    /// Compile the given source code into the given procedure.
-    pub fn compile(
-        listing: TacListing,
-        mut procedure: Procedure,
-        calling_convention: CallingConvention,
-    ) -> Procedure {
-        debug!("Compiling procedure '{}'", procedure.name);
-
-        debug!("Compiling");
-        let instrs = Self::compile_internal(calling_convention, listing);
-        for instr in instrs.iter_lines() {
-            debug!("{instr:?}")
-        }
-
-        debug!("Preprocessing");
-        let allocator = RegisterAllocator::preprocess(&instrs);
-
-        for (position, line) in instrs.into_iter() {
-            match line {
-                DeferredLine::Comment(cmt) => {
-                    procedure.body.push_cmt_only(cmt);
-                }
-                DeferredLine::Label(lbl) => procedure.body.add_label(lbl.to_string()),
-                DeferredLine::Instr(instr) => {
-                    let mut operands: Vec<_> = instr
-                        .operands
-                        .into_iter()
-                        .map(|o| o.resolve(&allocator, position))
-                        .collect();
-
-                    if let Some(target) = instr.target {
-                        let tgt_op = match target {
-                            Target::Deferred(df) => df.resolve(&allocator, position),
-                            Target::Reg(r) => Operand::Reg(r),
-                        };
-                        operands.insert(0, tgt_op);
-                    }
-
-                    procedure.body.push(instr.op, operands);
-                }
-                DeferredLine::LockRequest(_, _) => (),
-                DeferredLine::CallerPreserve => (),
-                DeferredLine::CallerRestore => (),
-                DeferredLine::AlignStack => (),
-                DeferredLine::Return => todo!(),
-            }
-        }
-
-        procedure
-    }
-
+impl DeferringCompiler {
     /// Construct a new procedure compiler for the given procedure.
-    fn compile_internal(
+    fn compile_deferred(
         calling_convention: CallingConvention,
         listing: TacListing,
     ) -> Listing<DeferredLine> {
@@ -335,6 +382,9 @@ impl ProcedureCompiler {
             todo!("Can't deal with more than {} parameters yet.", max_params);
         }
 
+        self.asm_listing.push(DeferredLine::CallerPreserve);
+        self.asm_listing.push(DeferredLine::AlignStack);
+
         let param_regs: Vec<_> = self
             .calling_convention
             .iter_params(param_count)
@@ -346,9 +396,6 @@ impl ProcedureCompiler {
             let value = self.arg_stack.pop().expect("Parameter count mismatch!");
             self.emit_lock_or_write(value, reg);
         }
-
-        self.asm_listing.push(DeferredLine::CallerPreserve);
-        self.asm_listing.push(DeferredLine::AlignStack);
 
         // TODO: How to notify that RAX will be written to?
         // Might not be necessary if caller preservation includes RAX.

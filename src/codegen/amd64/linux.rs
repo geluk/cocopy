@@ -1,10 +1,9 @@
 //! Native code generation for 64-bit Linux.
-use crate::il::TacProgram;
+use crate::{codegen::amd64::procedure_compiler, il::TacProgram};
 
 use super::{
     assembly::*,
     calling_convention::CallingConvention,
-    procedure_compiler::ProcedureCompiler,
     stack_convention::{self, Linux64},
     x86::*,
 };
@@ -22,12 +21,18 @@ pub fn compile(prog: TacProgram) -> Assembly {
         .push_decl(Extern("scanf"))
         .push_decl(Global("main"));
 
-    asm.text.main =
-        ProcedureCompiler::compile(prog.top_level, asm.text.main, CallingConvention::SystemV64);
+    asm.text.main = procedure_compiler::compile::<Linux64>(
+        prog.top_level,
+        asm.text.main,
+        CallingConvention::SystemV64,
+    );
 
     for (name, listing) in prog.functions {
-        let proc =
-            ProcedureCompiler::compile(listing, procedure(name), CallingConvention::SystemV64);
+        let proc = procedure_compiler::compile::<Linux64>(
+            listing,
+            procedure(name),
+            CallingConvention::SystemV64,
+        );
         asm.text.procedures.push(proc);
     }
 
