@@ -69,6 +69,7 @@ fn resolve_deferred_instrs<S: StackConvention>(
                 procedure.body.push(instr.op, operands);
             }
             DeferredLine::LockRequest(_, _) => (),
+            DeferredLine::ImplicitRead(_) => (),
             DeferredLine::CallerPreserve => {
                 for reg_to_push in allocator
                     .live_regs_at(position)
@@ -155,9 +156,7 @@ impl DeferringCompiler {
             TacInstr::IfCmp(lhs, op, rhs, label) => self.compile_compare_jump(lhs, op, rhs, label),
             TacInstr::Return(val) => self.compile_return(val),
             TacInstr::Label(lbl) => self.asm_listing.push(DeferredLine::Label(lbl)),
-            // If this happens, the optimiser has failed and we won't be able to generate code
-            // for branching statements, so we should bail here.
-            TacInstr::Phi(_, _) => unreachable!("Phi was not optimised away!"),
+            TacInstr::Phi(_, names) => self.compile_phi(names),
             TacInstr::Goto(tgt) => {
                 self.emit(Jmp, [Lbl(tgt)]);
             }
@@ -353,9 +352,21 @@ impl DeferringCompiler {
                     Reg(deferred_reg, semantics)
                 }
             }
-            Value::Name(Name::Sub(var)) => Reg(DeferredReg::Sub(var), semantics),
-            Value::Name(Name::Temp(temp)) => Reg(DeferredReg::Temp(temp), semantics),
+            Value::Name(n) => Reg(DeferredReg::from_name(n), semantics),
         }
+    }
+
+    fn compile_phi(&mut self, mut names: Vec<Name>) {
+        if names.len() != 1 {
+            // If this happens, the optimiser has failed and we won't be able to generate code
+            // for branching statements, so we should bail here.
+            panic!("Phi was not optimised correctly!");
+        }
+
+        self.asm_listing
+            .push(DeferredLine::ImplicitRead(DeferredReg::from_name(
+                names.pop().unwrap(),
+            )))
     }
 
     fn emit_lock_or_write(&mut self, value: Value, register: Register) {

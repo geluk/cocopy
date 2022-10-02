@@ -14,6 +14,7 @@ pub enum DeferredLine {
     Label(Label),
     Instr(DeferredInstr),
     LockRequest(DeferredReg, Register),
+    ImplicitRead(DeferredReg),
     CallerPreserve,
     CallerRestore,
     AlignStack,
@@ -36,7 +37,8 @@ impl Display for DeferredLine {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Self::LockRequest(dfr, reg) => write!(f, "lock {dfr:?} to {reg}"),
+            Self::LockRequest(dfr, reg) => write!(f, "lock {dfr} to {reg}"),
+            Self::ImplicitRead(dfr) => write!(f, "implicit_read {dfr}"),
             Self::CallerPreserve => f.write_str("caller_preserve"),
             Self::CallerRestore => f.write_str("caller_restore"),
             Self::AlignStack => f.write_str("align_stack"),

@@ -3,6 +3,8 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
+use log::trace;
+
 use crate::listing::Position;
 
 use super::{MatchInstruction, TacInstr, TacListing, TacProgram, Value};
@@ -168,7 +170,11 @@ impl Optimiser {
             })
             .collect();
 
-        self.remove_lines(phi_fns);
+        for line in phi_fns.into_iter() {
+            let instr = self.listing.instruction_mut(line);
+            let (tgt, _) = instr.as_phi().unwrap();
+            *instr = TacInstr::Phi(tgt.clone(), vec![tgt.clone()])
+        }
 
         for (src_name, dest_name) in replacements {
             for instr in self.listing.iter_instructions_mut() {

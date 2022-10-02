@@ -61,6 +61,10 @@ impl<T> Listing<T> {
     pub fn len(&self) -> usize {
         self.lines.len()
     }
+
+    pub fn instruction_mut(&mut self, line: Position) -> &mut T {
+        self.lines.get_mut(line.0).expect("Invalid line numbers")
+    }
 }
 impl<T: Display> Display for Listing<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
