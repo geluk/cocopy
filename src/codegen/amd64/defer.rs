@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 
 use crate::{
     codegen::register_allocation::{Allocator, Destination},
-    il::*,
+    il::{Label, Name, TargetSize, Variable},
     listing::Position,
 };
 
@@ -104,6 +104,13 @@ pub enum DeferredReg {
     AsmTemp(usize),
 }
 impl DeferredReg {
+    /// Convert a [`Name`] to a deferred register.
+    pub fn from_name(name: Name) -> DeferredReg {
+        match name {
+            Name::Sub(sub) => Self::Sub(sub),
+            Name::Temp(temp) => Self::Temp(temp),
+        }
+    }
     /// Given an allocator and a source code position, resolve the deferred
     /// register back to an assembly operand.
     pub fn resolve(

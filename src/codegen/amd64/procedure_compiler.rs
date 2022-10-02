@@ -73,10 +73,7 @@ fn resolve_deferred_instrs<S: StackConvention>(
                 for reg_to_push in allocator
                     .live_regs_at(position)
                     .into_iter()
-                    .map(|a| {
-                        info!("At {position}: {a:?}");
-                        a.register()
-                    })
+                    .map(|a| a.register())
                     .filter(|&r| calling_convention.is_caller_saved(r))
                 {
                     procedure.body.push(Push, [Operand::Reg(reg_to_push)]);

@@ -28,7 +28,7 @@ impl<'l> LifetimeAnalysis<'l> {
     fn make_allocator(self) -> Allocator<DeferredReg, Register> {
         for (name, rq) in self.requests.iter() {
             trace!(
-                "Lifetime of {name:?} is {}:{}",
+                "Lifetime of {name} is {}:{}",
                 rq.lifetime.start().0,
                 rq.lifetime.end().0
             );
@@ -40,7 +40,7 @@ impl<'l> LifetimeAnalysis<'l> {
         let mut allocator = Allocator::new(Register::iter().copied().collect());
 
         for (name, request) in self.requests.into_iter() {
-            debug!("Allocating {name:?}");
+            debug!("Allocating {name}");
             allocator.allocate(name.clone(), request.lifetime);
 
             for (pos, reg) in request.locks {
@@ -49,7 +49,7 @@ impl<'l> LifetimeAnalysis<'l> {
         }
 
         for (name, alloc) in allocator.iter_allocations() {
-            debug!("Allocation: {name:?} into:\n{alloc:#?}");
+            debug!("Allocation: {name} into:\n{alloc:#?}");
         }
 
         debug!("Assigning stack offsets");
@@ -71,6 +71,9 @@ impl<'l> LifetimeAnalysis<'l> {
                             self.expand_lifetime(reg, pos - 1)
                         }
                     }
+                }
+                DeferredLine::ImplicitRead(reg) => {
+                    self.expand_lifetime(reg, pos);
                 }
                 DeferredLine::LockRequest(name, reg) => {
                     self.expand_lifetime(name, pos);

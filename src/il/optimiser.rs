@@ -59,6 +59,16 @@ impl Optimiser {
         self.remove_lines(candidates);
     }
 
+    /// Remove function call assignments to names that are never read.
+    ///
+    /// Optimises:
+    /// ```
+    /// a^1 = call print (10)
+    /// ```
+    /// To:
+    /// ```
+    /// call print (10)
+    /// ```
     fn remove_unused_return_assignments(&mut self) {
         let candidates: HashSet<_> = self
             .listing

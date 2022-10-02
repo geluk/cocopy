@@ -1,6 +1,6 @@
 use std::collections::hash_map::{Entry, Iter};
 use std::collections::{HashMap, HashSet};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use log::trace;
@@ -18,7 +18,9 @@ pub struct Allocator<N: Eq, R: Copy + Eq> {
     name_allocations: HashMap<N, NameAllocation<R>>,
 }
 
-impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> {
+impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Display>
+    Allocator<N, R>
+{
     pub fn new(registers: Vec<R>) -> Self {
         Self {
             registers,
@@ -36,7 +38,7 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
         match self.name_allocations.entry(name) {
             Entry::Occupied(ocp) => {
                 panic!(
-                    "Attempted to allocate '{:?}', but it was already allocated.",
+                    "Attempted to allocate '{}', but it was already allocated.",
                     ocp.key()
                 );
             }
@@ -60,7 +62,9 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
             .unwrap_or_else(|| panic!("Attempted to lock unallocated name '{name:?}'"));
 
         let alloc_lifetime = allocation.lifetime();
-        trace!("Try to lock {name:?} (with lifetime {alloc_lifetime}) to {target_reg:?} at {lock_point}");
+        trace!(
+            "Try to lock {name} (with lifetime {alloc_lifetime}) to {target_reg} at {lock_point}"
+        );
 
         // Maybe we already assigned it to the right register by sheer dumb luck?
         if allocation
@@ -70,7 +74,7 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
             == target_reg
         {
             // Well now that's convenient!
-            trace!("No need to lock {name:?} to {target_reg:?}, it's already there");
+            trace!("No need to lock {name} to {target_reg}, it's already there");
             // Don't forget to put it back though:
             self.name_allocations.insert(name, allocation);
             // Cave Johnson, we're done here.
@@ -89,7 +93,7 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
             .any(|a| a.conflicts_on_lifetime(lifetime, target_reg))
         {
             // Yes We Can!
-            trace!("No conflicting allocations on {target_reg:?}, moving entire slice");
+            trace!("No conflicting allocations on {target_reg}, moving entire slice");
             slice_in_question.move_and_lock_to(target_reg, lock_point);
             self.name_allocations.insert(name, allocation);
             return;
@@ -118,7 +122,7 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
         }
 
         // Now we have no more overlapping allocations, so we can move our slice.
-        trace!("Removed conflicting allocations on {target_reg:?}, moving entire slice");
+        trace!("Removed conflicting allocations on {target_reg}, moving entire slice");
         slice_in_question.move_and_lock_to(target_reg, lock_point);
         self.name_allocations.insert(name, allocation);
     }
@@ -146,7 +150,6 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
 
     /// Lookup the storage destination for a variable at the given location.
     pub fn lookup(&self, name: &N, position: Position) -> Destination<R> {
-        trace!("Look up {position} for {name:?}");
         self.name_allocations[name].slice_at(position)
     }
 
@@ -209,7 +212,11 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
 mod tests {
 
     use super::*;
-    use std::{assert_matches::assert_matches, slice::Iter};
+    use std::{
+        assert_matches::assert_matches,
+        fmt::{self, Formatter},
+        slice::Iter,
+    };
 
     #[test]
     pub fn lifetime_contained_in_other() {
@@ -267,6 +274,11 @@ mod tests {
         pub fn iter() -> Iter<'static, Self> {
             use self::Reg::*;
             [A, B, C, D].iter()
+        }
+    }
+    impl Display for Reg {
+        fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+            write!(f, "{:?}", self)
         }
     }
 

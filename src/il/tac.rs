@@ -148,7 +148,7 @@ impl TacInstr {
         }
     }
 
-    /// Replace all occurrences of a value in this instruction with another value.
+    /// Replace all occurrences of a name in this instruction with a value.
     pub fn replace(&mut self, src: &Name, dest: Cow<Value>) {
         fn try_replace(tgt: &mut Value, src: &Name, dest: Cow<Value>) {
             if let Value::Name(name) = tgt {
