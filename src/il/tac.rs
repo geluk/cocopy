@@ -5,17 +5,17 @@ use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter},
     hash::Hash,
-    iter::Enumerate,
-    slice::{Iter, IterMut},
-    vec::IntoIter,
 };
 
 use crate::{
     ast::typed::{BinOp, CmpOp},
     builtins::Builtin,
+    listing::{Listing, Position},
 };
 
 pub type TargetSize = isize;
+
+pub type TacListing = Listing<Instruction>;
 
 #[derive(Debug)]
 pub struct TacProgram {
@@ -63,69 +63,16 @@ impl Display for TacProgram {
     }
 }
 
-/// A listing of three-address code. This will normally represent a function body
-/// or the top-level function.
-#[derive(Debug, Clone)]
-pub struct TacListing {
-    instructions: Vec<Instruction>,
-}
-impl TacListing {
-    pub fn new() -> Self {
-        Self {
-            instructions: vec![],
-        }
-    }
-
-    pub fn push(&mut self, instruction: Instruction) {
-        self.instructions.push(instruction)
-    }
-
-    pub fn into_lines(self) -> Enumerate<IntoIter<Instruction>> {
-        self.instructions.into_iter().enumerate()
-    }
-
-    pub fn iter_lines(&self) -> Enumerate<Iter<Instruction>> {
-        self.instructions.iter().enumerate()
-    }
-
-    pub fn iter_lines_mut(&mut self) -> Enumerate<IterMut<Instruction>> {
-        self.instructions.iter_mut().enumerate()
-    }
-
-    pub fn iter_instructions(&self) -> Iter<Instruction> {
-        self.instructions.iter()
-    }
-
-    pub fn iter_mut(&mut self) -> IterMut<Instruction> {
-        self.instructions.iter_mut()
-    }
-
-    pub fn remove(&mut self, line: usize) {
-        self.instructions.remove(line);
-    }
-
-    #[cfg(test)]
-    pub fn into_vec(self) -> Vec<Instruction> {
-        self.instructions
-    }
-
-    pub fn is_used_after(&self, name: &Name, index: usize) -> bool {
+impl Listing<Instruction> {
+    pub fn is_used_after(&self, name: &Name, position: Position) -> bool {
         // We can probably always subtract 1 from `len` here
-        if index >= self.instructions.len() {
+        if position.0 >= self.len() {
             return false;
         }
 
-        self.instructions[index..]
-            .iter()
-            .any(|instr| instr.reads_from_name(name))
-    }
-}
-impl Display for TacListing {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        for instr in &self.instructions {
-            writeln!(f, "{}", instr)?;
-        }
-        Ok(())
+        self.iter_lines()
+            .skip_while(|(l, _)| l < &position)
+            .any(|(_, instr)| instr.reads_from_name(name))
     }
 }
 
@@ -462,12 +409,12 @@ pub struct LineNumberIter<I, F> {
 }
 impl<A, B, I, F> Iterator for LineNumberIter<I, F>
 where
-    I: Iterator<Item = (usize, A)>,
+    I: Iterator<Item = (Position, A)>,
     F: FnMut(A) -> Option<B>,
 {
-    type Item = (usize, B);
+    type Item = (Position, B);
 
-    fn next(&mut self) -> Option<(usize, B)> {
+    fn next(&mut self) -> Option<(Position, B)> {
         self.iter
             .find_map(|(line, a)| (self.f)(a).map(|x| (line, x)))
     }
@@ -480,7 +427,7 @@ pub trait MatchInstruction<A, I> {
 }
 impl<'a, I> MatchInstruction<&'a Instruction, I> for I
 where
-    I: Iterator<Item = (usize, &'a Instruction)>,
+    I: Iterator<Item = (Position, &'a Instruction)>,
 {
     fn match_instruction<P, B>(self, pred: P) -> LineNumberIter<I, P>
     where

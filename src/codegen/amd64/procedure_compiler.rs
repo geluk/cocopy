@@ -210,7 +210,7 @@ impl DeferringCompiler {
         listing: TacListing,
     ) -> Listing<DeferredLine> {
         let mut compiler = Self {
-            asm_listing: Listing::empty(),
+            asm_listing: Listing::new(),
             calling_convention,
             arg_stack: vec![],
             current_param: 0,

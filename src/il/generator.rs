@@ -368,7 +368,7 @@ mod tests {
             let program = verify_well_typed(program).unwrap();
             let instrs = generate(program).top_level;
 
-            let instr_lines: Vec<_> = instrs.into_vec().iter().map(|i| i.to_string()).collect();
+            let instr_lines: Vec<_> = instrs.into_instructions().map(|i| i.to_string()).collect();
 
             assert_eq!(&$il[..], instr_lines)
         }};
@@ -378,7 +378,7 @@ mod tests {
     fn simple_program_generates_tac() {
         assert_generates!(
             "a:int = 10\na = a + (100 + 1)",
-            ["a^1 = 10", "%t1 = 100 + 1", "%t2 = a^1 + %t1", "a^2 = %t2",]
+            ["a^1 = 10", "%1 = 100 + 1", "%2 = a^1 + %1", "a^2 = %2",]
         )
     }
 
@@ -390,7 +390,7 @@ mod tests {
                 "a^1 = 1",
                 "if_false a^1 goto if_end_1",
                 "arg 1",
-                "%t1 = call print, 1",
+                "%1 = call print, 1",
                 "if_end_1: nop"
             ]
         )
@@ -398,6 +398,6 @@ mod tests {
 
     #[test]
     fn function_call_generates_param_and_call() {
-        assert_generates!("print(999)", ["arg 999", "%t1 = call print, 1",])
+        assert_generates!("print(999)", ["arg 999", "%1 = call print, 1",])
     }
 }

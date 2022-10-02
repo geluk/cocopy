@@ -1,9 +1,9 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
-    iter::Enumerate,
-    slice::{Iter, IterMut},
 };
+
+use crate::listing::Position;
 
 use super::{InstrKind, Instruction, MatchInstruction, TacListing, TacProgram, Value};
 
@@ -49,6 +49,7 @@ impl Optimiser {
     /// ```
     fn remove_unused_assignments(&mut self) {
         let candidates = self
+            .listing
             .iter_lines()
             // Instructions with labels on them may be jumped to, and should never be deleted.
             .filter(|(_, instr)| instr.label.is_none())
@@ -62,6 +63,7 @@ impl Optimiser {
 
     fn remove_unused_return_assignments(&mut self) {
         let candidates: HashSet<_> = self
+            .listing
             .iter_lines()
             .match_instruction(Instruction::as_call)
             .filter_map(|(line, (name, _, _))| name.map(|n| (line, n)))
@@ -70,6 +72,7 @@ impl Optimiser {
             .collect();
 
         for (_, instr) in self
+            .listing
             .iter_lines_mut()
             .filter(|(l, _)| candidates.contains(l))
         {
@@ -98,6 +101,7 @@ impl Optimiser {
         let mut replacements = HashMap::new();
 
         for (line, (name, value)) in self
+            .listing
             .iter_lines()
             .filter(|(_, instr)| instr.may_delete())
             .match_instruction(Instruction::as_assign)
@@ -109,10 +113,10 @@ impl Optimiser {
         for (name, (line, value)) in replacements {
             if self
                 .listing
-                .iter_mut()
+                .iter_instructions_mut()
                 .all(|instr| instr.may_replace(&name))
             {
-                for instr in self.listing.iter_mut() {
+                for instr in self.listing.iter_instructions_mut() {
                     instr.replace(&name, Cow::Borrowed(&value));
                 }
                 assignments.push(line);
@@ -148,6 +152,7 @@ impl Optimiser {
     fn remove_phi(&mut self) {
         let mut phi_fns = vec![];
         let replacements: HashMap<_, _> = self
+            .listing
             .iter_lines()
             .match_instruction(Instruction::as_phi)
             .flat_map(|(line, (dest, sources))| {
@@ -159,25 +164,17 @@ impl Optimiser {
         self.remove_lines(phi_fns);
 
         for (src_name, dest_name) in replacements {
-            for instr in self.listing.iter_mut() {
+            for instr in self.listing.iter_instructions_mut() {
                 instr.replace_assign(&src_name, Cow::Borrowed(&dest_name))
             }
             let dest_value = Value::Name(dest_name);
-            for instr in self.listing.iter_mut() {
+            for instr in self.listing.iter_instructions_mut() {
                 instr.replace(&src_name, Cow::Borrowed(&dest_value));
             }
         }
     }
 
-    fn iter_lines(&self) -> Enumerate<Iter<Instruction>> {
-        self.listing.iter_lines()
-    }
-
-    fn iter_lines_mut(&mut self) -> Enumerate<IterMut<Instruction>> {
-        self.listing.iter_lines_mut()
-    }
-
-    fn remove_lines(&mut self, mut lines: Vec<usize>) {
+    fn remove_lines(&mut self, mut lines: Vec<Position>) {
         lines.sort_unstable();
         lines.reverse();
         for line in lines.into_iter() {
@@ -207,9 +204,8 @@ mod tests {
             println!("==========");
             let tac = tac
                 .top_level
-                .into_vec()
-                .iter()
-                .map(ToString::to_string)
+                .into_instructions()
+                .map(|i| i.to_string())
                 .collect::<Vec<_>>();
 
             assert_eq!($expected, tac)
@@ -218,7 +214,7 @@ mod tests {
 
     #[test]
     fn unused_declaration_is_removed() {
-        assert_optimises!("x : int = 10\nx = 20 + 10", vec!["%t1 = 20 + 10"])
+        assert_optimises!("x : int = 10\nx = 20 + 10", vec!["%1 = 20 + 10"])
     }
 
     #[test]
@@ -228,7 +224,7 @@ mod tests {
 x : int = 0
 y: int = 10
 x = y + y "#,
-            vec!["%t1 = 10 + 10"]
+            vec!["%1 = 10 + 10"]
         )
     }
 
@@ -240,7 +236,7 @@ a : int = 1
 b : int = 2
 c : int = 0
 c = a + b"#,
-            vec!["%t1 = 1 + 2"]
+            vec!["%1 = 1 + 2"]
         )
     }
 }

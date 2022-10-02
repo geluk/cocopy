@@ -49,8 +49,8 @@ mod tests {
     fn next_temp_generates_ascending_temp_values() {
         let mut name_gen = NameGenerator::new();
 
-        assert_eq!("%t1", name_gen.next_temp().to_string());
-        assert_eq!("%t2", name_gen.next_temp().to_string());
+        assert_eq!("%1", name_gen.next_temp().to_string());
+        assert_eq!("%2", name_gen.next_temp().to_string());
     }
 
     #[test]
