@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     codegen::register_allocation::{Allocator, Lifetime},
+    ext::ordered_hash_map::OrderedHashMap,
     listing::{Listing, Position},
     prelude::*,
 };
@@ -12,7 +13,7 @@ use super::{
 };
 
 pub struct LifetimeAnalysis<'l> {
-    requests: HashMap<&'l DeferredReg, AllocationRequest>,
+    requests: OrderedHashMap<&'l DeferredReg, AllocationRequest>,
     listing: &'l Listing<DeferredLine>,
 }
 impl<'l> LifetimeAnalysis<'l> {
@@ -41,7 +42,7 @@ impl<'l> LifetimeAnalysis<'l> {
 
         let mut allocator = Allocator::new(Register::iter().copied().collect());
 
-        for (name, request) in self.requests {
+        for (name, request) in self.requests.into_iter() {
             debug!("Allocating {name:?}");
             allocator.allocate(name.clone(), request.lifetime);
 
@@ -68,7 +69,7 @@ impl<'l> LifetimeAnalysis<'l> {
 
                     for operand in instr.operands.iter() {
                         if let DeferredOperand::Reg(reg, _) = operand {
-                            self.expand_lifetime(&reg, pos - 1)
+                            self.expand_lifetime(&*reg, pos - 1)
                         }
                     }
                 }
@@ -82,19 +83,20 @@ impl<'l> LifetimeAnalysis<'l> {
     }
 
     fn expand_lifetime(&mut self, reg: &'l DeferredReg, position: Position) {
-        self.requests
-            .entry(reg)
-            .and_modify(|r| r.lifetime = r.lifetime.expand(position))
-            .or_insert(AllocationRequest {
+        self.requests.insert_or_modify(
+            reg,
+            || AllocationRequest {
                 lifetime: Lifetime::from_position(position),
                 locks: Default::default(),
-            });
+            },
+            |r| r.lifetime = r.lifetime.expand(position),
+        );
     }
 
     fn add_lock(&mut self, name: &'l DeferredReg, lock_point: Position, register: Register) {
         let name = self
             .requests
-            .get_mut(name)
+            .get_mut(&name)
             .expect("Attempted to lock unknown name");
 
         if let Some(existing) = name.locks.insert(lock_point, register) {

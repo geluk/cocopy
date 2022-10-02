@@ -83,12 +83,11 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
         // possibly work first, maybe we can just move our entire allocation
         // slice over to the target register?
         let lifetime = slice_in_question.lifetime();
-        let overlapping_allocations: Vec<_> = self
+        if !self
             .name_allocations
-            .values_mut()
-            .filter(|v| v.conflicts_on_lifetime(lifetime, target_reg))
-            .collect();
-        if overlapping_allocations.is_empty() {
+            .values()
+            .any(|a| a.conflicts_on_lifetime(lifetime, target_reg))
+        {
             // Yes We Can!
             trace!("No conflicting allocations on {target_reg:?}, moving entire slice");
             slice_in_question.move_and_lock_to(target_reg, lock_point);
@@ -96,10 +95,20 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
             return;
         }
 
+        let conflicting_names: Vec<_> = self
+            .name_allocations
+            .iter()
+            .filter(|(_, a)| a.conflicts_on_lifetime(lifetime, target_reg))
+            .map(|(n, a)| (n.clone(), a.lifetime()))
+            .collect();
+
         // We have some overlapping allocations. Let's deal with them one by one.
-        for overlapping_allocation in overlapping_allocations {
+        for (name, lifetime) in conflicting_names {
             // If it's not locked to the target register, we can just kick it out.
-            if overlapping_allocation.try_kick_from(target_reg, lifetime) {
+            let free_registers = self.free_registers(lifetime);
+
+            let alloc = self.name_allocations.get_mut(&name).unwrap();
+            if alloc.try_kick_from(target_reg, lifetime, free_registers) {
                 // Hey, that worked!
                 continue;
             }
@@ -157,14 +166,8 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
     /// conflicting allocations. The caller is responsible for resolving
     /// these conflicts afterwards.
     fn allocate_unchecked(&mut self, lifetime: Lifetime) -> NameAllocation<R> {
-        let occupied_regs = self.occupied_registers(lifetime);
-        let free_reg = self
-            .registers
-            .iter()
-            .find(|r| !occupied_regs.contains(r))
-            .copied();
-
-        match free_reg {
+        let next_free = self.free_registers(lifetime).into_iter().next();
+        match next_free {
             Some(register) => {
                 NameAllocation::from_reg(RegAllocation::new(register, lifetime, vec![]))
             }
@@ -182,18 +185,14 @@ impl<N: Eq + Clone + Debug + Hash, R: Copy + Eq + Hash + Debug> Allocator<N, R> 
         }
     }
 
-    /// Add a new register allocation with the given parameters.
-    // fn add_reg_alloc(
-    //     &mut self,
-    //     name: N,
-    //     register: R,
-    //     lifetime: Lifetime,
-    //     locks: Vec<Position>,
-    // ) -> &RegAllocation<N, R> {
-    //     self.register_allocations
-    //         .push(RegAllocation::new(name, register, lifetime, locks));
-    //     self.register_allocations.last().unwrap()
-    // }
+    fn free_registers(&self, lifetime: Lifetime) -> Vec<R> {
+        let occupied_regs = self.occupied_registers(lifetime);
+        self.registers
+            .iter()
+            .copied()
+            .filter(|r| !occupied_regs.contains(r))
+            .collect()
+    }
 
     /// Returns a set containing the registers that are occupied at some point
     /// during the given lifetime.

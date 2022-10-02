@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
     codegen::register_allocation::{Allocator, Destination},
@@ -111,6 +109,7 @@ pub fn compile<S: StackConvention>(
     debug!("Performing lifetime analysis");
     let allocator = LifetimeAnalysis::create_allocator_for(&instrs);
 
+    debug!("Resolving deferred instructions");
     resolve_deferred_instrs::<S>(instrs, procedure, allocator, calling_convention)
 }
 
@@ -121,7 +120,6 @@ fn resolve_deferred_instrs<S: StackConvention>(
     calling_convention: CallingConvention,
 ) -> Procedure {
     let mut pushed_regs = vec![];
-    let callee_saved: HashSet<_> = calling_convention.get_callee_saved_regs().iter().collect();
     let last_line = Position(instrs.len() - 1);
     let mut stack_size = 0;
     let mut aligned_bytes = 0;
@@ -154,8 +152,11 @@ fn resolve_deferred_instrs<S: StackConvention>(
                 for reg_to_push in allocator
                     .live_regs_at(position)
                     .into_iter()
-                    .map(|a| a.register())
-                    .filter(|r| !callee_saved.contains(&r))
+                    .map(|a| {
+                        info!("At {position}: {a:?}");
+                        a.register()
+                    })
+                    .filter(|&r| calling_convention.is_caller_saved(r))
                 {
                     procedure.body.push(Push, [Operand::Reg(reg_to_push)]);
                     stack_size += reg_to_push.byte_size();
@@ -172,10 +173,12 @@ fn resolve_deferred_instrs<S: StackConvention>(
                 }
             }
             DeferredLine::CallerRestore => {
-                procedure.body.push(
-                    Add,
-                    [Operand::Reg(Register::Rsp), Operand::Lit(aligned_bytes)],
-                );
+                if aligned_bytes != 0 {
+                    procedure.body.push(
+                        Add,
+                        [Operand::Reg(Register::Rsp), Operand::Lit(aligned_bytes)],
+                    );
+                }
                 for reg_to_pop in pushed_regs.drain(..).rev() {
                     procedure.body.push(Pop, [Operand::Reg(reg_to_pop)]);
                     stack_size -= reg_to_pop.byte_size();
@@ -338,17 +341,26 @@ impl DeferringCompiler {
             // return;
         }
 
-        let target = self.prepare_target(tgt);
         let op = translate_binop(op);
-        let left = self.prepare_operand(left, OpSemantics::any());
-        let right = self.prepare_operand(right, OpSemantics::any());
 
-        // Binary operations of the form `x = y <> z` (where <> is some operation) cannot be
-        // compiled in one go, so we translate them to the following sequence:
-        // x <- y
-        // x <>= z
-        self.emit_write(Mov, target.clone(), [left]);
-        self.emit_write(op, target, [right]);
+        match &left {
+            Value::Name(name) if name == &tgt => {
+                let target = self.prepare_target(tgt);
+                let right = self.prepare_operand(right, OpSemantics::any());
+                self.emit_write(op, target, [right]);
+            }
+            _ => {
+                let target = self.prepare_target(tgt);
+                let left = self.prepare_operand(left, OpSemantics::any());
+                let right = self.prepare_operand(right, OpSemantics::any());
+                // Binary operations of the form `x = y <> z` (where <> is some operation) cannot be
+                // compiled in one go, so we translate them to the following sequence:
+                // x <- y
+                // x <>= z
+                self.emit_write(Mov, target.clone(), [left]);
+                self.emit_write(op, target, [right]);
+            }
+        }
     }
 
     /// Compile a comparison between two values.
@@ -392,9 +404,12 @@ impl DeferringCompiler {
             // especially with nested function calls.
             .rev()
             .collect();
-        for (idx, reg) in param_regs {
+        for (_, reg) in param_regs {
             let value = self.arg_stack.pop().expect("Parameter count mismatch!");
             self.emit_lock_or_write(value, reg);
+        }
+        if let Some(tgt) = tgt {
+            self.emit_lock(tgt, Register::Rax);
         }
 
         // TODO: How to notify that RAX will be written to?
@@ -558,209 +573,4 @@ impl OpSemanticsFor for Op {
             _ => todo!("Determine operand 2 semantics for {}", self),
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // use super::super::stack_convention::Windows64;
-    // use super::*;
-
-    // macro_rules! sub {
-    //     ($name:expr) => {
-    //         Name::Sub(Variable::new($name.to_string(), 1))
-    //     };
-    // }
-
-    // macro_rules! cnst {
-    //     ($value:expr) => {
-    //         Value::Const($value)
-    //     };
-    // }
-
-    // macro_rules! compile_instrs {
-    //     ($instrs:expr) => {{
-    //         let proc = Procedure::new("main".to_string(), Block::new(), Block::new());
-    //         // We may need to construct a listing from the given instructions here.
-    //         let mut compiler = ProcedureCompiler::<Windows64>::new(
-    //             proc,
-    //             TacListing::new(),
-    //             CallingConvention::Microsoft64,
-    //             Allocator::new(Register::iter().copied().collect()),
-    //         );
-
-    //         for instr in $instrs.into_iter() {
-    //             compiler.compile_instr(Instruction::new(instr));
-    //         }
-    //         println!(
-    //             "Listing source:\n===============\n{}===============\n",
-    //             compiler.procedure
-    //         );
-    //         compiler.allocator.debug();
-    //         compiler
-    //     }};
-    // }
-
-    // macro_rules! compile_instr {
-    //     ($instr:expr) => {
-    //         compile_instrs!([$instr])
-    //     };
-    // }
-
-    // macro_rules! first_reg {
-    //     ($compiler:expr) => {
-    //         $compiler
-    //             .allocator
-    //             .iter_allocations()
-    //             .next()
-    //             .copied()
-    //             .unwrap()
-    //     };
-    // }
-
-    // macro_rules! assert_allocates {
-    //     ($compiler:expr, $expected:expr) => {
-    //         let allocations: Vec<_> = $compiler.allocator.iter_allocations().copied().collect();
-    //         assert_eq!(
-    //             &$expected[..],
-    //             &allocations,
-    //             "\n\nExpected allocations:\n\t{:?}\nBut found:\n\t{:?}\n\n",
-    //             $expected,
-    //             &allocations,
-    //         )
-    //     };
-    // }
-
-    // macro_rules! assert_no_allocations {
-    //     ($compiler:expr) => {
-    //         let allocations: Vec<_> = $compiler.allocator.iter_allocations().copied().collect();
-    //         assert!(
-    //             allocations.is_empty(),
-    //             "Expected no allocations, but found: {:?}",
-    //             allocations,
-    //         )
-    //     };
-    // }
-
-    // #[test]
-    // fn compile_tac_compiles_instruction_to_assembly() {
-    //     let compiler = compile_instr!(InstrKind::Bin(
-    //         sub!("x"),
-    //         BinOp::IntArith(IntOp::Add),
-    //         cnst!(10),
-    //         cnst!(99)
-    //     ));
-    //     let target_reg = first_reg!(compiler);
-
-    //     let mut expected = Block::new();
-    //     expected.push(Mov, vec![Reg(target_reg), Lit(10)]);
-    //     expected.push(Add, vec![Reg(target_reg), Lit(99)]);
-
-    //     assert_eq!(expected, compiler.procedure.body)
-    // }
-
-    // #[test]
-    // fn can_compile_multiplication() {
-    //     compile_instr!(InstrKind::Bin(
-    //         sub!("x"),
-    //         BinOp::IntArith(IntOp::Multiply),
-    //         cnst!(10),
-    //         cnst!(3),
-    //     ));
-    // }
-
-    // #[test]
-    // fn integer_division_allocates_to_rax() {
-    //     let compiler = compile_instr!(InstrKind::Bin(
-    //         sub!("x"),
-    //         BinOp::IntArith(IntOp::Divide),
-    //         cnst!(101),
-    //         cnst!(10)
-    //     ));
-
-    //     assert_allocates!(compiler, [Rax]);
-    // }
-
-    // #[test]
-    // fn remainder_allocates_to_rdx() {
-    //     let compiler = compile_instr!(InstrKind::Bin(
-    //         sub!("x"),
-    //         BinOp::IntArith(IntOp::Remainder),
-    //         cnst!(101),
-    //         cnst!(10)
-    //     ));
-
-    //     assert_allocates!(compiler, [Rdx]);
-    // }
-
-    // #[test]
-    // fn function_call_with_return_allocates_for_return_value() {
-    //     let compiler = compile_instrs!([
-    //         InstrKind::Arg(cnst!(10)),
-    //         InstrKind::Call(Some(sub!("x")), "get_x".to_string(), 1)
-    //     ]);
-
-    //     assert_allocates!(compiler, [Rax]);
-    // }
-
-    // #[test]
-    // #[ignore = "Enable this test for the new allocator"]
-    // fn function_call_without_return_does_not_allocate() {
-    //     let compiler = compile_instrs!([
-    //         InstrKind::Arg(cnst!(10)),
-    //         InstrKind::Call(None, "print".to_string(), 1)
-    //     ]);
-
-    //     assert_no_allocations!(compiler);
-    // }
-
-    // #[test]
-    // fn function_call_moves_if_return_register_already_allocated() {
-    //     let x = sub!("x");
-    //     let c = sub!("c");
-    //     let compiler = compile_instrs!([
-    //         InstrKind::Assign(c.clone(), cnst!(55)),
-    //         InstrKind::Arg(cnst!(10)),
-    //         InstrKind::Call(Some(x.clone()), "print".to_string(), 1),
-    //         // Dummy assignment to ensure `c` is still used after the call.
-    //         InstrKind::Assign(c.clone(), Value::Name(c.clone()))
-    //     ]);
-
-    //     // `x` should now be in RAX.
-    //     assert_eq!(Some(Rax), compiler.allocator.lookup(&x));
-    //     // `c` should now be somewhere else.
-    //     assert!(compiler.allocator.lookup(&c).is_some());
-    // }
-
-    // #[test]
-    // fn function_call_does_not_move_if_return_reg_may_be_overwritten() {
-    //     let x = sub!("x");
-    //     let c = sub!("c");
-    //     let compiler = compile_instrs!([
-    //         InstrKind::Assign(c.clone(), cnst!(55)),
-    //         InstrKind::Arg(cnst!(10)),
-    //         InstrKind::Call(Some(x.clone()), "print".to_string(), 1),
-    //     ]);
-
-    //     // `x` should now be in RAX.
-    //     assert_eq!(Some(Rax), compiler.allocator.lookup(&x));
-    //     // `c` should now be gone.
-    //     assert!(compiler.allocator.lookup(&c).is_none());
-    // }
-
-    // #[test]
-    // fn divide_value_already_in_rax_does_not_overwrite() {
-    //     let x = sub!("x");
-    //     let y = sub!("y");
-    //     let compiler = compile_instrs!([
-    //         InstrKind::Assign(x.clone(), cnst!(55)),
-    //         InstrKind::Bin(
-    //             y.clone(),
-    //             BinOp::IntArith(IntOp::Divide),
-    //             Value::Name(x.clone()),
-    //             Value::Const(10)
-    //         ),
-    //     ]);
-
-    //     assert_ne!(compiler.allocator.lookup(&x), compiler.allocator.lookup(&y));
-    // }
 }

@@ -96,7 +96,12 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
             .any(|s| s.register == target_reg && s.lifetime.overlaps(lifetime))
     }
 
-    pub fn try_kick_from(&mut self, target_reg: R, lifetime: Lifetime) -> bool {
+    pub fn try_kick_from<I: IntoIterator<Item = R>>(
+        &mut self,
+        target_reg: R,
+        lifetime: Lifetime,
+        free_registers: I,
+    ) -> bool {
         // TODO: Does it make sense to keep stack slices and register slices
         // in the same collection? They're never ever going to conflict after all.
         let overlapping_slices: Vec<_> = self
@@ -109,8 +114,16 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
             return false;
         }
 
-        for _ in overlapping_slices {
-            todo!("Move slice to a new register.")
+        let mut reg_iter = free_registers.into_iter();
+        for slice in overlapping_slices {
+            match reg_iter.next() {
+                Some(reg) => {
+                    slice.move_to(reg);
+                }
+                None => {
+                    todo!("Spill slice to stack.")
+                }
+            }
         }
         true
     }
@@ -188,12 +201,15 @@ impl<R: Copy + Eq> RegAllocation<R> {
     }
 
     pub fn move_and_lock_to(&mut self, target_reg: R, lock_point: Position) {
+        self.move_to(target_reg);
+        self.locks = vec![lock_point];
+    }
+
+    pub fn move_to(&mut self, target_reg: R) {
         if !self.locks.is_empty() {
             panic!("Can't move this slice! It is already locked to a different register")
         }
-
         self.register = target_reg;
-        self.locks = vec![lock_point];
     }
 
     fn has_lock(&self) -> bool {

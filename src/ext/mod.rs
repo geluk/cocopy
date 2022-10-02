@@ -2,6 +2,8 @@ use std::{path::Path, process::Output};
 
 use crate::prelude::*;
 
+pub mod ordered_hash_map;
+
 pub trait TryDecode {
     fn try_decode(&self) -> Result<&str>;
 }
