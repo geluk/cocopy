@@ -5,7 +5,7 @@ use std::{
 
 use crate::listing::Position;
 
-use super::{InstrKind, Instruction, MatchInstruction, TacListing, TacProgram, Value};
+use super::{MatchInstruction, TacInstr, TacListing, TacProgram, Value};
 
 pub fn optimise(mut program: TacProgram) -> TacProgram {
     program.top_level = Optimiser::optimise(program.top_level);
@@ -51,9 +51,7 @@ impl Optimiser {
         let candidates = self
             .listing
             .iter_lines()
-            // Instructions with labels on them may be jumped to, and should never be deleted.
-            .filter(|(_, instr)| instr.label.is_none())
-            .match_instruction(Instruction::as_assign)
+            .match_instruction(TacInstr::as_assign)
             .filter(|(line, (name, _))| !self.listing.is_used_after(name, *line))
             .map(|(line, _)| line)
             .collect();
@@ -65,7 +63,7 @@ impl Optimiser {
         let candidates: HashSet<_> = self
             .listing
             .iter_lines()
-            .match_instruction(Instruction::as_call)
+            .match_instruction(TacInstr::as_call)
             .filter_map(|(line, (name, _, _))| name.map(|n| (line, n)))
             .filter(|(line, name)| !self.listing.is_used_after(name, *line))
             .map(|(line, _)| line)
@@ -76,7 +74,7 @@ impl Optimiser {
             .iter_lines_mut()
             .filter(|(l, _)| candidates.contains(l))
         {
-            if let InstrKind::Call(tgt, _, _) = &mut instr.kind {
+            if let TacInstr::Call(tgt, _, _) = instr {
                 *tgt = None;
             }
         }
@@ -103,8 +101,7 @@ impl Optimiser {
         for (line, (name, value)) in self
             .listing
             .iter_lines()
-            .filter(|(_, instr)| instr.may_delete())
-            .match_instruction(Instruction::as_assign)
+            .match_instruction(TacInstr::as_assign)
         {
             replacements.insert(name.clone(), (line, value.clone()));
         }
@@ -154,7 +151,7 @@ impl Optimiser {
         let replacements: HashMap<_, _> = self
             .listing
             .iter_lines()
-            .match_instruction(Instruction::as_phi)
+            .match_instruction(TacInstr::as_phi)
             .flat_map(|(line, (dest, sources))| {
                 phi_fns.push(line);
                 sources.iter().map(|src| (src.clone(), dest.clone()))

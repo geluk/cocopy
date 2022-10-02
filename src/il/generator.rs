@@ -48,16 +48,16 @@ pub fn generate(program: Program) -> TacProgram {
 }
 
 trait TacProcedure {
-    fn push(&mut self, instruction: Instruction);
+    fn push(&mut self, instruction: TacInstr);
 }
 
 impl TacProcedure for TacProgram {
-    fn push(&mut self, instruction: Instruction) {
+    fn push(&mut self, instruction: TacInstr) {
         self.top_level.push(instruction)
     }
 }
 impl TacProcedure for TacListing {
-    fn push(&mut self, instruction: Instruction) {
+    fn push(&mut self, instruction: TacInstr) {
         self.push(instruction)
     }
 }
@@ -76,7 +76,7 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// Lower a parameter definition, retrieving it and storing it in a local variable.
     fn lower_parameter(&mut self, parameter: Parameter) {
         let variable = self.name_generator.next_subscript(parameter.name);
-        self.emit(InstrKind::Param(Name::Sub(variable)));
+        self.emit(TacInstr::Param(Name::Sub(variable)));
     }
 
     /// Lower a statement. Returns the variables that were assigned in this statement.
@@ -97,7 +97,7 @@ impl<P: TacProcedure> TacGenerator<P> {
 
     fn lower_return(&mut self, opt_expr: Option<Expr>) {
         let return_value = opt_expr.map(|e| self.lower_expr(e));
-        self.emit(InstrKind::Return(return_value));
+        self.emit(TacInstr::Return(return_value));
     }
 
     /// Lower a block of statements. Returns the variables that were assigned in this block.
@@ -129,13 +129,13 @@ impl<P: TacProcedure> TacGenerator<P> {
         let mut false_variables = Variables::none();
 
         if let Some(else_body) = if_stmt.else_body {
-            self.emit(InstrKind::Goto(end_lbl.clone()));
-            self.emit_label(InstrKind::Nop, else_lbl);
+            self.emit(TacInstr::Goto(end_lbl.clone()));
+            self.emit_label(else_lbl);
             false_variables = self.lower_block(else_body);
-            self.emit(InstrKind::Goto(end_lbl.clone()));
+            self.emit(TacInstr::Goto(end_lbl.clone()));
         }
 
-        self.emit_label(InstrKind::Nop, end_lbl);
+        self.emit_label(end_lbl);
         self.emit_phi(live_variables, [true_variables, false_variables])
     }
 
@@ -147,15 +147,15 @@ impl<P: TacProcedure> TacGenerator<P> {
         let start_lbl = self.label_generator.next_label("while_start");
         let end_lbl = self.label_generator.next_label("while_end");
 
-        self.emit_label(InstrKind::Nop, start_lbl.clone());
+        self.emit_label(start_lbl.clone());
 
         self.lower_condition(while_stmt.condition, end_lbl.clone());
 
         let live_variables = self.name_generator.get_live_variables();
         let block_variables = self.lower_block(while_stmt.body);
 
-        self.emit(InstrKind::Goto(start_lbl));
-        self.emit_label(InstrKind::Nop, end_lbl);
+        self.emit(TacInstr::Goto(start_lbl));
+        self.emit_label(end_lbl);
         // For the purpose of liveness analysis, a while loop has two branches:
         // in one it is entered at least once (so variables in its block are assigned),
         // in the other it is never entered (so no variables are ever assigned).
@@ -174,12 +174,12 @@ impl<P: TacProcedure> TacGenerator<P> {
 
                 // Negate here, because we should jump to the else label if the
                 // comparison fails.
-                self.emit(InstrKind::IfCmp(lhs, op.negate(), rhs, false_label));
+                self.emit(TacInstr::IfCmp(lhs, op.negate(), rhs, false_label));
             }
             other => {
                 condition.expr_kind = other;
                 let cond = self.lower_expr(condition);
-                self.emit(InstrKind::IfFalse(cond, false_label));
+                self.emit(TacInstr::IfFalse(cond, false_label));
             }
         };
     }
@@ -207,7 +207,7 @@ impl<P: TacProcedure> TacGenerator<P> {
                 .collect();
 
             return_vars.insert(next.clone());
-            self.emit(InstrKind::Phi(Name::Sub(next), subscripts))
+            self.emit(TacInstr::Phi(Name::Sub(next), subscripts))
         }
         return_vars
     }
@@ -262,12 +262,12 @@ impl<P: TacProcedure> TacGenerator<P> {
 
         let arg_count = expr_values.len();
         for arg in expr_values {
-            self.emit(InstrKind::Arg(arg));
+            self.emit(TacInstr::Arg(arg));
         }
 
         let temp_name = self.name_generator.next_temp();
         // TODO: allow calls to other types of functions here.
-        self.emit(InstrKind::Call(
+        self.emit(TacInstr::Call(
             Some(temp_name.clone()),
             call.name,
             arg_count,
@@ -287,7 +287,7 @@ impl<P: TacProcedure> TacGenerator<P> {
         let rhs = self.lower_expr(expr.rhs);
 
         let res_name = self.name_generator.next_temp();
-        self.emit(InstrKind::Bin(res_name.clone(), expr.op, lhs, rhs));
+        self.emit(TacInstr::Bin(res_name.clone(), expr.op, lhs, rhs));
 
         Value::Name(res_name)
     }
@@ -302,55 +302,49 @@ impl<P: TacProcedure> TacGenerator<P> {
         let lhs = self.lower_expr(expr.lhs);
         match op {
             BoolOp::Or => {
-                self.emit(InstrKind::IfTrue(lhs, true_lbl.clone()));
+                self.emit(TacInstr::IfTrue(lhs, true_lbl.clone()));
             }
             BoolOp::And => {
-                self.emit(InstrKind::IfFalse(lhs, false_lbl.clone()));
+                self.emit(TacInstr::IfFalse(lhs, false_lbl.clone()));
             }
         }
 
         let rhs = self.lower_expr(expr.rhs);
         match op {
             BoolOp::Or => {
-                self.emit(InstrKind::IfFalse(rhs, false_lbl.clone()));
+                self.emit(TacInstr::IfFalse(rhs, false_lbl.clone()));
             }
             BoolOp::And => {
-                self.emit(InstrKind::IfFalse(rhs, false_lbl.clone()));
+                self.emit(TacInstr::IfFalse(rhs, false_lbl.clone()));
             }
         }
 
         // Should we use ɸ(t, f) here?
         let res_name = self.name_generator.next_temp();
-        self.emit_label(
-            InstrKind::Assign(res_name.clone(), Value::Const(1)),
-            true_lbl,
-        );
-        self.emit(InstrKind::Goto(end_lbl.clone()));
-        self.emit_label(
-            InstrKind::Assign(res_name.clone(), Value::Const(0)),
-            false_lbl,
-        );
-        self.emit_label(InstrKind::Nop, end_lbl);
+        self.emit_label(true_lbl);
+        self.emit(TacInstr::Assign(res_name.clone(), Value::Const(1)));
+        self.emit(TacInstr::Goto(end_lbl.clone()));
+        self.emit_label(false_lbl);
+        self.emit(TacInstr::Assign(res_name.clone(), Value::Const(0)));
+        self.emit_label(end_lbl);
         Value::Name(res_name)
     }
 
     /// Emit an assignment, assigning `value` to `id`. Returns the variable that was assigned to.
     fn emit_assign(&mut self, id: String, value: Value) -> Variable {
         let variable = self.name_generator.next_subscript(id);
-        self.emit(InstrKind::Assign(Name::Sub(variable.clone()), value));
+        self.emit(TacInstr::Assign(Name::Sub(variable.clone()), value));
         variable
     }
 
     /// Emit an instruction, adding it to the listing.
-    fn emit(&mut self, kind: InstrKind) {
-        let instr = Instruction::new(kind);
+    fn emit(&mut self, instr: TacInstr) {
         self.procedure.push(instr);
     }
 
-    /// Emit an instruction, adding it to the listing.
-    fn emit_label(&mut self, kind: InstrKind, label: Label) {
-        let mut instr = Instruction::new(kind);
-        instr.add_label(label);
+    /// Emit a label, adding it to the listing.
+    fn emit_label(&mut self, label: Label) {
+        let instr = TacInstr::Label(label);
         self.procedure.push(instr);
     }
 }

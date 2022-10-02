@@ -225,28 +225,25 @@ impl DeferringCompiler {
     }
 
     /// Compile a single TAC instruction.
-    fn compile_instr(&mut self, instr: Instruction) {
-        let instr_string = instr.to_string();
-        self.asm_listing.push(DeferredLine::Comment(instr_string));
+    fn compile_instr(&mut self, instr: TacInstr) {
+        self.asm_listing
+            .push(DeferredLine::Comment(instr.to_string()));
 
-        if let Some(lbl) = instr.label {
-            self.asm_listing.push(DeferredLine::Label(lbl))
-        }
-        match instr.kind {
-            InstrKind::Assign(tgt, value) => self.compile_assign(tgt, value),
-            InstrKind::Bin(tgt, op, left, right) => self.compile_bin(tgt, op, left, right),
-            InstrKind::Arg(arg) => self.compile_arg(arg),
-            InstrKind::Param(param) => self.compile_param(param),
-            InstrKind::Call(tgt, name, params) => self.compile_call(tgt, name, params),
-            InstrKind::Nop => (),
-            InstrKind::IfTrue(value, lbl) => self.compile_jump(value, lbl, true),
-            InstrKind::IfFalse(value, lbl) => self.compile_jump(value, lbl, false),
-            InstrKind::IfCmp(lhs, op, rhs, label) => self.compile_compare_jump(lhs, op, rhs, label),
-            InstrKind::Return(val) => self.compile_return(val),
+        match instr {
+            TacInstr::Assign(tgt, value) => self.compile_assign(tgt, value),
+            TacInstr::Bin(tgt, op, left, right) => self.compile_bin(tgt, op, left, right),
+            TacInstr::Arg(arg) => self.compile_arg(arg),
+            TacInstr::Param(param) => self.compile_param(param),
+            TacInstr::Call(tgt, name, params) => self.compile_call(tgt, name, params),
+            TacInstr::IfTrue(value, lbl) => self.compile_jump(value, lbl, true),
+            TacInstr::IfFalse(value, lbl) => self.compile_jump(value, lbl, false),
+            TacInstr::IfCmp(lhs, op, rhs, label) => self.compile_compare_jump(lhs, op, rhs, label),
+            TacInstr::Return(val) => self.compile_return(val),
+            TacInstr::Label(lbl) => self.asm_listing.push(DeferredLine::Label(lbl)),
             // If this happens, the optimiser has failed and we won't be able to generate code
             // for branching statements, so we should bail here.
-            InstrKind::Phi(_, _) => unreachable!("Phi was not optimised away!"),
-            InstrKind::Goto(tgt) => {
+            TacInstr::Phi(_, _) => unreachable!("Phi was not optimised away!"),
+            TacInstr::Goto(tgt) => {
                 self.emit(Jmp, [Lbl(tgt)]);
             }
         }

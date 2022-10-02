@@ -15,7 +15,7 @@ use crate::{
 
 pub type TargetSize = isize;
 
-pub type TacListing = Listing<Instruction>;
+pub type TacListing = Listing<TacInstr>;
 
 #[derive(Debug)]
 pub struct TacProgram {
@@ -41,7 +41,7 @@ impl Display for TacProgram {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         writeln!(f, "function main")?;
         for instr in self.top_level.iter_instructions() {
-            if instr.label.is_some() {
+            if let TacInstr::Label(_) = instr {
                 writeln!(f, "    {}", instr)?;
             } else {
                 writeln!(f, "        {}", instr)?;
@@ -51,7 +51,7 @@ impl Display for TacProgram {
         for (name, body) in self.functions.iter() {
             writeln!(f, "function {}", name)?;
             for instr in body.iter_instructions() {
-                if instr.label.is_some() {
+                if let TacInstr::Label(_) = instr {
                     writeln!(f, "    {}", instr)?;
                 } else {
                     writeln!(f, "        {}", instr)?;
@@ -63,7 +63,7 @@ impl Display for TacProgram {
     }
 }
 
-impl Listing<Instruction> {
+impl Listing<TacInstr> {
     pub fn is_used_after(&self, name: &Name, position: Position) -> bool {
         // We can probably always subtract 1 from `len` here
         if position.0 >= self.len() {
@@ -73,63 +73,6 @@ impl Listing<Instruction> {
         self.iter_lines()
             .skip_while(|(l, _)| l < &position)
             .any(|(_, instr)| instr.reads_from_name(name))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Instruction {
-    pub kind: InstrKind,
-    pub label: Option<Label>,
-}
-impl Instruction {
-    pub fn new(kind: InstrKind) -> Self {
-        Self { kind, label: None }
-    }
-
-    pub fn add_label(&mut self, label: Label) {
-        self.label = Some(label);
-    }
-
-    pub fn reads_from_name(&self, name: &Name) -> bool {
-        self.kind.reads_from_name(name)
-    }
-
-    pub fn may_replace(&self, name: &Name) -> bool {
-        self.kind.may_replace(name)
-    }
-
-    pub fn may_delete(&self) -> bool {
-        // Instructions with labels on them may be jumped to, and should never be deleted.
-        // TODO: separate instructions from labels to prevent this.
-        self.label.is_none()
-    }
-
-    pub fn replace(&mut self, src: &Name, dest: Cow<Value>) {
-        self.kind.replace(src, dest)
-    }
-
-    pub fn as_assign(&self) -> Option<(&Name, &Value)> {
-        self.kind.as_assign()
-    }
-
-    pub fn as_call(&self) -> Option<(Option<&Name>, &String, usize)> {
-        self.kind.as_call()
-    }
-
-    pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
-        self.kind.as_phi()
-    }
-
-    pub fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
-        self.kind.replace_assign(src, dest)
-    }
-}
-impl Display for Instruction {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match &self.label {
-            Some(lbl) => write!(f, "{}: {}", lbl, self.kind),
-            None => self.kind.fmt(f),
-        }
     }
 }
 
@@ -151,7 +94,7 @@ impl Display for Label {
 
 /// A single TAC instruction.
 #[derive(Debug, Clone)]
-pub enum InstrKind {
+pub enum TacInstr {
     /// Assign a value to a name.
     Assign(Name, Value),
     /// Perform a binary operation.
@@ -172,38 +115,38 @@ pub enum InstrKind {
     Call(Option<Name>, String, usize),
     /// Return a value from a function body.
     Return(Option<Value>),
+    /// A label which can be jumped to.
+    Label(Label),
     /// The ɸ-function.
     Phi(Name, Vec<Name>),
-    /// No-op
-    Nop,
 }
-impl InstrKind {
+impl TacInstr {
     pub fn reads_from_name(&self, name: &Name) -> bool {
         match self {
-            InstrKind::Assign(_, value) => Self::is_usage_of(name, value),
-            InstrKind::Bin(_, _, lhs, rhs) => {
+            Self::Assign(_, value) => Self::is_usage_of(name, value),
+            Self::Bin(_, _, lhs, rhs) => {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
-            InstrKind::Arg(value) => Self::is_usage_of(name, value),
-            InstrKind::Param(_) => false,
-            InstrKind::Call(_, _, _) => false,
-            InstrKind::Nop => false,
-            InstrKind::Goto(_) => false,
-            InstrKind::IfTrue(value, _) => Self::is_usage_of(name, value),
-            InstrKind::IfFalse(value, _) => Self::is_usage_of(name, value),
-            InstrKind::IfCmp(lhs, _, rhs, _) => {
+            Self::Arg(value) => Self::is_usage_of(name, value),
+            Self::Param(_) => false,
+            Self::Call(_, _, _) => false,
+            Self::Goto(_) => false,
+            Self::IfTrue(value, _) => Self::is_usage_of(name, value),
+            Self::IfFalse(value, _) => Self::is_usage_of(name, value),
+            Self::IfCmp(lhs, _, rhs, _) => {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
-            InstrKind::Return(None) => false,
-            InstrKind::Return(Some(value)) => Self::is_usage_of(name, value),
-            InstrKind::Phi(_, names) => names.iter().any(|n| n == name),
+            Self::Return(None) => false,
+            Self::Return(Some(value)) => Self::is_usage_of(name, value),
+            Self::Label(_) => false,
+            Self::Phi(_, names) => names.iter().any(|n| n == name),
         }
     }
 
     pub fn may_replace(&self, name: &Name) -> bool {
         match self {
             // Names referenced by the ɸ-function may never be replaced with a value
-            InstrKind::Phi(_, names) => names.iter().all(|n| n != name),
+            Self::Phi(_, names) => names.iter().all(|n| n != name),
             _ => true,
         }
     }
@@ -218,25 +161,25 @@ impl InstrKind {
             }
         }
         match self {
-            InstrKind::Assign(_, value) => try_replace(value, src, dest),
-            InstrKind::Bin(_, _, lhs, rhs) => {
+            Self::Assign(_, value) => try_replace(value, src, dest),
+            Self::Bin(_, _, lhs, rhs) => {
                 try_replace(lhs, src, dest.clone());
                 try_replace(rhs, src, dest);
             }
-            InstrKind::Arg(arg) => try_replace(arg, src, dest),
-            InstrKind::Param(_) => (),
-            InstrKind::Call(_, _, _) => (),
-            InstrKind::Nop => (),
-            InstrKind::Goto(_) => (),
-            InstrKind::IfTrue(value, _) => try_replace(value, src, dest),
-            InstrKind::IfFalse(value, _) => try_replace(value, src, dest),
-            InstrKind::IfCmp(lhs, _, rhs, _) => {
+            Self::Arg(arg) => try_replace(arg, src, dest),
+            Self::Param(_) => (),
+            Self::Call(_, _, _) => (),
+            Self::Goto(_) => (),
+            Self::IfTrue(value, _) => try_replace(value, src, dest),
+            Self::IfFalse(value, _) => try_replace(value, src, dest),
+            Self::IfCmp(lhs, _, rhs, _) => {
                 try_replace(lhs, src, dest.clone());
                 try_replace(rhs, src, dest);
             }
-            InstrKind::Return(None) => (),
-            InstrKind::Return(Some(value)) => try_replace(value, src, dest),
-            InstrKind::Phi(_, values) => {
+            Self::Return(None) => (),
+            Self::Return(Some(value)) => try_replace(value, src, dest),
+            Self::Label(_) => (),
+            Self::Phi(_, values) => {
                 let any_replaced = values.iter().any(|n| n == src);
                 assert!(
                     !any_replaced,
@@ -248,45 +191,45 @@ impl InstrKind {
 
     pub fn as_assign(&self) -> Option<(&Name, &Value)> {
         match self {
-            InstrKind::Assign(name, value) => Some((name, value)),
+            Self::Assign(name, value) => Some((name, value)),
             _ => None,
         }
     }
 
-    fn as_call(&self) -> Option<(Option<&Name>, &String, usize)> {
+    pub fn as_call(&self) -> Option<(Option<&Name>, &String, usize)> {
         match self {
-            InstrKind::Call(name, function, params) => Some((name.as_ref(), function, *params)),
+            Self::Call(name, function, params) => Some((name.as_ref(), function, *params)),
             _ => None,
         }
     }
 
     pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
         match self {
-            InstrKind::Phi(target, params) => Some((target, params)),
+            Self::Phi(target, params) => Some((target, params)),
             _ => None,
         }
     }
 
-    fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
+    pub fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
         fn try_replace(tgt: &mut Name, src: &Name, dest: Cow<Name>) {
             if tgt == src {
                 *tgt = dest.into_owned();
             }
         }
         match self {
-            InstrKind::Assign(tgt, _) => try_replace(tgt, src, dest),
-            InstrKind::Bin(tgt, _, _, _) => try_replace(tgt, src, dest),
-            InstrKind::Goto(_) => (),
-            InstrKind::IfTrue(_, _) => (),
-            InstrKind::IfFalse(_, _) => (),
-            InstrKind::IfCmp(_, _, _, _) => (),
-            InstrKind::Arg(_) => (),
-            InstrKind::Param(tgt) => try_replace(tgt, src, dest),
-            InstrKind::Call(Some(tgt), _, _) => try_replace(tgt, src, dest),
-            InstrKind::Call(_, _, _) => (),
-            InstrKind::Return(_) => (),
-            InstrKind::Phi(tgt, _) => try_replace(tgt, src, dest),
-            InstrKind::Nop => (),
+            Self::Assign(tgt, _) => try_replace(tgt, src, dest),
+            Self::Bin(tgt, _, _, _) => try_replace(tgt, src, dest),
+            Self::Goto(_) => (),
+            Self::IfTrue(_, _) => (),
+            Self::IfFalse(_, _) => (),
+            Self::IfCmp(_, _, _, _) => (),
+            Self::Arg(_) => (),
+            Self::Param(tgt) => try_replace(tgt, src, dest),
+            Self::Call(Some(tgt), _, _) => try_replace(tgt, src, dest),
+            Self::Call(_, _, _) => (),
+            Self::Return(_) => (),
+            Self::Label(_) => (),
+            Self::Phi(tgt, _) => try_replace(tgt, src, dest),
         }
     }
 
@@ -297,31 +240,31 @@ impl InstrKind {
         }
     }
 }
-impl Display for InstrKind {
+impl Display for TacInstr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            InstrKind::Assign(target, value) => write!(f, "{} = {}", target, value),
-            InstrKind::Bin(target, op, lhs, rhs) => {
+            Self::Assign(target, value) => write!(f, "{} = {}", target, value),
+            Self::Bin(target, op, lhs, rhs) => {
                 write!(f, "{} = {} {} {}", target, lhs, op, rhs)
             }
-            InstrKind::Arg(p) => write!(f, "arg {}", p),
-            InstrKind::Param(a) => write!(f, "{} = param", a),
-            InstrKind::Call(Some(name), tgt, params) => {
+            Self::Arg(p) => write!(f, "arg {}", p),
+            Self::Param(a) => write!(f, "{} = param", a),
+            Self::Call(Some(name), tgt, params) => {
                 write!(f, "{} = call {}, {}", name, tgt, params)
             }
-            InstrKind::Call(None, tgt, params) => {
+            Self::Call(None, tgt, params) => {
                 write!(f, "call {}, {}", tgt, params)
             }
-            InstrKind::Nop => f.write_str("nop"),
-            InstrKind::Goto(label) => write!(f, "goto {}", label),
-            InstrKind::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),
-            InstrKind::IfFalse(value, lbl) => write!(f, "if_false {} goto {}", value, lbl),
-            InstrKind::IfCmp(lhs, op, rhs, lbl) => {
+            Self::Goto(label) => write!(f, "goto {}", label),
+            Self::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),
+            Self::IfFalse(value, lbl) => write!(f, "if_false {} goto {}", value, lbl),
+            Self::IfCmp(lhs, op, rhs, lbl) => {
                 write!(f, "if {} {} {} goto {}", lhs, op, rhs, lbl)
             }
-            InstrKind::Return(None) => f.write_str("return"),
-            InstrKind::Return(Some(value)) => write!(f, "return {}", value),
-            InstrKind::Phi(name, values) => {
+            Self::Return(None) => f.write_str("return"),
+            Self::Return(Some(value)) => write!(f, "return {}", value),
+            Self::Label(lbl) => write!(f, "{}:", lbl),
+            Self::Phi(name, values) => {
                 let args = values
                     .iter()
                     .map(ToString::to_string)
@@ -425,13 +368,13 @@ pub trait MatchInstruction<A, I> {
     where
         P: Fn(A) -> Option<B>;
 }
-impl<'a, I> MatchInstruction<&'a Instruction, I> for I
+impl<'a, I> MatchInstruction<&'a TacInstr, I> for I
 where
-    I: Iterator<Item = (Position, &'a Instruction)>,
+    I: Iterator<Item = (Position, &'a TacInstr)>,
 {
     fn match_instruction<P, B>(self, pred: P) -> LineNumberIter<I, P>
     where
-        P: Fn(&'a Instruction) -> Option<B>,
+        P: Fn(&'a TacInstr) -> Option<B>,
     {
         LineNumberIter {
             iter: self,
