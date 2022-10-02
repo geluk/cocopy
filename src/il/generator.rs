@@ -260,17 +260,12 @@ impl<P: TacProcedure> TacGenerator<P> {
     fn lower_function_call(&mut self, call: FunCallExpr) -> Value {
         let expr_values: Vec<_> = call.args.into_iter().map(|p| self.lower_expr(p)).collect();
 
-        let arg_count = expr_values.len();
-        for arg in expr_values {
-            self.emit(TacInstr::Arg(arg));
-        }
-
         let temp_name = self.name_generator.next_temp();
         // TODO: allow calls to other types of functions here.
         self.emit(TacInstr::Call(
             Some(temp_name.clone()),
             call.name,
-            arg_count,
+            expr_values,
         ));
 
         Value::Name(temp_name)

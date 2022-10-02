@@ -71,7 +71,7 @@ impl<'l> LifetimeAnalysis<'l> {
 
                     for operand in instr.operands.iter() {
                         if let DeferredOperand::Reg(reg, _) = operand {
-                            self.expand_lifetime(&*reg, pos - 1)
+                            self.expand_lifetime(reg, pos - 1)
                         }
                     }
                 }

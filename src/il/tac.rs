@@ -107,12 +107,10 @@ pub enum TacInstr {
     IfFalse(Value, Label),
     /// Jump if a comparison evaluates to true.
     IfCmp(Value, CmpOp, Value, Label),
-    /// Push an argument to the argument stack.
-    Arg(Value),
     /// Pop a parameter from the parameter stack.
     Param(Name),
     /// Call a function, passing `n` parameters.
-    Call(Option<Name>, String, usize),
+    Call(Option<Name>, String, Vec<Value>),
     /// Return a value from a function body.
     Return(Option<Value>),
     /// A label which can be jumped to.
@@ -127,9 +125,8 @@ impl TacInstr {
             Self::Bin(_, _, lhs, rhs) => {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
-            Self::Arg(value) => Self::is_usage_of(name, value),
             Self::Param(_) => false,
-            Self::Call(_, _, _) => false,
+            Self::Call(_, _, values) => values.iter().any(|v| Self::is_usage_of(name, v)),
             Self::Goto(_) => false,
             Self::IfTrue(value, _) => Self::is_usage_of(name, value),
             Self::IfFalse(value, _) => Self::is_usage_of(name, value),
@@ -166,9 +163,12 @@ impl TacInstr {
                 try_replace(lhs, src, dest.clone());
                 try_replace(rhs, src, dest);
             }
-            Self::Arg(arg) => try_replace(arg, src, dest),
             Self::Param(_) => (),
-            Self::Call(_, _, _) => (),
+            Self::Call(_, _, args) => {
+                for arg in args.iter_mut() {
+                    try_replace(arg, src, dest.clone())
+                }
+            }
             Self::Goto(_) => (),
             Self::IfTrue(value, _) => try_replace(value, src, dest),
             Self::IfFalse(value, _) => try_replace(value, src, dest),
@@ -196,9 +196,9 @@ impl TacInstr {
         }
     }
 
-    pub fn as_call(&self) -> Option<(Option<&Name>, &String, usize)> {
+    pub fn as_call(&self) -> Option<(Option<&Name>, &String, &Vec<Value>)> {
         match self {
-            Self::Call(name, function, params) => Some((name.as_ref(), function, *params)),
+            Self::Call(name, function, params) => Some((name.as_ref(), function, params)),
             _ => None,
         }
     }
@@ -223,7 +223,6 @@ impl TacInstr {
             Self::IfTrue(_, _) => (),
             Self::IfFalse(_, _) => (),
             Self::IfCmp(_, _, _, _) => (),
-            Self::Arg(_) => (),
             Self::Param(tgt) => try_replace(tgt, src, dest),
             Self::Call(Some(tgt), _, _) => try_replace(tgt, src, dest),
             Self::Call(_, _, _) => (),
@@ -247,13 +246,31 @@ impl Display for TacInstr {
             Self::Bin(target, op, lhs, rhs) => {
                 write!(f, "{} = {} {} {}", target, lhs, op, rhs)
             }
-            Self::Arg(p) => write!(f, "arg {}", p),
             Self::Param(a) => write!(f, "{} = param", a),
             Self::Call(Some(name), tgt, params) => {
-                write!(f, "{} = call {}, {}", name, tgt, params)
+                write!(
+                    f,
+                    "{} = call {} ({})",
+                    name,
+                    tgt,
+                    params
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             Self::Call(None, tgt, params) => {
-                write!(f, "call {}, {}", tgt, params)
+                write!(
+                    f,
+                    "call {}, {}",
+                    tgt,
+                    params
+                        .iter()
+                        .map(|p| p.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             Self::Goto(label) => write!(f, "goto {}", label),
             Self::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),

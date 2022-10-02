@@ -199,7 +199,6 @@ fn resolve_deferred_instrs<S: StackConvention>(
 pub struct DeferringCompiler {
     asm_listing: Listing<DeferredLine>,
     calling_convention: CallingConvention,
-    arg_stack: Vec<Value>,
     current_param: usize,
     current_temp: usize,
 }
@@ -212,7 +211,6 @@ impl DeferringCompiler {
         let mut compiler = Self {
             asm_listing: Listing::new(),
             calling_convention,
-            arg_stack: vec![],
             current_param: 0,
             current_temp: 0,
         };
@@ -232,7 +230,6 @@ impl DeferringCompiler {
         match instr {
             TacInstr::Assign(tgt, value) => self.compile_assign(tgt, value),
             TacInstr::Bin(tgt, op, left, right) => self.compile_bin(tgt, op, left, right),
-            TacInstr::Arg(arg) => self.compile_arg(arg),
             TacInstr::Param(param) => self.compile_param(param),
             TacInstr::Call(tgt, name, params) => self.compile_call(tgt, name, params),
             TacInstr::IfTrue(value, lbl) => self.compile_jump(value, lbl, true),
@@ -385,10 +382,10 @@ impl DeferringCompiler {
     }
 
     /// Compile a call to a function with `param_count` parameters.
-    fn compile_call(&mut self, tgt: Option<Name>, name: String, param_count: usize) {
-        let max_params = self.calling_convention.get_params().len();
-        if param_count > max_params {
-            todo!("Can't deal with more than {} parameters yet.", max_params);
+    fn compile_call(&mut self, tgt: Option<Name>, name: String, mut args: Vec<Value>) {
+        let max_args = self.calling_convention.get_params().len();
+        if args.len() > max_args {
+            todo!("Can't deal with more than {} parameters yet.", max_args);
         }
 
         self.asm_listing.push(DeferredLine::CallerPreserve);
@@ -396,13 +393,13 @@ impl DeferringCompiler {
 
         let param_regs: Vec<_> = self
             .calling_convention
-            .iter_params(param_count)
-            // Might need some more testing to check if this always behaves nicely,
-            // especially with nested function calls.
+            .iter_params(args.len())
+            // Note: we apply arguments in reverse order so we can pop the arguments
+            // one by one.
             .rev()
             .collect();
         for (_, reg) in param_regs {
-            let value = self.arg_stack.pop().expect("Parameter count mismatch!");
+            let value = args.pop().expect("Parameter count mismatch");
             self.emit_lock_or_write(value, reg);
         }
         if let Some(tgt) = tgt {
@@ -420,11 +417,6 @@ impl DeferringCompiler {
         let param_reg = self.calling_convention.get_params()[self.current_param];
         self.current_param += 1;
         self.emit_lock(param, param_reg);
-    }
-
-    /// Compile a function argument.
-    fn compile_arg(&mut self, arg: Value) {
-        self.arg_stack.push(arg);
     }
 
     /// Create a deferred target for the given name.
