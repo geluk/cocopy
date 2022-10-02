@@ -282,11 +282,23 @@ mod tests {
         };
     }
 
+    macro_rules! assert_is_reg {
+        ($dst:expr, $reg:expr) => {
+            assert_matches!($dst, Destination::Reg(r) if r.register() == $reg);
+        };
+    }
+
+    macro_rules! assert_is_stack {
+        ($dst:expr) => {{
+            assert_matches!($dst, Destination::Stack(_));
+        }};
+    }
+
     macro_rules! assert_allocates_reg {
         ($alloc:expr, $reg:expr) => {{
             let alloc = $alloc;
             let first_slice = alloc.slice_at(alloc.lifetime().start());
-            assert_matches!(first_slice, Destination::Reg(r) if r.register() == $reg)
+            assert_is_reg!(first_slice, $reg);
         }};
     }
 
@@ -294,7 +306,7 @@ mod tests {
         ($alloc:expr) => {{
             let alloc = $alloc;
             let first_slice = alloc.slice_at(alloc.lifetime().start());
-            assert_matches!(first_slice, Destination::Stack(_))
+            assert_is_stack!(first_slice);
         }};
     }
 
@@ -366,7 +378,7 @@ mod tests {
 
         let destination = allocator.lookup(&"two", Position(5));
 
-        assert_eq!(destination.as_reg().unwrap().register(), Reg::B);
+        assert_is_reg!(destination, Reg::B);
     }
 
     #[test]
@@ -381,7 +393,7 @@ mod tests {
 
         let destination = allocator.lookup(&"s", Position(9));
 
-        assert!(destination.as_stack().is_some())
+        assert_is_stack!(destination)
     }
 
     #[test]
@@ -396,7 +408,7 @@ mod tests {
         let one = allocator.lookup(&"one", Position(0));
         let two = allocator.lookup(&"two", Position(4));
 
-        assert_eq!(one.as_reg().unwrap().register(), Reg::B);
-        assert_eq!(two.as_reg().unwrap().register(), Reg::A);
+        assert_is_reg!(one, Reg::B);
+        assert_is_reg!(two, Reg::A);
     }
 }

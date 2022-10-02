@@ -55,6 +55,8 @@ impl<'l> LifetimeAnalysis<'l> {
             debug!("Allocation: {name:?} into:\n{alloc:#?}");
         }
 
+        debug!("Assigning stack offsets");
+        allocator.assign_stack_offsets();
         allocator
     }
 

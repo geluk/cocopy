@@ -84,12 +84,6 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
             .collect()
     }
 
-    pub fn conflicts_on_point(&self, lock_point: Position, target_reg: R) -> bool {
-        self.reg_slices
-            .iter()
-            .any(|s| s.register == target_reg && s.lifetime.contains(lock_point))
-    }
-
     pub fn conflicts_on_lifetime(&self, lifetime: Lifetime, target_reg: R) -> bool {
         self.reg_slices
             .iter()
@@ -137,40 +131,6 @@ pub enum Destination<'a, R: Copy + Eq> {
     // Stack allocations are `Copy`, so there is no need to pass references.
     Stack(StackAllocation),
 }
-impl<'a, R: Copy + Eq + Display> Destination<'a, R> {
-    pub fn describe(&self) -> String {
-        match self {
-            Destination::Reg(reg) => format!("{}", reg.register()),
-            Destination::Stack(stack) => format!("stack offset {:?}", stack.offset()),
-        }
-    }
-}
-impl<'a, R: Copy + Eq> Destination<'a, R> {
-    pub fn as_stack_mut(&mut self) -> Option<&mut StackAllocation> {
-        match self {
-            Destination::Reg(_) => None,
-            Destination::Stack(stack) => Some(stack),
-        }
-    }
-    pub fn as_stack(&self) -> Option<&StackAllocation> {
-        match self {
-            Destination::Reg(_) => None,
-            Destination::Stack(stack) => Some(stack),
-        }
-    }
-    pub fn as_reg(&self) -> Option<&RegAllocation<R>> {
-        match self {
-            Destination::Reg(reg) => Some(reg),
-            Destination::Stack(_) => None,
-        }
-    }
-    pub fn lifetime(&self) -> Lifetime {
-        match self {
-            Destination::Reg(reg) => reg.lifetime,
-            Destination::Stack(stack) => stack.lifetime,
-        }
-    }
-}
 
 /// An allocation assigning a variable to a register during a certain lifetime.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,10 +154,6 @@ impl<R: Copy + Eq> RegAllocation<R> {
 
     pub fn lifetime(&self) -> Lifetime {
         self.lifetime
-    }
-
-    pub fn locks(&self) -> &Vec<Position> {
-        &self.locks
     }
 
     pub fn move_and_lock_to(&mut self, target_reg: R, lock_point: Position) {
@@ -231,9 +187,11 @@ impl StackAllocation {
             lifetime,
         }
     }
+
     pub fn offset(&self) -> BaseOffset {
         self.offset
     }
+
     pub fn set_offset(&mut self, offset: BaseOffset) {
         self.offset = offset;
     }
