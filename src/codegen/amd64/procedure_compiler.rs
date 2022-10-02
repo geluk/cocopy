@@ -1,96 +1,17 @@
+use std::fmt::Debug;
+
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
-    codegen::register_allocation::{Allocator, Destination},
+    codegen::register_allocation::Allocator,
     il::*,
     listing::{Listing, Position},
     prelude::*,
 };
 
 use super::{
-    assembly::*, calling_convention::CallingConvention, register_allocator::LifetimeAnalysis,
-    stack_convention::StackConvention, x86::*,
+    assembly::*, calling_convention::CallingConvention, defer::*,
+    lifetime_analysis::LifetimeAnalysis, stack_convention::StackConvention, x86::*,
 };
-
-#[derive(Debug)]
-pub enum DeferredLine {
-    Comment(String),
-    Label(Label),
-    Instr(DeferredInstr),
-    LockRequest(DeferredReg, Register),
-    CallerPreserve,
-    CallerRestore,
-    AlignStack,
-    Return,
-}
-
-#[derive(Debug)]
-pub struct DeferredInstr {
-    pub op: Op,
-    pub target: Option<Target>,
-    pub operands: Vec<DeferredOperand>,
-}
-
-#[derive(Debug, Clone)]
-pub enum DeferredOperand {
-    /// Some not yet known register.
-    /// Also includes the operator semantics so that the register allocator
-    /// can make sure to assign the name to a valid register, or to emit a
-    /// just-in-time swap to bring it into the right register.
-    Reg(DeferredReg, OpSemantics),
-    /// An immediate value
-    Lit(TargetSize),
-    /// A label
-    Lbl(Label),
-    /// An identifier
-    Id(String),
-}
-impl DeferredOperand {
-    /// Given an allocator and a source code position, resolve the deferred
-    /// operand back to an assembly operand.
-    pub fn resolve(
-        self,
-        allocator: &Allocator<DeferredReg, Register>,
-        position: Position,
-    ) -> Operand {
-        match self {
-            // TODO: Improve position handling to make it clear what's happening here
-            Reg(deferred, _) => deferred.resolve(allocator, position - 1),
-            Lit(lit) => Operand::Lit(lit as i128),
-            Lbl(lbl) => Operand::Lbl(format!(".{lbl}")),
-            Id(id) => Operand::Id(id),
-        }
-    }
-}
-
-/// An as of yet unknown register. After the register allocation pass, this
-/// can be definitively resolved to a register by querying the register
-/// allocator.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DeferredReg {
-    Sub(Variable),
-    Temp(usize),
-    AsmTemp(usize),
-}
-impl DeferredReg {
-    /// Given an allocator and a source code position, resolve the deferred
-    /// register back to an assembly operand.
-    pub fn resolve(
-        self,
-        allocator: &Allocator<DeferredReg, Register>,
-        position: Position,
-    ) -> Operand {
-        match allocator.lookup(&self, position) {
-            Destination::Reg(alloc) => Operand::Reg(alloc.register()),
-            Destination::Stack(_) => todo!("Reference the stack"),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Target {
-    Deferred(DeferredReg),
-    Reg(Register),
-}
 
 use DeferredOperand::*;
 use Op::*;
@@ -102,8 +23,8 @@ pub fn compile<S: StackConvention>(
 ) -> Procedure {
     debug!("Compiling procedure '{}'", procedure.name);
     let instrs = DeferringCompiler::compile_deferred(calling_convention, listing);
-    for instr in instrs.iter_lines() {
-        trace!("{instr:?}")
+    for (position, instr) in instrs.iter_lines() {
+        trace!("{position}: {instr}")
     }
 
     debug!("Performing lifetime analysis");
@@ -432,13 +353,11 @@ impl DeferringCompiler {
                 } else {
                     let deferred_reg = DeferredReg::AsmTemp(self.next_temp());
                     self.emit_write(Mov, Target::Deferred(deferred_reg.clone()), [Lit(c)]);
-                    DeferredOperand::Reg(deferred_reg, semantics)
+                    Reg(deferred_reg, semantics)
                 }
             }
-            Value::Name(Name::Sub(var)) => DeferredOperand::Reg(DeferredReg::Sub(var), semantics),
-            Value::Name(Name::Temp(temp)) => {
-                DeferredOperand::Reg(DeferredReg::Temp(temp), semantics)
-            }
+            Value::Name(Name::Sub(var)) => Reg(DeferredReg::Sub(var), semantics),
+            Value::Name(Name::Temp(temp)) => Reg(DeferredReg::Temp(temp), semantics),
         }
     }
 

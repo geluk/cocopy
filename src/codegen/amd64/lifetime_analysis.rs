@@ -7,10 +7,7 @@ use crate::{
     prelude::*,
 };
 
-use super::{
-    procedure_compiler::{DeferredLine, DeferredOperand, DeferredReg, Target},
-    x86::*,
-};
+use super::{defer::*, x86::*};
 
 pub struct LifetimeAnalysis<'l> {
     requests: OrderedHashMap<&'l DeferredReg, AllocationRequest>,
