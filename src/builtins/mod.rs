@@ -12,7 +12,7 @@ pub fn get_type_map() -> HashMap<String, (Builtin, TypeSpec)> {
             ),
         ),
         (
-            "readint".to_string(),
+            "input".to_string(),
             (
                 Builtin::Readint,
                 TypeSpec::Function(vec![], Box::new(TypeSpec::Int)),

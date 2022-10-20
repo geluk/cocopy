@@ -63,7 +63,7 @@ fn print() -> Procedure {
 }
 
 fn readint() -> Procedure {
-    let mut readint = procedure("readint");
+    let mut readint = procedure("input");
     readint
         .body
         .push_cmt(
