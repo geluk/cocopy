@@ -112,7 +112,7 @@ impl Block {
 impl Display for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for stmt in &self.statements {
-            writeln!(f, "{}", stmt)?;
+            write!(f, "    {}", stmt)?;
         }
         Ok(())
     }
