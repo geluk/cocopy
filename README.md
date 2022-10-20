@@ -11,16 +11,35 @@ Build the compiler first:
 cargo build --release
 ```
 
-Specify the source file as the first argument:
+Run `target/release/cocopy.exe`:
+```
+cocopy
+A compiler for ChocoPy
+
+USAGE:
+    cocopy.exe [OPTIONS] <SUBCOMMAND>
+
+OPTIONS:
+    -h, --help                 Print help information
+    -v, --verbose <VERBOSE>    [default: 1]
+
+SUBCOMMANDS:
+    check      Check a program for errors
+    compile    Compile a program
+    help       Print this message or the help of the given subcommand(s)
+    run        Compile and run
+```
+
+To check, compile, or run a file, specify it as the first argument:
 
 ```
-./target/release/cocopy ./examples/simple_add_program.py
+cocopy run ./examples/simple_add_program.py
 ```
 
-This generates an `out/out.exe` file on Windows, assuming you have a Visual
-Studio 2022 installation with the C++ workload installed. Otherwise, you may
-need tweak and run `build_win64.ps1` instead, which will manually link `out.obj`
-into an executable.
+The compilation step generates an `out/out.exe` file on Windows, assuming you
+have a Visual Studio 2022 installation with the C++ workload installed.
+Otherwise, you may need tweak and run `build_win64.ps1` instead, which will
+manually link `out.obj` into an executable.
 
 On Linux, the compiled executable is written to `out/out`. Note that you must
 have `nasm` and `gcc` installed. As with Windows, you can also use the
@@ -28,7 +47,7 @@ have `nasm` and `gcc` installed. As with Windows, you can also use the
 
 # Overview
 
-Currently, the compiler is capable of compiling very basic ChocoPy expressions
+Currently, the compiler is capable of compiling basic ChocoPy programs
 to assembly. The following steps are taken during compilation.
 
 ## ChocoPy code
@@ -117,30 +136,28 @@ every time they're reassigned. This will make it easier for the optimiser to
 reason about program flow.
 ```
 function main
-    a^1 = 0
-    b^1 = 9
-    %t1 = 10 * 3
-    %t2 = b^1 + %t1
-    a^2 = %t2
-    %t3 = a^2 * 100
-    b^2 = %t3
-    if b^2 <= 10 goto if_end_1
-    arg b^2
-    %t4 = call print, 1
-    if_end_1: nop
+        a^1 = 0
+        b^1 = 9
+        %1 = 10 * 3
+        %2 = b^1 + %1
+        a^2 = %2
+        %3 = a^2 * 100
+        b^2 = %3
+        if b^2 <= 10 goto if_end_1
+        %4 = call print (b^2)
+    if_end_1:
 ```
 ## Intermediate code optimisation
 The optimiser finds statements that can be removed or simplified, and rewrites
 the intermediate code.
 ```
 function main
-    %t1 = 10 * 3
-    %t2 = 9 + %t1
-    %t3 = %t2 * 100
-    if %t3 <= 10 goto if_end_1
-    arg %t3
-    %t4 = call print, 1
-    if_end_1: nop
+        %1 = 10 * 3
+        %2 = 9 + %1
+        %3 = %2 * 100
+        if %3 <= 10 goto if_end_1
+        call print (%3)
+    if_end_1:
 ```
 ## Assembly generation
 Each instruction is converted to assembly. Operations may be broken up
@@ -152,23 +169,27 @@ as soon as their value is no longer needed.
 main:
     push    rbp                 ; store base pointer
 
-    mov     rax, 10             ; <store> %t1 = 10 * 3
-    imul    rax, 3              ; <apply> %t1 = 10 * 3
-    mov     rbx, 9              ; <store> %t2 = 9 + %t1
-    add     rbx, rax            ; <apply> %t2 = 9 + %t1
-    mov     rcx, rbx            ; <store> %t3 = %t2 * 100
-    imul    rcx, 100            ; <apply> %t3 = %t2 * 100
-
-    cmp     rcx, 10             ; <jump> if %t3 <= 10 goto if_end_1
-    jle     if_end_1
-
-    mov     rdi, rcx            ; set parameter #1
-    call    print               ; %t4 = call print, 1
-
-if_end_1:
-    nop                         ; insert trailing label
-
-    mov     rax, 0              ; return 0
+                                ; %1 = 10 * 3
+    mov     rax, 10
+    imul    rax, 3
+                                ; %2 = 9 + %1
+    mov     rbx, 9
+    add     rbx, rax
+                                ; %3 = %2 * 100
+    mov     rcx, rbx
+    imul    rcx, 100
+                                ; if %3 <= 10 goto if_end_1
+    mov     rax, 10
+    cmp     rcx, rax
+    jle     .if_end_1
+                                ; call print (%3)
+    push    rcx
+    sub     rsp, 8
+    call    print
+    add     rsp, 8
+    pop     rcx
+  .if_end_1:
+    xor     rax, rax            ; return 0
     pop     rbp                 ; restore previous base pointer
     ret                         ; return to caller
 ```
@@ -352,6 +373,7 @@ if_end_1:
 
 ## Code generation
 - [My First Language Frontend with LLVM](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
+- [Lecture Notes on Static Single Assignment Form](https://www.cs.cmu.edu/~rjsimmon/15411-f15/lec/10-ssa.pdf)
 - [x64 software conventions (Windows)](https://docs.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170)
 - [What Every Computer Scientist Should Know About Floating-Point Arithmetic](https://www.itu.dk/~sestoft/bachelor/IEEE754_article.pdf)
 - [What Every Programmer Should Know About Memory](https://people.freebsd.org/~lstewart/articles/cpumemory.pdf)
