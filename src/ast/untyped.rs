@@ -6,7 +6,7 @@
 //! AST (if the program is well-typed) or one or more type errors.
 use std::fmt::{self, Display};
 
-use crate::span::Span;
+use crate::{lexer::tokens, span::Span};
 
 use super::{typed, TypeSpec};
 
@@ -254,6 +254,7 @@ impl Display for ExprKind {
 pub enum Literal {
     Integer(i32),
     Boolean(bool),
+    String(String),
     None,
 }
 impl Display for Literal {
@@ -263,7 +264,16 @@ impl Display for Literal {
             Integer(i) => write!(f, "{}", i),
             Boolean(true) => write!(f, "True"),
             Boolean(false) => write!(f, "False"),
+            String(str) => write!(f, "{:?}", str),
             None => write!(f, "None"),
+        }
+    }
+}
+impl From<tokens::Literal> for Literal {
+    fn from(literal: tokens::Literal) -> Self {
+        match literal {
+            tokens::Literal::Integer(x) => Literal::Integer(x),
+            tokens::Literal::String(x) => Literal::String(x),
         }
     }
 }

@@ -8,7 +8,10 @@ use std::{
 };
 
 use crate::{
-    ast::typed::{BinOp, CmpOp},
+    ast::{
+        typed::{BinOp, CmpOp},
+        untyped::Literal,
+    },
     builtins::Builtin,
     listing::{Listing, Position},
 };
@@ -427,12 +430,21 @@ impl Value {
         }
     }
 }
-
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Value::Const(lit) => write!(f, "{}", lit),
             Value::Name(name) => write!(f, "{}", name),
+        }
+    }
+}
+impl From<Literal> for Value {
+    fn from(value: Literal) -> Self {
+        match value {
+            Literal::Integer(i) => Value::Const(i as TargetSize),
+            Literal::Boolean(b) => Value::Const(b as TargetSize),
+            Literal::String(s) => todo!("Convert `str` to TAC value."),
+            Literal::None => todo!("Convert `None` to TAC value"),
         }
     }
 }

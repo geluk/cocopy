@@ -95,29 +95,40 @@ impl BinOpChecker {
     fn get_op(&self) -> Operation {
         use TypeSpec::*;
         use Uop::*;
-        match self.op {
+        match (&self.lhs_type, self.op) {
             // bool or bool -> bool
-            Or => Operation::Semigroup(Bool, Top::Bool(BoolOp::Or)),
-            And => Operation::Semigroup(Bool, Top::Bool(BoolOp::And)),
+            (_, Or) => Operation::Semigroup(Bool, Top::Bool(BoolOp::Or)),
+            (_, And) => Operation::Semigroup(Bool, Top::Bool(BoolOp::And)),
             // int == int -> bool
-            Equal => Operation::BinFunc(vec![Int, Bool], Bool, Top::Compare(CmpOp::Equal)),
-            NotEqual => Operation::BinFunc(vec![Int, Bool], Bool, Top::Compare(CmpOp::NotEqual)),
+            (_, Equal) => Operation::BinFunc(vec![Int, Bool], Bool, Top::Compare(CmpOp::Equal)),
+            (_, NotEqual) => {
+                Operation::BinFunc(vec![Int, Bool], Bool, Top::Compare(CmpOp::NotEqual))
+            }
+            // str + str -> str
+            // Special-cased to allow 'overloading' the + operator.
+            (Str, Add) => Operation::Semigroup(Str, Top::StrConcat),
             // int + int -> int
-            Add => Operation::Semigroup(Int, Top::IntArith(IntOp::Add)),
-            Subtract => Operation::Semigroup(Int, Top::IntArith(IntOp::Subtract)),
-            Multiply => Operation::Semigroup(Int, Top::IntArith(IntOp::Multiply)),
-            IntDiv => Operation::Semigroup(Int, Top::IntArith(IntOp::Divide)),
-            Remainder => Operation::Semigroup(Int, Top::IntArith(IntOp::Remainder)),
+            // Other types end up in this branch too, so `False + 'foo'` will cause two operand errors,
+            // even though in this case we'd want to generate an error like "'+' operator not defined for 'bool'".
+            // For now, we don't really care about this, but we could be a bit smarter to handle this case nicely.
+            (_, Add) => Operation::Semigroup(Int, Top::IntArith(IntOp::Add)),
+
+            (_, Subtract) => Operation::Semigroup(Int, Top::IntArith(IntOp::Subtract)),
+            (_, Multiply) => Operation::Semigroup(Int, Top::IntArith(IntOp::Multiply)),
+            (_, IntDiv) => Operation::Semigroup(Int, Top::IntArith(IntOp::Divide)),
+            (_, Remainder) => Operation::Semigroup(Int, Top::IntArith(IntOp::Remainder)),
             // int < int -> bool
-            LessThan => Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::LessThan)),
-            GreaterThan => Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::GreaterThan)),
-            LessThanEqual => {
+            (_, LessThan) => Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::LessThan)),
+            (_, GreaterThan) => {
+                Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::GreaterThan))
+            }
+            (_, LessThanEqual) => {
                 Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::LessThanEqual))
             }
-            GreaterThanEqual => {
+            (_, GreaterThanEqual) => {
                 Operation::BinFunc(vec![Int], Bool, Top::Compare(CmpOp::GreaterThanEqual))
             }
-            Is => todo!("Implement 'is' type check"),
+            (_, Is) => todo!("Implement 'is' type check"),
         }
     }
 

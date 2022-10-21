@@ -495,6 +495,7 @@ impl TypeChecker {
         match literal {
             Literal::Boolean(_) => TypeSpec::Bool,
             Literal::Integer(_) => TypeSpec::Int,
+            Literal::String(_) => TypeSpec::Str,
             Literal::None => TypeSpec::None,
         }
     }

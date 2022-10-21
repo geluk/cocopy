@@ -317,6 +317,7 @@ pub enum BinOp {
     Compare(CmpOp),
     IntArith(IntOp),
     Bool(BoolOp),
+    StrConcat,
 }
 impl BinOp {
     pub fn as_compare(&self) -> Option<CmpOp> {
@@ -333,6 +334,7 @@ impl Display for BinOp {
             BinOp::Compare(cmp) => cmp.fmt(f),
             BinOp::IntArith(ar) => ar.fmt(f),
             BinOp::Bool(bool) => bool.fmt(f),
+            BinOp::StrConcat => f.write_str("+"),
         }
     }
 }

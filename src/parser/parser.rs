@@ -501,7 +501,7 @@ impl<'a> Parser<'a> {
 
     fn as_literal(token: &Token) -> Option<Literal> {
         Some(match &token.kind {
-            TokenKind::Literal(l) => l.to_syntax_node(),
+            TokenKind::Literal(l) => l.clone().into(),
             TokenKind::Keyword(Keyword::True) => Literal::Boolean(true),
             TokenKind::Keyword(Keyword::False) => Literal::Boolean(false),
             TokenKind::Keyword(Keyword::None) => Literal::None,

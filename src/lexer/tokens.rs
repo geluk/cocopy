@@ -123,13 +123,3 @@ impl Display for Literal {
         }
     }
 }
-impl Literal {
-    pub fn to_syntax_node(&self) -> untyped::Literal {
-        match self {
-            Literal::Integer(i) => untyped::Literal::Integer(*i),
-            Literal::String(_str) => {
-                todo!("Implement conversion of string literals to syntax nodes")
-            }
-        }
-    }
-}

@@ -10,6 +10,7 @@ pub enum TypeSpec {
     None,
     Int,
     Bool,
+    Str,
     Array(Box<TypeSpec>),
     Function(Vec<TypeSpec>, Box<TypeSpec>),
 }
@@ -19,6 +20,7 @@ impl Display for TypeSpec {
             TypeSpec::None => f.write_str("<None>"),
             TypeSpec::Int => f.write_str("int"),
             TypeSpec::Bool => f.write_str("bool"),
+            TypeSpec::Str => f.write_str("str"),
             TypeSpec::Array(inner) => write!(f, "[{}]", inner),
             TypeSpec::Function(params, ret) => {
                 f.write_str("(")?;
@@ -37,6 +39,7 @@ impl FromStr for TypeSpec {
         Ok(match s {
             "int" => TypeSpec::Int,
             "bool" => TypeSpec::Bool,
+            "str" => TypeSpec::Str,
             _ => return Err(()),
         })
     }

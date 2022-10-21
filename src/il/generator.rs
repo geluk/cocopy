@@ -1,10 +1,7 @@
 use std::collections::HashSet;
 
 use crate::{
-    ast::{
-        typed::*,
-        untyped::{Literal, Parameter},
-    },
+    ast::{typed::*, untyped::Parameter},
     listing::Position,
 };
 
@@ -109,7 +106,7 @@ struct TacGenerator<P> {
 impl<P: TacProcedure> TacGenerator<P> {
     /// Lower a variable definition to an assignment instruction.
     fn lower_var_def(&mut self, var_def: VarDef) {
-        self.emit_assign(var_def.name, self.convert_literal(var_def.value));
+        self.emit_assign(var_def.name, var_def.value.into());
     }
 
     /// Lower a parameter definition, retrieving it and storing it in a local variable.
@@ -284,7 +281,7 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// Lower an expression.
     fn lower_expr(&mut self, expr: Expr) -> Value {
         match expr.expr_kind {
-            ExprKind::Literal(lit) => self.convert_literal(lit),
+            ExprKind::Literal(lit) => lit.into(),
             ExprKind::Identifier(id) => self.convert_identifier(id),
             ExprKind::Member(_) => todo!(),
             ExprKind::Index(_) => todo!(),
@@ -368,7 +365,7 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// Emit an assignment, assigning `value` to `id`. Returns the variable that was assigned to.
     fn emit_assign(&mut self, id: String, value: Value) {
         let variable = self.name_generator.next_subscript(id);
-        self.emit(TacInstr::Assign(Name::Sub(variable.clone()), value));
+        self.emit(TacInstr::Assign(Name::Sub(variable), value));
     }
 
     /// Emit an instruction, adding it to the listing.
@@ -403,16 +400,6 @@ impl<P: TacProcedure> TacGenerator<P> {
 
         let last_line = self.mark_current();
         self.operations_within(first_line, last_line)
-    }
-
-    /// Convert a literal to a [`Value`]. This does not result in the emission
-    /// of intermediate code.
-    fn convert_literal(&self, lit: Literal) -> Value {
-        match lit {
-            Literal::Integer(i) => Value::Const(i as TargetSize),
-            Literal::Boolean(b) => Value::Const(b as TargetSize),
-            Literal::None => todo!(),
-        }
     }
 
     /// Convert an identifier to a [`Value`]. This does not result in the emission
