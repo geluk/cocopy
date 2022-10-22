@@ -68,14 +68,15 @@ fn resolve_deferred_instrs<S: StackConvention>(
 
                 procedure.body.push(instr.op, operands);
             }
-            DeferredLine::LockRequest(_, _) => (),
-            DeferredLine::ImplicitRead(_) => (),
             DeferredLine::CallerPreserve => {
                 for reg_to_push in allocator
                     .live_regs_at(position)
                     .into_iter()
                     .map(|a| a.register())
-                    .filter(|&r| calling_convention.is_caller_saved(r))
+                    .filter(|&r| {
+                        calling_convention.is_caller_saved(r)
+                            || r == calling_convention.get_return_reg()
+                    })
                 {
                     procedure.body.push(Push, [Operand::Reg(reg_to_push)]);
                     stack_size += reg_to_push.byte_size();
@@ -103,12 +104,14 @@ fn resolve_deferred_instrs<S: StackConvention>(
                     stack_size -= reg_to_pop.byte_size();
                 }
             }
-            DeferredLine::AlignStack => {}
             DeferredLine::Return => {
                 if position != last_line {
                     S::add_epilogue(&mut procedure.body);
                 }
             }
+            DeferredLine::LockRequest(_, _) => (),
+            DeferredLine::ImplicitRead(_) => (),
+            DeferredLine::AlignStack => (),
         }
     }
 
