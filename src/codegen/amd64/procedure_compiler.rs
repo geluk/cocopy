@@ -198,7 +198,7 @@ impl DeferringCompiler {
 
     /// Compile an assignment.
     fn compile_assign(&mut self, target: Name, value: Value) {
-        let target = self.name_to_operand(target, Mov.op1_semantics());
+        let target = self.name_to_operand(target);
         let value = self.value_to_operand(value, Mov.op2_semantics());
 
         self.emit(Mov, [target, value]);
@@ -252,14 +252,14 @@ impl DeferringCompiler {
         match &left {
             // Instructions like `a = a + 1` can be performed in a single operation.
             Value::Name(name) if name == &tgt => {
-                let target = self.name_to_operand(tgt, OpSemantics::any());
-                let right = self.value_to_operand(right, OpSemantics::any());
+                let target = self.name_to_operand(tgt);
+                let right = self.value_to_operand(right, op.op2_semantics());
                 self.emit(op, [target, right]);
             }
             _ => {
-                let target = self.name_to_operand(tgt, OpSemantics::any());
-                let left = self.value_to_operand(left, OpSemantics::any());
-                let right = self.value_to_operand(right, OpSemantics::any());
+                let target = self.name_to_operand(tgt);
+                let left = self.value_to_operand(left, op.op2_semantics());
+                let right = self.value_to_operand(right, op.op2_semantics());
                 // Binary operations of the form `x = y <> z` (where <> is some operation) cannot be
                 // compiled in one go, so we translate them to the following sequence:
                 // x <- y
@@ -272,8 +272,8 @@ impl DeferringCompiler {
 
     /// Compile a comparison between two values.
     fn compile_cmp(&mut self, tgt: Name, cmp: CmpOp, left: Value, right: Value) {
-        let left_op = self.value_to_operand(left, OpSemantics::any_reg());
-        let right_op = self.value_to_operand(right, OpSemantics::any());
+        let left_op = self.value_to_operand(left, Cmp.op1_semantics());
+        let right_op = self.value_to_operand(right, Cmp.op2_semantics());
 
         self.emit(Cmp, [left_op, right_op]);
 
@@ -347,17 +347,17 @@ impl DeferringCompiler {
                     DeferredOperand::Lit(c)
                 } else {
                     let temp_reg = DeferredReg::AsmTemp(self.next_temp());
-                    self.emit(Mov, [Reg(temp_reg.clone(), semantics), Lit(c)]);
-                    Reg(temp_reg, semantics)
+                    self.emit(Mov, [Reg(temp_reg.clone()), Lit(c)]);
+                    Reg(temp_reg)
                 }
             }
-            Value::Name(n) => self.name_to_operand(n, semantics),
+            Value::Name(n) => self.name_to_operand(n),
         }
     }
 
     // Prepare the given name as an operand.
-    fn name_to_operand(&self, name: Name, semantics: OpSemantics) -> DeferredOperand {
-        Reg(DeferredReg::from_name(name), semantics)
+    fn name_to_operand(&self, name: Name) -> DeferredOperand {
+        Reg(DeferredReg::from_name(name))
     }
 
     /// Lock or write the given value, depending on what it is.
@@ -455,7 +455,15 @@ impl OpSemanticsFor for Op {
             Cmp => OpSemantics::any_reg_or_mem(),
             Idiv => OpSemantics::any_reg_or_mem(),
             Mov => OpSemantics::any(),
-            _ => todo!("Determine operand 1 semantics for {}", self),
+            _ => {
+                warn!(
+                    "Don't know operand 1 semantics for {}, guessing 'any'",
+                    self
+                );
+                // Not a big problem if this is wrong, because then nasm will just throw an error
+                // if we try to assemble the code.
+                OpSemantics::any()
+            }
         }
     }
     /// Retrieves the operand semantics for the second operand.
@@ -463,7 +471,15 @@ impl OpSemanticsFor for Op {
         match self {
             Cmp => OpSemantics::any_reg(),
             Mov => OpSemantics::any(),
-            _ => todo!("Determine operand 2 semantics for {}", self),
+            _ => {
+                warn!(
+                    "Don't know operand 2 semantics for {}, guessing 'any'",
+                    self
+                );
+                // Not a big problem if this is wrong, because then nasm will just throw an error
+                // if we try to assemble the code.
+                OpSemantics::any()
+            }
         }
     }
 }

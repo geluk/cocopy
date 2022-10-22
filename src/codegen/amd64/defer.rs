@@ -6,7 +6,7 @@ use crate::{
     listing::Position,
 };
 
-use super::{assembly::*, procedure_compiler::OpSemantics, x86::*};
+use super::{assembly::*, x86::*};
 
 #[derive(Debug)]
 pub enum DeferredLine {
@@ -61,7 +61,7 @@ pub enum DeferredOperand {
     /// Also includes the operator semantics so that the register allocator
     /// can make sure to assign the name to a valid register, or to emit a
     /// just-in-time swap to bring it into the right register.
-    Reg(DeferredReg, OpSemantics),
+    Reg(DeferredReg),
     /// An immediate value
     Lit(TargetSize),
     /// A label
@@ -80,7 +80,7 @@ impl DeferredOperand {
         match self {
             Self::ConstReg(reg) => Operand::Reg(reg),
             // TODO: Improve position handling to make it clear what's happening here
-            Self::Reg(deferred, _) => deferred.resolve(allocator, position - 1),
+            Self::Reg(deferred) => deferred.resolve(allocator, position - 1),
 
             Self::Lit(lit) => Operand::Lit(lit as i128),
             Self::Lbl(lbl) => Operand::Lbl(format!(".{lbl}")),
@@ -92,7 +92,7 @@ impl Display for DeferredOperand {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Self::ConstReg(reg) => write!(f, "{}", reg),
-            Self::Reg(reg, _) => write!(f, "{}", reg),
+            Self::Reg(reg) => write!(f, "{}", reg),
             Self::Lit(lit) => write!(f, "{}", lit),
             Self::Lbl(lbl) => write!(f, "{}", lbl),
             Self::Id(id) => write!(f, "{}", id),
