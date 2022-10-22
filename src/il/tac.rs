@@ -66,7 +66,7 @@ impl Display for TacProgram {
 impl Listing<TacInstr> {
     pub fn is_used_after(&self, name: &Name, position: Position) -> bool {
         // We can probably always subtract 1 from `len` here
-        if position.0 >= self.len() {
+        if position >= self.len() {
             return false;
         }
 

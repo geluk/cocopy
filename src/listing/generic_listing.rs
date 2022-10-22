@@ -58,8 +58,8 @@ impl<T> Listing<T> {
         self.lines.into_iter()
     }
 
-    pub fn len(&self) -> usize {
-        self.lines.len()
+    pub fn len(&self) -> Position {
+        Position(self.lines.len())
     }
 
     pub fn instruction_mut(&mut self, line: Position) -> &mut T {

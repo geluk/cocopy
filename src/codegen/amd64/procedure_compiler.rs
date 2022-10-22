@@ -41,7 +41,7 @@ fn resolve_deferred_instrs<S: StackConvention>(
     calling_convention: CallingConvention,
 ) -> Procedure {
     let mut pushed_regs = vec![];
-    let last_line = Position(instrs.len() - 1);
+    let last_line = instrs.len() - 1;
     let mut stack_size = 0;
     let mut aligned_bytes = 0;
 
