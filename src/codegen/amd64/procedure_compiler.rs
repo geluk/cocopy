@@ -52,19 +52,11 @@ fn resolve_deferred_instrs<S: StackConvention>(
             }
             DeferredLine::Label(lbl) => procedure.body.add_label(format!(".{lbl}")),
             DeferredLine::Instr(instr) => {
-                let mut operands: Vec<_> = instr
+                let operands: Vec<_> = instr
                     .operands
                     .into_iter()
                     .map(|o| o.resolve(&allocator, position))
                     .collect();
-
-                if let Some(target) = instr.target {
-                    let tgt_op = match target {
-                        Target::Deferred(df) => df.resolve(&allocator, position),
-                        Target::Reg(r) => Operand::Reg(r),
-                    };
-                    operands.insert(0, tgt_op);
-                }
 
                 procedure.body.push(instr.op, operands);
             }
@@ -181,7 +173,7 @@ impl DeferringCompiler {
             false => Jz,
         };
 
-        let operand = self.prepare_operand(value, Test.op1_semantics());
+        let operand = self.value_to_operand(value, Test.op1_semantics());
         self.emit(Test, [operand.clone(), operand]);
         self.emit(jump_type, [DeferredOperand::Lbl(label)]);
     }
@@ -198,18 +190,18 @@ impl DeferringCompiler {
             CmpOp::LessThanEqual => Jle,
         };
 
-        let lhs = self.prepare_operand(lhs, Cmp.op1_semantics());
-        let rhs = self.prepare_operand(rhs, Cmp.op2_semantics());
+        let lhs = self.value_to_operand(lhs, Cmp.op1_semantics());
+        let rhs = self.value_to_operand(rhs, Cmp.op2_semantics());
         self.emit(Cmp, [lhs, rhs]);
         self.emit(jump_type, [Lbl(label)]);
     }
 
     /// Compile an assignment.
     fn compile_assign(&mut self, target: Name, value: Value) {
-        let target = self.prepare_target(target);
-        let value = self.prepare_operand(value, Mov.op2_semantics());
+        let target = self.name_to_operand(target, Mov.op1_semantics());
+        let value = self.value_to_operand(value, Mov.op2_semantics());
 
-        self.emit_write(Mov, target, [value]);
+        self.emit(Mov, [target, value]);
     }
 
     /// Compile a binary operation. Dispatches the operation for the correct compile fuction
@@ -231,6 +223,8 @@ impl DeferringCompiler {
             // // This is also where the quotient is stored.
             // let dividend = self.prepare_operand(left, OpSemantics::rax_only());
             // let divisor = self.prepare_operand(right, Idiv.op1_semantics());
+
+            // We also need CQO here.
 
             // self.emit(Xor, [Reg(Rdx), Reg(Rdx)]);
 
@@ -256,36 +250,36 @@ impl DeferringCompiler {
         let op = translate_binop(op);
 
         match &left {
+            // Instructions like `a = a + 1` can be performed in a single operation.
             Value::Name(name) if name == &tgt => {
-                let target = self.prepare_target(tgt);
-                let right = self.prepare_operand(right, OpSemantics::any());
-                self.emit_write(op, target, [right]);
+                let target = self.name_to_operand(tgt, OpSemantics::any());
+                let right = self.value_to_operand(right, OpSemantics::any());
+                self.emit(op, [target, right]);
             }
             _ => {
-                let target = self.prepare_target(tgt);
-                let left = self.prepare_operand(left, OpSemantics::any());
-                let right = self.prepare_operand(right, OpSemantics::any());
+                let target = self.name_to_operand(tgt, OpSemantics::any());
+                let left = self.value_to_operand(left, OpSemantics::any());
+                let right = self.value_to_operand(right, OpSemantics::any());
                 // Binary operations of the form `x = y <> z` (where <> is some operation) cannot be
                 // compiled in one go, so we translate them to the following sequence:
                 // x <- y
                 // x <>= z
-                self.emit_write(Mov, target.clone(), [left]);
-                self.emit_write(op, target, [right]);
+                self.emit(Mov, [target.clone(), left]);
+                self.emit(op, [target, right]);
             }
         }
     }
 
     /// Compile a comparison between two values.
     fn compile_cmp(&mut self, tgt: Name, cmp: CmpOp, left: Value, right: Value) {
-        let left_op = self.prepare_operand(left, OpSemantics::any_reg());
-        let right_op = self.prepare_operand(right, OpSemantics::any());
-
-        let target = self.prepare_target(tgt.clone());
-        let target_op = self.prepare_operand(Value::Name(tgt), OpSemantics::any());
-        self.emit_write(Xor, target.clone(), [target_op]);
+        let left_op = self.value_to_operand(left, OpSemantics::any_reg());
+        let right_op = self.value_to_operand(right, OpSemantics::any());
 
         self.emit(Cmp, [left_op, right_op]);
 
+        // TODO: We may not need this operation if `Setg` clears the register for us.
+        let target_op = self.value_to_operand(Value::Name(tgt), OpSemantics::any());
+        self.emit(Xor, [target_op.clone(), target_op.clone()]);
         // The x86 `set` operation copies a comparison flag into a register,
         // allowing us to treat the value as a boolean.
         let set_op = match cmp {
@@ -296,7 +290,7 @@ impl DeferringCompiler {
             CmpOp::Equal => Sete,
             CmpOp::NotEqual => Setne,
         };
-        self.emit_write(set_op, target, []);
+        self.emit(set_op, [target_op]);
     }
 
     /// Compile a call to a function with `param_count` parameters.
@@ -345,67 +339,53 @@ impl DeferringCompiler {
         }
     }
 
-    /// Create a deferred target for the given name.
-    fn prepare_target(&self, target: Name) -> Target {
-        Target::Deferred(defer(target))
-    }
-
-    fn prepare_operand(&mut self, value: Value, semantics: OpSemantics) -> DeferredOperand {
+    /// Prepare the given value as an operand.
+    fn value_to_operand(&mut self, value: Value, semantics: OpSemantics) -> DeferredOperand {
         match value {
             Value::Const(c) => {
                 if semantics.immediate {
                     DeferredOperand::Lit(c)
                 } else {
-                    let deferred_reg = DeferredReg::AsmTemp(self.next_temp());
-                    self.emit_write(Mov, Target::Deferred(deferred_reg.clone()), [Lit(c)]);
-                    Reg(deferred_reg, semantics)
+                    let temp_reg = DeferredReg::AsmTemp(self.next_temp());
+                    self.emit(Mov, [Reg(temp_reg.clone(), semantics), Lit(c)]);
+                    Reg(temp_reg, semantics)
                 }
             }
-            Value::Name(n) => Reg(DeferredReg::from_name(n), semantics),
+            Value::Name(n) => self.name_to_operand(n, semantics),
         }
     }
 
-    fn emit_lock_or_write(&mut self, value: Value, register: Register) {
-        match value {
-            Value::Const(c) => {
-                self.emit_write(Mov, Target::Reg(register), [DeferredOperand::Lit(c)])
-            }
-            Value::Name(n) => self.emit_lock(n, register),
-        };
+    // Prepare the given name as an operand.
+    fn name_to_operand(&self, name: Name, semantics: OpSemantics) -> DeferredOperand {
+        Reg(DeferredReg::from_name(name), semantics)
     }
 
-    fn emit_write<V: Into<Vec<DeferredOperand>>>(&mut self, op: Op, target: Target, operands: V) {
-        self.asm_listing.push(DeferredLine::Instr(DeferredInstr {
-            op,
-            target: Some(target),
-            operands: operands.into(),
-        }))
+    /// Lock or write the given value, depending on what it is.
+    /// If the value is a variable, lock it to the target register.
+    /// If it is a constant, write it to the target register.
+    fn emit_lock_or_write(&mut self, value: Value, register: Register) {
+        match value {
+            Value::Const(c) => self.emit(Mov, [ConstReg(register), Lit(c)]),
+            Value::Name(n) => self.emit_lock(n, register),
+        };
     }
 
     fn emit<V: Into<Vec<DeferredOperand>>>(&mut self, op: Op, operands: V) {
         self.asm_listing.push(DeferredLine::Instr(DeferredInstr {
             op,
-            target: None,
             operands: operands.into(),
         }))
     }
 
     fn emit_lock(&mut self, name: Name, reg: Register) {
         self.asm_listing
-            .push(DeferredLine::LockRequest(defer(name), reg))
+            .push(DeferredLine::LockRequest(DeferredReg::from_name(name), reg))
     }
 
     fn next_temp(&mut self) -> usize {
         let next = self.current_temp;
         self.current_temp += 1;
         next
-    }
-}
-
-fn defer(target: Name) -> DeferredReg {
-    match target {
-        Name::Sub(var) => DeferredReg::Sub(var),
-        Name::Temp(temp) => DeferredReg::Temp(temp),
     }
 }
 
@@ -474,6 +454,7 @@ impl OpSemanticsFor for Op {
             Test => OpSemantics::any_reg(),
             Cmp => OpSemantics::any_reg_or_mem(),
             Idiv => OpSemantics::any_reg_or_mem(),
+            Mov => OpSemantics::any(),
             _ => todo!("Determine operand 1 semantics for {}", self),
         }
     }

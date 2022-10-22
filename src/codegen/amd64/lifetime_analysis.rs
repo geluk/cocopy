@@ -67,12 +67,8 @@ impl<'l> LifetimeAnalysis<'l> {
         for (pos, line) in self.listing.iter_lines() {
             match line {
                 DeferredLine::Instr(instr) => {
-                    if let Some(Target::Deferred(reg)) = &instr.target {
-                        self.expand_lifetime(reg, pos);
-                    }
-
                     for operand in instr.operands.iter() {
-                        if let DeferredOperand::Reg(reg, _) = operand {
+                        if let DeferredOperand::Reg(reg, _) = &operand {
                             self.expand_lifetime(reg, pos - 1)
                         }
                     }

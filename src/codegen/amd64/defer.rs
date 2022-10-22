@@ -30,10 +30,9 @@ impl Display for DeferredLine {
                 "{} {}",
                 instr.op,
                 instr
-                    .target
+                    .operands
                     .iter()
-                    .map(|t| t.to_string())
-                    .chain(instr.operands.iter().map(|i| i.to_string()))
+                    .map(|i| i.to_string())
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
@@ -50,12 +49,14 @@ impl Display for DeferredLine {
 #[derive(Debug)]
 pub struct DeferredInstr {
     pub op: Op,
-    pub target: Option<Target>,
     pub operands: Vec<DeferredOperand>,
 }
 
 #[derive(Debug, Clone)]
 pub enum DeferredOperand {
+    /// A fixed register that is identified ahead of time, likely as a result of
+    /// calling conventions or operator semantics.
+    ConstReg(Register),
     /// Some not yet known register.
     /// Also includes the operator semantics so that the register allocator
     /// can make sure to assign the name to a valid register, or to emit a
@@ -77,8 +78,10 @@ impl DeferredOperand {
         position: Position,
     ) -> Operand {
         match self {
+            Self::ConstReg(reg) => Operand::Reg(reg),
             // TODO: Improve position handling to make it clear what's happening here
             Self::Reg(deferred, _) => deferred.resolve(allocator, position - 1),
+
             Self::Lit(lit) => Operand::Lit(lit as i128),
             Self::Lbl(lbl) => Operand::Lbl(format!(".{lbl}")),
             Self::Id(id) => Operand::Id(id),
@@ -88,6 +91,7 @@ impl DeferredOperand {
 impl Display for DeferredOperand {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
+            Self::ConstReg(reg) => write!(f, "{}", reg),
             Self::Reg(reg, _) => write!(f, "{}", reg),
             Self::Lit(lit) => write!(f, "{}", lit),
             Self::Lbl(lbl) => write!(f, "{}", lbl),
@@ -132,20 +136,6 @@ impl Display for DeferredReg {
             DeferredReg::Sub(sub) => write!(f, "{}", sub),
             DeferredReg::Temp(temp) => write!(f, "%{}", temp),
             DeferredReg::AsmTemp(temp) => write!(f, "${}", temp),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum Target {
-    Deferred(DeferredReg),
-    Reg(Register),
-}
-impl Display for Target {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        match self {
-            Target::Deferred(dfr) => write!(f, "{}", dfr),
-            Target::Reg(reg) => write!(f, "{}", reg),
         }
     }
 }
