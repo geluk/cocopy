@@ -23,11 +23,11 @@ pub enum DeferredLine {
 impl Display for DeferredLine {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Self::Comment(cmt) => write!(f, "# {cmt}"),
+            Self::Comment(cmt) => write!(f, "    ; {cmt}"),
             Self::Label(lbl) => write!(f, "{lbl}:"),
             Self::Instr(instr) => write!(
                 f,
-                "{} {}",
+                "    {} {}",
                 instr.op,
                 instr
                     .operands
@@ -36,12 +36,12 @@ impl Display for DeferredLine {
                     .collect::<Vec<_>>()
                     .join(", ")
             ),
-            Self::LockRequest(dfr, reg) => write!(f, "lock {dfr} to {reg}"),
-            Self::ImplicitRead(dfr) => write!(f, "implicit_read {dfr}"),
-            Self::CallerPreserve => f.write_str("caller_preserve"),
-            Self::CallerRestore => f.write_str("caller_restore"),
-            Self::AlignStack => f.write_str("align_stack"),
-            Self::Return => f.write_str("return"),
+            Self::LockRequest(dfr, reg) => write!(f, "    lock {dfr} to {reg}"),
+            Self::ImplicitRead(dfr) => write!(f, "    implicit_read {dfr}"),
+            Self::CallerPreserve => f.write_str("    caller_preserve"),
+            Self::CallerRestore => f.write_str("    caller_restore"),
+            Self::AlignStack => f.write_str("    align_stack"),
+            Self::Return => f.write_str("    return"),
         }
     }
 }

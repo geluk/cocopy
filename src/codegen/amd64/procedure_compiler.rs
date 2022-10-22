@@ -23,9 +23,7 @@ pub fn compile<S: StackConvention>(
 ) -> Procedure {
     debug!("Compiling procedure '{}'", procedure.name);
     let instrs = DeferringCompiler::compile_deferred(calling_convention, listing);
-    for (position, instr) in instrs.iter_lines() {
-        trace!("{position}: {instr}")
-    }
+    trace!("Deferred assembly:\n{}", instrs);
 
     debug!("Performing lifetime analysis");
     let allocator = LifetimeAnalysis::create_allocator_for(&instrs);
