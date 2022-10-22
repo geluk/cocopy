@@ -87,6 +87,8 @@ fn main() -> Result<()> {
 /// Run the compiler frontend. The frontend converts an input string to a
 /// [`Program`], which represents an abstract syntax tree.
 pub fn run_frontend(source: &str) -> Result<Program, CompileErrors> {
+    debug!("Source code:\n{}", source);
+
     let tokens = lexer::lex(source)?;
     info!("Lexer finished");
     for token in &tokens {

@@ -40,7 +40,6 @@ impl<'l> LifetimeAnalysis<'l> {
         let mut allocator = Allocator::new(Register::iter().copied().collect());
 
         for (name, request) in self.requests.into_iter() {
-            debug!("Allocating {name}");
             allocator.allocate(name.clone(), request.lifetime);
 
             for (pos, reg) in request.locks {
@@ -49,7 +48,13 @@ impl<'l> LifetimeAnalysis<'l> {
         }
 
         for (name, alloc) in allocator.iter_allocations() {
-            debug!("Allocation: {name} into:\n{alloc:#?}");
+            debug!("Allocate {name} with lifetime {} into:", alloc.lifetime());
+            for slice in alloc.iter_reg_slices() {
+                debug!(" - {} at register {}", slice.lifetime(), slice.register())
+            }
+            for slice in alloc.iter_stack_slices() {
+                debug!(" - {} at stack offset {}", slice.lifetime(), slice.offset())
+            }
         }
 
         debug!("Assigning stack offsets");

@@ -263,7 +263,7 @@ impl Display for TacInstr {
             Self::Call(None, tgt, params) => {
                 write!(
                     f,
-                    "call {}, {}",
+                    "call {} ({})",
                     tgt,
                     params
                         .iter()

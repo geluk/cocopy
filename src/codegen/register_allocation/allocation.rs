@@ -1,6 +1,6 @@
 use std::{
     fmt::{self, Debug, Display, Formatter},
-    slice::IterMut,
+    slice::{Iter, IterMut},
 };
 
 use crate::listing::Position;
@@ -71,6 +71,14 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
             .iter_mut()
             .find(|s| s.lifetime.contains(position))
             .expect("Attempted to look up invalid position")
+    }
+
+    pub fn iter_reg_slices(&self) -> Iter<RegAllocation<R>> {
+        self.reg_slices.iter()
+    }
+
+    pub fn iter_stack_slices(&self) -> Iter<StackAllocation> {
+        self.stack_slices.iter()
     }
 
     pub fn iter_stack_slices_mut(&mut self) -> IterMut<StackAllocation> {
@@ -192,6 +200,10 @@ impl StackAllocation {
         self.offset
     }
 
+    pub fn lifetime(&self) -> Lifetime {
+        self.lifetime
+    }
+
     pub fn set_offset(&mut self, offset: BaseOffset) {
         self.offset = offset;
     }
@@ -267,6 +279,11 @@ impl BaseOffset {
     }
 }
 impl Debug for BaseOffset {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{} bytes", self.0)
+    }
+}
+impl Display for BaseOffset {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{} bytes", self.0)
     }
