@@ -160,10 +160,7 @@ impl DeferringCompiler {
             TacInstr::Return(val) => self.compile_return(val),
             TacInstr::Label(lbl) => self.asm_listing.push(DeferredLine::Label(lbl)),
             TacInstr::Phi(_, names) => self.compile_phi(names),
-            TacInstr::ImplicitRead(n) => self.compile_implicit_read(n),
-            TacInstr::Goto(tgt) => {
-                self.emit(Jmp, [Lbl(tgt)]);
-            }
+            TacInstr::Goto(tgt, names) => self.compile_goto(tgt, names),
         }
     }
 
@@ -340,6 +337,14 @@ impl DeferringCompiler {
         self.emit_lock(param, param_reg);
     }
 
+    fn compile_goto(&mut self, tgt: Label, names: Vec<Name>) {
+        self.emit(Jmp, [Lbl(tgt)]);
+        for name in names {
+            self.asm_listing
+                .push(DeferredLine::ImplicitRead(DeferredReg::from_name(name)));
+        }
+    }
+
     /// Create a deferred target for the given name.
     fn prepare_target(&self, target: Name) -> Target {
         Target::Deferred(defer(target))
@@ -368,10 +373,6 @@ impl DeferringCompiler {
         }
 
         let name = names.pop().unwrap();
-        self.compile_implicit_read(name);
-    }
-
-    fn compile_implicit_read(&mut self, name: Name) {
         self.asm_listing
             .push(DeferredLine::ImplicitRead(DeferredReg::from_name(name)));
     }

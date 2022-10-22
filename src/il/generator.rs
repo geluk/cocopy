@@ -165,10 +165,10 @@ impl<P: TacProcedure> TacGenerator<P> {
         let mut false_variables = vec![];
 
         if let Some(else_body) = if_stmt.else_body {
-            self.emit(TacInstr::Goto(end_lbl.clone()));
+            self.emit(TacInstr::Goto(end_lbl.clone(), vec![]));
             self.emit_label(else_lbl);
             false_variables = self.lower_block(else_body);
-            self.emit(TacInstr::Goto(end_lbl.clone()));
+            self.emit(TacInstr::Goto(end_lbl.clone(), vec![]));
         }
 
         self.emit_label(end_lbl);
@@ -194,26 +194,27 @@ impl<P: TacProcedure> TacGenerator<P> {
             self.record_operations(|s| s.lower_condition(while_stmt.condition, end_lbl.clone()));
 
         let live_variables = self.name_generator.get_live_variables();
-        let block_variables = self.lower_block(while_stmt.body);
+        let block_ops = self.lower_block(while_stmt.body);
 
-        self.emit(TacInstr::Goto(start_lbl));
+        let reads = cond_ops
+            .into_iter()
+            .chain(block_ops.clone().into_iter())
+            .filter_map(|o| o.into_read().map(|(_, n)| n))
+            // Poor man's `unique()`
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        self.emit(TacInstr::Goto(start_lbl, reads));
+
         self.emit_label(end_lbl);
         // For the purpose of liveness analysis, a while loop has two branches:
         // in one it is entered at least once (so variables in its block are assigned),
         // in the other it is never entered (so no variables are ever assigned).
         self.emit_phi(
             live_variables,
-            [collect_writes(block_variables.clone()), Variables::none()],
+            [collect_writes(block_ops), Variables::none()],
         );
-
-        for name in cond_ops
-            .into_iter()
-            .chain(block_variables.into_iter())
-            .filter_map(|o| o.into_read().map(|(_, n)| n))
-            .collect::<HashSet<_>>()
-        {
-            self.emit(TacInstr::ImplicitRead(name));
-        }
     }
 
     /// Lower a condition expression as used in an if-statement or a while-statement.
@@ -355,7 +356,7 @@ impl<P: TacProcedure> TacGenerator<P> {
         let res_name = self.name_generator.next_temp();
         self.emit_label(true_lbl);
         self.emit(TacInstr::Assign(res_name.clone(), Value::Const(1)));
-        self.emit(TacInstr::Goto(end_lbl.clone()));
+        self.emit(TacInstr::Goto(end_lbl.clone(), vec![]));
         self.emit_label(false_lbl);
         self.emit(TacInstr::Assign(res_name.clone(), Value::Const(0)));
         self.emit_label(end_lbl);

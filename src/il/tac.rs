@@ -102,8 +102,25 @@ pub enum TacInstr {
     Assign(Name, Value),
     /// Perform a binary operation.
     Bin(Name, BinOp, Value, Value),
-    /// Jump to a label.
-    Goto(Label),
+    /// Jump to a label, optionally defining a list of variables that will be
+    /// read following the jump.
+    ///
+    /// This is only useful for backwards jumps,
+    /// because it means that the lifetime of these variables should be extended
+    /// up to the point at which the jump occurs. For instance:
+    /// ```
+    /// target:
+    ///     %a = x^1 * 2
+    ///     // Normally the lifetime of `x^1` would have ended here, and the
+    ///     // `%b` variable declared below could reuse the register used by `x^1`.
+    ///     %b = %a + %a
+    ///     // But as a result of this `goto`, `x^1` will be read again when the
+    ///     // multiplication by two is performed again after jumping. The `goto`
+    ///     // instruction indicates this by including `x^1` in its parameters.
+    ///     goto target(x^1)
+    /// ```
+    ///
+    Goto(Label, Vec<Name>),
     /// Jump if a value is true.
     IfTrue(Value, Label),
     /// Jump if a value is false.
@@ -120,8 +137,6 @@ pub enum TacInstr {
     Label(Label),
     /// The ɸ-function.
     Phi(Name, Vec<Name>),
-    /// An implicit read operation.
-    ImplicitRead(Name),
 }
 impl TacInstr {
     pub fn reads_from_name(&self, name: &Name) -> bool {
@@ -132,7 +147,7 @@ impl TacInstr {
             }
             Self::Param(_) => false,
             Self::Call(_, _, values) => values.iter().any(|v| Self::is_usage_of(name, v)),
-            Self::Goto(_) => false,
+            Self::Goto(_, names) => names.iter().any(|n| n == name),
             Self::IfTrue(value, _) => Self::is_usage_of(name, value),
             Self::IfFalse(value, _) => Self::is_usage_of(name, value),
             Self::IfCmp(lhs, _, rhs, _) => {
@@ -142,7 +157,6 @@ impl TacInstr {
             Self::Return(Some(value)) => Self::is_usage_of(name, value),
             Self::Label(_) => false,
             Self::Phi(_, names) => names.iter().any(|n| n == name),
-            Self::ImplicitRead(n) => n == name,
         }
     }
 
@@ -158,7 +172,7 @@ impl TacInstr {
         match self {
             Self::Assign(_, v) => collect([v]),
             Self::Bin(_, _, lhs, rhs) => collect([lhs, rhs]),
-            Self::Goto(_) => vec![],
+            Self::Goto(_, names) => names.iter().cloned().collect(),
             Self::IfTrue(v, _) => collect([v]),
             Self::IfFalse(v, _) => collect([v]),
             Self::IfCmp(lhs, _, rhs, _) => collect([lhs, rhs]),
@@ -167,7 +181,6 @@ impl TacInstr {
             Self::Return(v) => collect(v),
             Self::Label(_) => vec![],
             Self::Phi(_, vs) => vs.to_vec(),
-            Self::ImplicitRead(n) => vec![n.clone()],
         }
     }
 
@@ -175,7 +188,7 @@ impl TacInstr {
         match self {
             Self::Assign(t, _) => Some(t),
             Self::Bin(t, _, _, _) => Some(t),
-            Self::Goto(_) => None,
+            Self::Goto(_, _) => None,
             Self::IfTrue(_, _) => None,
             Self::IfFalse(_, _) => None,
             Self::IfCmp(_, _, _, _) => None,
@@ -184,7 +197,6 @@ impl TacInstr {
             Self::Return(_) => None,
             Self::Label(_) => None,
             Self::Phi(_, _) => None,
-            Self::ImplicitRead(_) => None,
         }
     }
 
@@ -217,7 +229,22 @@ impl TacInstr {
                     try_replace(arg, src, dest.clone())
                 }
             }
-            Self::Goto(_) => (),
+            Self::Goto(_, names) => match dest.as_ref() {
+                Value::Const(_) => {
+                    // If we replace a name with a constant, it effectively results in that name
+                    // no longer being read by the jump target, so we can just remove its reference.
+                    names.retain(|n| n != src);
+                }
+                Value::Name(dst_name) => {
+                    if names.iter().any(|n| n == src) {
+                        names.retain(|n| n != src);
+                        // If we already read from the destination name, we don't need to add it again.
+                        if !names.iter().any(|n| n == dst_name) {
+                            names.push(dst_name.clone());
+                        }
+                    }
+                }
+            },
             Self::IfTrue(value, _) => try_replace(value, src, dest),
             Self::IfFalse(value, _) => try_replace(value, src, dest),
             Self::IfCmp(lhs, _, rhs, _) => {
@@ -234,14 +261,6 @@ impl TacInstr {
                     "Optimiser error! Replacing a name used in the phi function is not allowed ({} -> {})", src, dest
                 )
             }
-            Self::ImplicitRead(name) => match dest.into_owned() {
-                Value::Const(_) => todo!("How to replace implicit reads?"),
-                Value::Name(dst) => {
-                    if name == src {
-                        *name = dst;
-                    }
-                }
-            },
         }
     }
 
@@ -275,7 +294,7 @@ impl TacInstr {
         match self {
             Self::Assign(tgt, _) => try_replace(tgt, src, dest),
             Self::Bin(tgt, _, _, _) => try_replace(tgt, src, dest),
-            Self::Goto(_) => (),
+            Self::Goto(_, _) => (),
             Self::IfTrue(_, _) => (),
             Self::IfFalse(_, _) => (),
             Self::IfCmp(_, _, _, _) => (),
@@ -285,7 +304,6 @@ impl TacInstr {
             Self::Return(_) => (),
             Self::Label(_) => (),
             Self::Phi(tgt, _) => try_replace(tgt, src, dest),
-            Self::ImplicitRead(_) => (),
         }
     }
 
@@ -298,6 +316,14 @@ impl TacInstr {
 }
 impl Display for TacInstr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        fn params_to_string<P: ToString>(params: &[P]) -> String {
+            params
+                .iter()
+                .map(|p| p.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+
         match self {
             Self::Assign(target, value) => write!(f, "{} = {}", target, value),
             Self::Bin(target, op, lhs, rhs) => {
@@ -305,31 +331,13 @@ impl Display for TacInstr {
             }
             Self::Param(a) => write!(f, "{} = param", a),
             Self::Call(Some(name), tgt, params) => {
-                write!(
-                    f,
-                    "{} = call {} ({})",
-                    name,
-                    tgt,
-                    params
-                        .iter()
-                        .map(|p| p.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
+                write!(f, "{} = call {} ({})", name, tgt, params_to_string(params),)
             }
             Self::Call(None, tgt, params) => {
-                write!(
-                    f,
-                    "call {} ({})",
-                    tgt,
-                    params
-                        .iter()
-                        .map(|p| p.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
+                write!(f, "call {} ({})", tgt, params_to_string(params))
             }
-            Self::Goto(label) => write!(f, "goto {}", label),
+            Self::Goto(label, names) if names.is_empty() => write!(f, "goto {}", label),
+            Self::Goto(label, names) => write!(f, "goto {} ({})", label, params_to_string(names)),
             Self::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),
             Self::IfFalse(value, lbl) => write!(f, "if_false {} goto {}", value, lbl),
             Self::IfCmp(lhs, op, rhs, lbl) => {
@@ -345,9 +353,6 @@ impl Display for TacInstr {
                     .collect::<Vec<_>>()
                     .join(", ");
                 write!(f, "{} = ɸ({})", name, args)
-            }
-            Self::ImplicitRead(name) => {
-                write!(f, "implicit_read {}", name)
             }
         }
     }
