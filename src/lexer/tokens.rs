@@ -1,10 +1,7 @@
 //! Tokens, as produced by the lexer.
 use std::fmt::{self, Display};
 
-use crate::{
-    ast::untyped,
-    span::{Bytes, Span},
-};
+use crate::span::{Bytes, Span};
 
 #[derive(Clone, Debug)]
 pub struct Token {
@@ -113,13 +110,4 @@ pub enum Symbol {
 pub enum Literal {
     Integer(i32),
     String(String),
-}
-impl Display for Literal {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Literal::Integer(i) => write!(f, "{}", i),
-            // TODO: Escape special chars
-            Literal::String(str) => write!(f, "{}", str),
-        }
-    }
 }

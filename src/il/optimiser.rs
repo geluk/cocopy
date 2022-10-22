@@ -3,8 +3,6 @@ use std::{
     collections::{HashMap, HashSet},
 };
 
-use log::trace;
-
 use crate::listing::Position;
 
 use super::{MatchInstruction, TacInstr, TacListing, TacProgram, Value};

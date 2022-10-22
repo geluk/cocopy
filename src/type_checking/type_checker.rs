@@ -279,7 +279,7 @@ impl TypeChecker {
     }
 
     /// Verify that an expression is well-typed.
-    fn check_expression(&mut self, expression: Expr) -> Result<typed::Expr, Vec<TypeError>> {
+    fn check_expression(&self, expression: Expr) -> Result<typed::Expr, Vec<TypeError>> {
         let span = expression.span;
         let (expr_kind, type_spec) = match expression.expr_kind {
             ExprKind::Literal(l) => {
@@ -324,10 +324,7 @@ impl TypeChecker {
 
     /// Verify that a function call references an existing function, and that
     /// its arguments have a matching parameter in the function's type.
-    fn check_function_call(
-        &mut self,
-        call: FunCallExpr,
-    ) -> Result<typed::FunCallExpr, Vec<TypeError>> {
+    fn check_function_call(&self, call: FunCallExpr) -> Result<typed::FunCallExpr, Vec<TypeError>> {
         let (receiver_type, given_args) = self
             .lookup_function(&call.name)
             .add_span(call.name_span)
@@ -382,7 +379,7 @@ impl TypeChecker {
     }
 
     /// Verify that a unary expression is well-typed.
-    fn check_unary(&mut self, un: UnExpr) -> Result<typed::UnExpr, Vec<TypeError>> {
+    fn check_unary(&self, un: UnExpr) -> Result<typed::UnExpr, Vec<TypeError>> {
         let rhs = self.check_expression(un.rhs)?;
 
         Ok(match (un.op, &rhs.type_spec) {
@@ -402,7 +399,7 @@ impl TypeChecker {
 
     /// Verify that a binary expression is well-typed. This may produce multiple errors, if
     /// evaluating both the left-hand side and the right-hand side results in type errors.
-    fn check_binary(&mut self, bin: BinExpr) -> Result<typed::BinExpr, Vec<TypeError>> {
+    fn check_binary(&self, bin: BinExpr) -> Result<typed::BinExpr, Vec<TypeError>> {
         let (lhs, rhs) = self
             .check_expression(bin.lhs)
             .concat_result(self.check_expression(bin.rhs))?;
@@ -422,7 +419,7 @@ impl TypeChecker {
         })
     }
 
-    fn check_ternary(&mut self, ter: TerExpr) -> Result<typed::TerExpr, Vec<TypeError>> {
+    fn check_ternary(&self, ter: TerExpr) -> Result<typed::TerExpr, Vec<TypeError>> {
         let ((lhs, mhs), rhs) = self
             .check_expression(ter.lhs)
             .concat_result(self.check_expression(ter.mhs))
@@ -463,12 +460,9 @@ impl TypeChecker {
     }
 
     /// Look up a builtin or global function.
-    fn lookup_function(&mut self, name: &str) -> Result<TypeSpec, TypeErrorKind> {
+    fn lookup_function(&self, name: &str) -> Result<TypeSpec, TypeErrorKind> {
         match builtins::get_type_map().get(name) {
-            Some((builtin, ty)) => {
-                self.program.used_builtins.push(*builtin);
-                Ok(ty.clone())
-            }
+            Some((_, ty)) => Ok(ty.clone()),
             None => self.program.lookup(name),
         }
     }

@@ -6,7 +6,7 @@ use std::{
     fmt::{self, Display},
 };
 
-use crate::{builtins::Builtin, span::Span};
+use crate::span::Span;
 
 use super::{
     untyped::{Literal, Parameter, TerOp, UnOp},
@@ -18,7 +18,6 @@ pub struct Program {
     pub var_defs: Vec<VarDef>,
     pub func_defs: Vec<FuncDef>,
     pub statements: Vec<Statement>,
-    pub used_builtins: Vec<Builtin>,
     pub global_environment: Environment,
 }
 impl Program {
@@ -27,7 +26,6 @@ impl Program {
             var_defs: vec![],
             func_defs: vec![],
             statements: vec![],
-            used_builtins: vec![],
             global_environment: Environment::empty(),
         }
     }
