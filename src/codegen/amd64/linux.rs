@@ -10,6 +10,7 @@ use super::{
 
 use Op::*;
 use Operand::*;
+use PtrSize::*;
 use Register::*;
 
 pub fn compile(prog: TacProgram) -> Assembly {
@@ -80,7 +81,7 @@ fn readint() -> Procedure {
         .push(Call, [Id("scanf".to_string())])
         .push_cmt(
             Mov,
-            [Reg(Rax), Id("[rsp]".to_string())],
+            [Reg(Rax), Ptr(Qword, Rsp)],
             "fetch result from the stack",
         )
         .push_cmt(Add, [Reg(Rsp), Lit(16)], "put stack back");

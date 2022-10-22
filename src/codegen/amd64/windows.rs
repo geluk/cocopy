@@ -11,6 +11,7 @@ use super::{
 
 use Op::*;
 use Operand::*;
+use PtrSize::*;
 use Register::*;
 
 pub fn compile(prog: TacProgram) -> Assembly {
@@ -58,7 +59,7 @@ pub fn compile(prog: TacProgram) -> Assembly {
 
     asm.data
         .db("msg_ch", "'The char is %c', 13, 10, 0")
-        .db("msg_i", "'The integer is %i', 13, 10, 0")
+        .db("msg_i", "'%i', 13, 10, 0")
         .db("msg_scanf_i", "'Input: ', 13, 10, 0")
         .db("scanf_i", "'%i', 0");
 
@@ -93,7 +94,7 @@ fn readint() -> Procedure {
         .push(Call, [Id("scanf".to_string())])
         .push_cmt(
             Mov,
-            [Reg(Rax), Id("[rsp]".to_string())],
+            [Reg(Eax), Ptr(Dword, Rsp)],
             "fetch result from the stack",
         )
         .push_cmt(Add, [Reg(Rsp), Lit(16)], "put stack back");
@@ -118,7 +119,7 @@ trait BodyExt {
 }
 impl BodyExt for Block {
     fn ret_zero(&mut self) -> &mut Self {
-        self.push_cmt(Xor, [Reg(Rax), Reg(Rax)], "return zero");
+        self.push_cmt(Xor, [Reg(Rcx), Reg(Rcx)], "Exit with code 0");
         self
     }
 }

@@ -326,6 +326,8 @@ pub enum Operand {
     Lbl(String),
     /// An identifier
     Id(String),
+    /// A pointer
+    Ptr(PtrSize, Register),
 }
 impl Display for Operand {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -334,6 +336,25 @@ impl Display for Operand {
             Operand::Lit(lit) => write!(f, "{}", lit),
             Operand::Id(str) => f.write_str(str),
             Operand::Lbl(lbl) => f.write_str(lbl),
+            Operand::Ptr(size, inner) => write!(f, "{} [{}]", size, *inner),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtrSize {
+    Byte,
+    Word,
+    Dword,
+    Qword,
+}
+impl Display for PtrSize {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            PtrSize::Byte => f.write_str("byte"),
+            PtrSize::Word => f.write_str("word"),
+            PtrSize::Dword => f.write_str("dword"),
+            PtrSize::Qword => f.write_str("qword"),
         }
     }
 }

@@ -24,6 +24,8 @@ pub enum Register {
     R13,
     R14,
     R15,
+    // 32-bit wide registers
+    Eax,
     // 8-bit wide registers
     Al,
     Bl,
@@ -82,6 +84,7 @@ impl Display for Register {
             Register::Rdi => "rdi",
             Register::Rsi => "rsi",
             Register::Rax => "rax",
+            Register::Eax => "eax",
             Register::Rbx => "rbx",
             Register::Rcx => "rcx",
             Register::Rdx => "rdx",
