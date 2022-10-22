@@ -273,11 +273,11 @@ impl DeferringCompiler {
         let left_op = self.value_to_operand(left, Cmp.op1_semantics());
         let right_op = self.value_to_operand(right, Cmp.op2_semantics());
 
-        self.emit(Cmp, [left_op, right_op]);
-
         // TODO: We may not need this operation if `Setg` clears the register for us.
         let target_op = self.value_to_operand(Value::Name(tgt), OpSemantics::any());
         self.emit(Xor, [target_op.clone(), target_op.clone()]);
+
+        self.emit(Cmp, [left_op, right_op]);
         // The x86 `set` operation copies a comparison flag into a register,
         // allowing us to treat the value as a boolean.
         let set_op = match cmp {
