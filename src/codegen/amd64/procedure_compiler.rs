@@ -4,7 +4,7 @@ use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
     codegen::register_allocation::Allocator,
     il::*,
-    listing::{Listing, Position},
+    listing::Listing,
     prelude::*,
 };
 
@@ -159,7 +159,7 @@ impl DeferringCompiler {
             TacInstr::IfCmp(lhs, op, rhs, label) => self.compile_compare_jump(lhs, op, rhs, label),
             TacInstr::Return(val) => self.compile_return(val),
             TacInstr::Label(lbl) => self.asm_listing.push(DeferredLine::Label(lbl)),
-            TacInstr::Phi(_, names) => self.compile_phi(names),
+            TacInstr::Phi(_, _) => unreachable!("Phi was not optimised away!"),
             TacInstr::Goto(tgt, names) => self.compile_goto(tgt, names),
         }
     }
@@ -363,18 +363,6 @@ impl DeferringCompiler {
             }
             Value::Name(n) => Reg(DeferredReg::from_name(n), semantics),
         }
-    }
-
-    fn compile_phi(&mut self, mut names: Vec<Name>) {
-        if names.len() != 1 {
-            // If this happens, the optimiser has failed and we won't be able to generate code
-            // for branching statements, so we should bail here.
-            panic!("Phi was not optimised correctly!");
-        }
-
-        let name = names.pop().unwrap();
-        self.asm_listing
-            .push(DeferredLine::ImplicitRead(DeferredReg::from_name(name)));
     }
 
     fn emit_lock_or_write(&mut self, value: Value, register: Register) {
