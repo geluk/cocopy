@@ -1,6 +1,11 @@
-use crate::ast::{
-    typed::*,
-    untyped::{Literal, Parameter},
+use std::collections::HashSet;
+
+use crate::{
+    ast::{
+        typed::*,
+        untyped::{Literal, Parameter},
+    },
+    listing::Position,
 };
 
 use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
@@ -10,6 +15,7 @@ pub fn generate(program: Program) -> TacProgram {
         procedure: TacProgram::new(),
         name_generator: NameGenerator::new(),
         label_generator: LabelGenerator::new(),
+        operations: vec![],
     };
 
     for var_def in program.var_defs {
@@ -27,12 +33,10 @@ pub fn generate(program: Program) -> TacProgram {
         let mut func_gen = TacGenerator::<TacListing> {
             procedure: TacListing::new(),
             name_generator: NameGenerator::new(),
-            // To ensure that we generate globally unique jump labels, all
-            // function bodies (including the main function) should share the
-            // same label generator.
-            // TODO: once we generate function-scoped labels,
-            // we can drop this requirement.
+            // TODO: It should now be possible to use a fresh label generator,
+            // since our labels are now function-scoped.
             label_generator,
+            operations: vec![],
         };
 
         for parameter in func.parameters {
@@ -49,16 +53,50 @@ pub fn generate(program: Program) -> TacProgram {
 
 trait TacProcedure {
     fn push(&mut self, instruction: TacInstr);
+    fn current_line_pos(&self) -> Position;
 }
 
 impl TacProcedure for TacProgram {
     fn push(&mut self, instruction: TacInstr) {
         self.top_level.push(instruction)
     }
+    fn current_line_pos(&self) -> Position {
+        self.top_level.current_line_pos()
+    }
 }
 impl TacProcedure for TacListing {
     fn push(&mut self, instruction: TacInstr) {
         self.push(instruction)
+    }
+
+    fn current_line_pos(&self) -> Position {
+        self.len() - 1
+    }
+}
+
+#[derive(Debug, Clone)]
+enum VariableOperation {
+    Write(Position, Name),
+    Read(Position, Name),
+}
+impl VariableOperation {
+    fn position(&self) -> Position {
+        match self {
+            Self::Write(pos, _) => *pos,
+            Self::Read(pos, _) => *pos,
+        }
+    }
+    fn into_write(self) -> Option<(Position, Name)> {
+        match self {
+            Self::Write(p, n) => Some((p, n)),
+            _ => None,
+        }
+    }
+    fn into_read(self) -> Option<(Position, Name)> {
+        match self {
+            Self::Read(p, n) => Some((p, n)),
+            _ => None,
+        }
     }
 }
 
@@ -66,6 +104,7 @@ struct TacGenerator<P> {
     procedure: P,
     name_generator: NameGenerator,
     label_generator: LabelGenerator,
+    operations: Vec<VariableOperation>,
 }
 impl<P: TacProcedure> TacGenerator<P> {
     /// Lower a variable definition to an assignment instruction.
@@ -79,20 +118,18 @@ impl<P: TacProcedure> TacGenerator<P> {
         self.emit(TacInstr::Param(Name::Sub(variable)));
     }
 
-    /// Lower a statement. Returns the variables that were assigned in this statement.
-    fn lower_stmt(&mut self, stmt: Statement) -> Variables {
+    /// Lower a statement.
+    fn lower_stmt(&mut self, stmt: Statement) {
         match stmt.stmt_kind {
             StmtKind::Pass => (),
             StmtKind::Evaluate(expr) => {
                 self.lower_expr(expr);
             }
             StmtKind::Return(expr) => self.lower_return(expr),
-            StmtKind::Assign(assign) => return Variables::one(self.lower_assign(assign)),
-            StmtKind::If(if_stmt) => return self.lower_if(if_stmt),
-            StmtKind::While(while_stmt) => return self.lower_while(while_stmt),
-        };
-
-        Variables::none()
+            StmtKind::Assign(assign) => self.lower_assign(assign),
+            StmtKind::If(if_stmt) => self.lower_if(if_stmt),
+            StmtKind::While(while_stmt) => self.lower_while(while_stmt),
+        }
     }
 
     fn lower_return(&mut self, opt_expr: Option<Expr>) {
@@ -101,19 +138,21 @@ impl<P: TacProcedure> TacGenerator<P> {
     }
 
     /// Lower a block of statements. Returns the variables that were assigned in this block.
-    fn lower_block(&mut self, block: Block) -> Variables {
-        Variables::collect(
-            block
-                .statements
-                .into_iter()
-                .map(|stmt| self.lower_stmt(stmt)),
-        )
+    fn lower_block(&mut self, block: Block) -> Vec<VariableOperation> {
+        let first_line = self.mark_next();
+
+        for stmt in block.statements.into_iter() {
+            self.lower_stmt(stmt);
+        }
+
+        let last_line = self.mark_current();
+        self.operations_within(first_line, last_line)
     }
 
     /// Lower an if-statement. If-statements are lowered to one or more conditional jumps, to
     /// jump into the correct code block. Returns the variables that the statement's ɸ-functions
     /// assigned to.
-    fn lower_if(&mut self, if_stmt: If) -> Variables {
+    fn lower_if(&mut self, if_stmt: If) {
         let end_lbl = self.label_generator.next_label("if_end");
         let else_lbl = self.label_generator.next_label("if_else");
 
@@ -126,7 +165,7 @@ impl<P: TacProcedure> TacGenerator<P> {
 
         let live_variables = self.name_generator.get_live_variables();
         let true_variables = self.lower_block(if_stmt.body);
-        let mut false_variables = Variables::none();
+        let mut false_variables = vec![];
 
         if let Some(else_body) = if_stmt.else_body {
             self.emit(TacInstr::Goto(end_lbl.clone()));
@@ -136,20 +175,26 @@ impl<P: TacProcedure> TacGenerator<P> {
         }
 
         self.emit_label(end_lbl);
-        self.emit_phi(live_variables, [true_variables, false_variables])
+        self.emit_phi(
+            live_variables,
+            [
+                collect_writes(true_variables),
+                collect_writes(false_variables),
+            ],
+        );
     }
 
     /// Lower a while-statement. While-statements are lowered to an inverted
     /// conditional jump, which skips past the while-statement body, followed first
     /// by the body, then by a goto that jumps back to the beginning.
-    /// Returns the variables that the statement's ɸ-functions assigned to.
-    fn lower_while(&mut self, while_stmt: While) -> Variables {
+    fn lower_while(&mut self, while_stmt: While) {
         let start_lbl = self.label_generator.next_label("while_start");
         let end_lbl = self.label_generator.next_label("while_end");
 
         self.emit_label(start_lbl.clone());
 
-        self.lower_condition(while_stmt.condition, end_lbl.clone());
+        let cond_ops =
+            self.record_operations(|s| s.lower_condition(while_stmt.condition, end_lbl.clone()));
 
         let live_variables = self.name_generator.get_live_variables();
         let block_variables = self.lower_block(while_stmt.body);
@@ -159,7 +204,19 @@ impl<P: TacProcedure> TacGenerator<P> {
         // For the purpose of liveness analysis, a while loop has two branches:
         // in one it is entered at least once (so variables in its block are assigned),
         // in the other it is never entered (so no variables are ever assigned).
-        self.emit_phi(live_variables, [block_variables, Variables::none()])
+        self.emit_phi(
+            live_variables,
+            [collect_writes(block_variables.clone()), Variables::none()],
+        );
+
+        for name in cond_ops
+            .into_iter()
+            .chain(block_variables.into_iter())
+            .filter_map(|o| o.into_read().map(|(_, n)| n))
+            .collect::<HashSet<_>>()
+        {
+            self.emit(TacInstr::ImplicitRead(name));
+        }
     }
 
     /// Lower a condition expression as used in an if-statement or a while-statement.
@@ -212,13 +269,13 @@ impl<P: TacProcedure> TacGenerator<P> {
         return_vars
     }
 
-    /// Lower a variable assignment by evaluating an expression and assigning its result to a
-    /// variable. Returns the variable that was assigned to.
-    fn lower_assign(&mut self, assign: Assign) -> Variable {
+    /// Lower a variable assignment by evaluating an expression and assigning its
+    /// result to the given variable.
+    fn lower_assign(&mut self, assign: Assign) {
         let result = self.lower_expr(assign.value);
 
         if let ExprKind::Identifier(tgt) = assign.target.expr_kind {
-            self.emit_assign(tgt, result)
+            self.emit_assign(tgt, result);
         } else {
             todo!("Implement member assignment");
         }
@@ -237,22 +294,6 @@ impl<P: TacProcedure> TacGenerator<P> {
             ExprKind::Binary(bin) => self.lower_binexpr(*bin),
             ExprKind::Ternary(_) => todo!(),
         }
-    }
-
-    /// Convert a literal to a [`Value`]. This does not result in the emission
-    /// of intermediate code.
-    fn convert_literal(&self, lit: Literal) -> Value {
-        match lit {
-            Literal::Integer(i) => Value::Const(i as TargetSize),
-            Literal::Boolean(b) => Value::Const(b as TargetSize),
-            Literal::None => todo!(),
-        }
-    }
-
-    /// Convert an identifier to a [`Value`]. This does not result in the emission
-    /// of intermediate code.
-    fn convert_identifier(&self, id: String) -> Value {
-        Value::Name(Name::Sub(self.name_generator.last_subscript(id)))
     }
 
     /// Lower a function call. Its parameters are pushed onto the parameter stack,
@@ -283,7 +324,6 @@ impl<P: TacProcedure> TacGenerator<P> {
 
         let res_name = self.name_generator.next_temp();
         self.emit(TacInstr::Bin(res_name.clone(), expr.op, lhs, rhs));
-
         Value::Name(res_name)
     }
 
@@ -326,15 +366,27 @@ impl<P: TacProcedure> TacGenerator<P> {
     }
 
     /// Emit an assignment, assigning `value` to `id`. Returns the variable that was assigned to.
-    fn emit_assign(&mut self, id: String, value: Value) -> Variable {
+    fn emit_assign(&mut self, id: String, value: Value) {
         let variable = self.name_generator.next_subscript(id);
         self.emit(TacInstr::Assign(Name::Sub(variable.clone()), value));
-        variable
     }
 
     /// Emit an instruction, adding it to the listing.
     fn emit(&mut self, instr: TacInstr) {
+        let reads = instr.reads();
+        let write = instr.write().cloned();
+
         self.procedure.push(instr);
+        let position = self.mark_current();
+
+        for name in reads {
+            self.operations
+                .push(VariableOperation::Read(position, name.clone()));
+        }
+        if let Some(name) = write {
+            self.operations
+                .push(VariableOperation::Write(position, name))
+        }
     }
 
     /// Emit a label, adding it to the listing.
@@ -342,6 +394,62 @@ impl<P: TacProcedure> TacGenerator<P> {
         let instr = TacInstr::Label(label);
         self.procedure.push(instr);
     }
+
+    /// Record variable operations that occur during execution of the given closure.
+    fn record_operations<F: FnOnce(&mut Self)>(&mut self, f: F) -> Vec<VariableOperation> {
+        let first_line = self.mark_next();
+
+        f(self);
+
+        let last_line = self.mark_current();
+        self.operations_within(first_line, last_line)
+    }
+
+    /// Convert a literal to a [`Value`]. This does not result in the emission
+    /// of intermediate code.
+    fn convert_literal(&self, lit: Literal) -> Value {
+        match lit {
+            Literal::Integer(i) => Value::Const(i as TargetSize),
+            Literal::Boolean(b) => Value::Const(b as TargetSize),
+            Literal::None => todo!(),
+        }
+    }
+
+    /// Convert an identifier to a [`Value`]. This does not result in the emission
+    /// of intermediate code.
+    fn convert_identifier(&self, id: String) -> Value {
+        Value::Name(Name::Sub(self.name_generator.last_subscript(id)))
+    }
+
+    /// Get a position marker for the current (already emitted) line.
+    fn mark_current(&self) -> Position {
+        self.procedure.current_line_pos()
+    }
+
+    /// Get a position marker for the next line to be emitted.
+    fn mark_next(&self) -> Position {
+        self.procedure.current_line_pos()
+    }
+
+    /// Returns the variable operations performed within the given range (inclusive, inclusive).
+    fn operations_within(&self, start: Position, end: Position) -> Vec<VariableOperation> {
+        self.operations
+            .iter()
+            .filter(|o| o.position() >= start && o.position() <= end)
+            .cloned()
+            .collect()
+    }
+}
+
+fn collect_writes(operations: Vec<VariableOperation>) -> Variables {
+    let writes = operations
+        .into_iter()
+        .filter_map(|o| o.into_write())
+        .filter_map(|(_, n)| n.into_sub())
+        .map(|s| (s.name, s.subscript))
+        .collect();
+
+    Variables::new(writes)
 }
 
 #[cfg(test)]

@@ -160,6 +160,7 @@ impl DeferringCompiler {
             TacInstr::Return(val) => self.compile_return(val),
             TacInstr::Label(lbl) => self.asm_listing.push(DeferredLine::Label(lbl)),
             TacInstr::Phi(_, names) => self.compile_phi(names),
+            TacInstr::ImplicitRead(n) => self.compile_implicit_read(n),
             TacInstr::Goto(tgt) => {
                 self.emit(Jmp, [Lbl(tgt)]);
             }
@@ -366,10 +367,13 @@ impl DeferringCompiler {
             panic!("Phi was not optimised correctly!");
         }
 
+        let name = names.pop().unwrap();
+        self.compile_implicit_read(name);
+    }
+
+    fn compile_implicit_read(&mut self, name: Name) {
         self.asm_listing
-            .push(DeferredLine::ImplicitRead(DeferredReg::from_name(
-                names.pop().unwrap(),
-            )))
+            .push(DeferredLine::ImplicitRead(DeferredReg::from_name(name)));
     }
 
     fn emit_lock_or_write(&mut self, value: Value, register: Register) {

@@ -117,6 +117,8 @@ pub enum TacInstr {
     Label(Label),
     /// The ɸ-function.
     Phi(Name, Vec<Name>),
+    /// An implicit read operation.
+    ImplicitRead(Name),
 }
 impl TacInstr {
     pub fn reads_from_name(&self, name: &Name) -> bool {
@@ -137,6 +139,49 @@ impl TacInstr {
             Self::Return(Some(value)) => Self::is_usage_of(name, value),
             Self::Label(_) => false,
             Self::Phi(_, names) => names.iter().any(|n| n == name),
+            Self::ImplicitRead(n) => n == name,
+        }
+    }
+
+    pub fn reads(&self) -> Vec<Name> {
+        fn collect<'a, I: IntoIterator<Item = &'a Value>>(values: I) -> Vec<Name> {
+            let mut result = vec![];
+            for val in values {
+                result.extend(val.as_name().cloned().into_iter());
+            }
+            result
+        }
+
+        match self {
+            Self::Assign(_, v) => collect([v]),
+            Self::Bin(_, _, lhs, rhs) => collect([lhs, rhs]),
+            Self::Goto(_) => vec![],
+            Self::IfTrue(v, _) => collect([v]),
+            Self::IfFalse(v, _) => collect([v]),
+            Self::IfCmp(lhs, _, rhs, _) => collect([lhs, rhs]),
+            Self::Param(n) => vec![n.clone()],
+            Self::Call(_, _, vs) => collect(vs),
+            Self::Return(v) => collect(v),
+            Self::Label(_) => vec![],
+            Self::Phi(_, vs) => vs.to_vec(),
+            Self::ImplicitRead(n) => vec![n.clone()],
+        }
+    }
+
+    pub fn write(&self) -> Option<&Name> {
+        match self {
+            Self::Assign(t, _) => Some(t),
+            Self::Bin(t, _, _, _) => Some(t),
+            Self::Goto(_) => None,
+            Self::IfTrue(_, _) => None,
+            Self::IfFalse(_, _) => None,
+            Self::IfCmp(_, _, _, _) => None,
+            Self::Param(p) => Some(p),
+            Self::Call(t, _, _) => t.as_ref(),
+            Self::Return(_) => None,
+            Self::Label(_) => None,
+            Self::Phi(_, _) => None,
+            Self::ImplicitRead(_) => None,
         }
     }
 
@@ -186,6 +231,14 @@ impl TacInstr {
                     "Optimiser error! Replacing a name used in the phi function is not allowed ({} -> {})", src, dest
                 )
             }
+            Self::ImplicitRead(name) => match dest.into_owned() {
+                Value::Const(_) => todo!("How to replace implicit reads?"),
+                Value::Name(dst) => {
+                    if name == src {
+                        *name = dst;
+                    }
+                }
+            },
         }
     }
 
@@ -229,6 +282,7 @@ impl TacInstr {
             Self::Return(_) => (),
             Self::Label(_) => (),
             Self::Phi(tgt, _) => try_replace(tgt, src, dest),
+            Self::ImplicitRead(_) => (),
         }
     }
 
@@ -289,6 +343,9 @@ impl Display for TacInstr {
                     .join(", ");
                 write!(f, "{} = ɸ({})", name, args)
             }
+            Self::ImplicitRead(name) => {
+                write!(f, "implicit_read {}", name)
+            }
         }
     }
 }
@@ -318,6 +375,14 @@ pub enum Name {
     Sub(Variable),
     /// A generated, temporary name.
     Temp(usize),
+}
+impl Name {
+    pub fn into_sub(self) -> Option<Variable> {
+        match self {
+            Self::Sub(s) => Some(s),
+            _ => None,
+        }
+    }
 }
 impl Display for Name {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
@@ -354,6 +419,15 @@ pub enum Value {
     /// A name, representing either a temporary name or a variable in the source program.
     Name(Name),
 }
+impl Value {
+    fn as_name(&self) -> Option<&Name> {
+        match self {
+            Value::Const(_) => None,
+            Value::Name(n) => Some(n),
+        }
+    }
+}
+
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {

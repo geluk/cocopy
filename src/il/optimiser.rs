@@ -170,7 +170,7 @@ impl Optimiser {
             })
             .collect();
 
-        for line in phi_fns.into_iter() {
+        for &line in phi_fns.iter() {
             let instr = self.listing.instruction_mut(line);
             let (tgt, _) = instr.as_phi().unwrap();
             *instr = TacInstr::Phi(tgt.clone(), vec![tgt.clone()])
@@ -184,6 +184,10 @@ impl Optimiser {
             for instr in self.listing.iter_instructions_mut() {
                 instr.replace(&src_name, Cow::Borrowed(&dest_value));
             }
+        }
+
+        for line in phi_fns.into_iter().rev() {
+            self.listing.remove(line);
         }
     }
 
