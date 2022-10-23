@@ -22,9 +22,9 @@ pub fn compile<S: StackConvention>(
 ) -> Procedure {
     debug!("Compiling procedure '{}'", procedure.name);
     let instrs = DeferringCompiler::compile_deferred(calling_convention, listing);
-    trace!("Deferred assembly:\n{}", instrs);
+    debug!("Deferred assembly:\n{}", instrs.display_line_nos());
 
-    debug!("Performing lifetime analysis");
+    debug!("Allocating registers");
     let allocator = LifetimeAnalysis::create_allocator_for(&instrs);
 
     debug!("Resolving deferred instructions");
@@ -43,6 +43,8 @@ fn resolve_deferred_instrs<S: StackConvention>(
     let mut aligned_bytes = 0;
 
     for (position, line) in instrs.into_iter() {
+        trace!("Resolve line: {position} {line}");
+
         match line {
             DeferredLine::Comment(cmt) => {
                 procedure.body.push_cmt_only(cmt);
@@ -204,7 +206,7 @@ impl DeferringCompiler {
     }
 
     /// Compile a binary operation. Dispatches the operation for the correct compile fuction
-    /// if the operation represents a comparison or (TODO) boolean operation.
+    /// if the operation represents a comparison or boolean operation.
     fn compile_bin(&mut self, tgt: Name, op: BinOp, left: Value, right: Value) {
         // Comparisons are handled separately, since they should produce a boolean.
         if let BinOp::Compare(cmp) = op {
@@ -320,8 +322,6 @@ impl DeferringCompiler {
             self.emit_lock(tgt, Register::Rax);
         }
 
-        // TODO: How to notify that RAX will be written to?
-        // Might not be necessary if caller preservation includes RAX.
         self.emit(Call, [Id(name)]);
 
         self.asm_listing.push(DeferredLine::CallerRestore);
@@ -348,9 +348,11 @@ impl DeferringCompiler {
                 if semantics.immediate() {
                     DeferredOperand::Lit(c)
                 } else {
-                    let temp_reg = DeferredReg::AsmTemp(self.next_temp());
-                    self.emit(Mov, [Reg(temp_reg.clone()), Lit(c)]);
-                    Reg(temp_reg)
+                    // If the operand semantics forbid immediate values, we need to first
+                    // emit a write to a temporary register.
+                    let temp_reg = Reg(DeferredReg::AsmTemp(self.next_temp()));
+                    self.emit(Mov, [temp_reg.clone(), Lit(c)]);
+                    temp_reg
                 }
             }
             Value::Name(n) => self.name_to_operand(n),

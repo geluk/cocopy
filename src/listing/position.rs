@@ -4,6 +4,8 @@ use std::{
 };
 
 /// A position in a listing, indicated by a line number.
+/// Unlike line numbers in most source code editors, positions are zero-indexed,
+/// so the first line in a listing has line number 0.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Position(pub usize);
 

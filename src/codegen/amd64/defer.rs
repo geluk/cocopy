@@ -6,7 +6,11 @@ use crate::{
     listing::Position,
 };
 
-use super::{assembly::*, op_semantics::OpSemantics, x86::*};
+use super::{
+    assembly::*,
+    op_semantics::{Direction, OpSemantics},
+    x86::*,
+};
 
 #[derive(Debug)]
 pub enum DeferredLine {
@@ -80,9 +84,10 @@ impl DeferredOperand {
     ) -> Operand {
         match self {
             Self::ConstReg(reg) => Operand::Reg(reg),
-            // TODO: Improve position handling to make it clear what's happening here
-            Self::Reg(deferred) => deferred.resolve(allocator, position - 1, op_semantics),
-
+            Self::Reg(deferred) => match op_semantics.direction() {
+                Direction::Read => deferred.resolve(allocator, position.read(), op_semantics),
+                Direction::Write => deferred.resolve(allocator, position.write(), op_semantics),
+            },
             Self::Lit(lit) => Operand::Lit(lit as i128),
             Self::Lbl(lbl) => Operand::Lbl(format!(".{lbl}")),
             Self::Id(id) => Operand::Id(id),
@@ -141,5 +146,25 @@ impl Display for DeferredReg {
             DeferredReg::Temp(temp) => write!(f, "%{}", temp),
             DeferredReg::AsmTemp(temp) => write!(f, "${}", temp),
         }
+    }
+}
+
+/// Helper trait for instructions that consider reads and writes to happen on different lines.
+pub trait ReadWriteSemantics {
+    /// Offsets the position for a read operation.
+    fn read(&self) -> Self;
+    /// Offsets the position for a write operation.
+    fn write(&self) -> Self;
+}
+
+impl ReadWriteSemantics for Position {
+    fn read(&self) -> Self {
+        // Reads are considered to happen on the same line.
+        *self
+    }
+
+    fn write(&self) -> Self {
+        // Writes are considered to happen on the next line.
+        *self + 1
     }
 }

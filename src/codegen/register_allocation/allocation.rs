@@ -54,7 +54,7 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
 
         reg.or(stack).unwrap_or_else(|| {
             panic!(
-                "Attempted to look up invalid position {} from slice {:?}",
+                "Attempted to look up invalid position {} in allocation:\n{:#?}",
                 position, self,
             )
         })
@@ -104,8 +104,6 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
         lifetime: Lifetime,
         free_registers: I,
     ) -> bool {
-        // TODO: Does it make sense to keep stack slices and register slices
-        // in the same collection? They're never ever going to conflict after all.
         let overlapping_slices: Vec<_> = self
             .reg_slices
             .iter_mut()
@@ -227,12 +225,9 @@ impl Lifetime {
         Self::new(position, position + 1)
     }
 
+    #[cfg(test)]
     pub fn start(&self) -> Position {
         self.start
-    }
-
-    pub fn end(&self) -> Position {
-        self.end
     }
 
     /// Returns `true` if the supplied lifetime (partially) overlaps the current
@@ -257,7 +252,7 @@ impl Lifetime {
 }
 impl Display for Lifetime {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "{}:{}", self.start.0, self.end.0)
+        write!(f, "[{}:{})", self.start.0, self.end.0)
     }
 }
 impl Debug for Lifetime {

@@ -7,7 +7,11 @@ use crate::{
     prelude::*,
 };
 
-use super::{defer::*, x86::*};
+use super::{
+    defer::*,
+    op_semantics::{Direction, HasOpSemantics},
+    x86::*,
+};
 
 pub struct LifetimeAnalysis<'l> {
     requests: OrderedHashMap<&'l DeferredReg, AllocationRequest>,
@@ -27,11 +31,7 @@ impl<'l> LifetimeAnalysis<'l> {
 
     fn make_allocator(self) -> Allocator<DeferredReg, Register> {
         for (name, rq) in self.requests.iter() {
-            trace!(
-                "Lifetime of {name} is {}:{}",
-                rq.lifetime.start().0,
-                rq.lifetime.end().0
-            );
+            trace!("Lifetime of {name} is {}", rq.lifetime);
             for (position, reg) in rq.locks.iter() {
                 trace!(" -> at {}: must live in {reg}", position.0);
             }
@@ -67,9 +67,14 @@ impl<'l> LifetimeAnalysis<'l> {
         for (pos, line) in self.listing.iter_lines() {
             match line {
                 DeferredLine::Instr(instr) => {
-                    for operand in instr.operands.iter() {
+                    for (index, operand) in instr.operands.iter().enumerate() {
                         if let DeferredOperand::Reg(reg) = &operand {
-                            self.expand_lifetime(reg, pos - 1)
+                            let pos = match instr.op.op_semantics(index).direction() {
+                                Direction::Read => pos.read(),
+                                Direction::Write => pos.write(),
+                            };
+
+                            self.expand_lifetime(reg, pos)
                         }
                     }
                 }

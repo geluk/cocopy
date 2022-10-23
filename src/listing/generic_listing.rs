@@ -66,11 +66,31 @@ impl<T> Listing<T> {
         self.lines.get_mut(line.0).expect("Invalid line numbers")
     }
 }
+impl<T: Display> Listing<T> {
+    pub fn display_line_nos(&self) -> DisplayLineNos<T> {
+        DisplayLineNos { listing: self }
+    }
+}
 impl<T: Display> Display for Listing<T> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         for line in &self.lines {
             writeln!(f, "{}", line)?;
         }
+        Ok(())
+    }
+}
+
+pub struct DisplayLineNos<'a, T> {
+    listing: &'a Listing<T>,
+}
+impl<'a, T: Display> Display for DisplayLineNos<'a, T> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        // If it's stupid but it works...
+        let max_width = self.listing.lines.len().to_string().len();
+        for (line_no, line) in self.listing.iter_lines() {
+            writeln!(f, "{:0width$}| {}", line_no, line, width = max_width)?;
+        }
+
         Ok(())
     }
 }

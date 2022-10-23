@@ -13,40 +13,23 @@ impl Default for AcceptsReg {
 }
 
 /// Describes what types of locations are accepted for an operand.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct OpSemantics {
     immediate: bool,
     register: Option<RegSemantics>,
+    direction: Direction,
 }
 impl OpSemantics {
-    /// The operand may be placed in memory or in any register.
-    fn any_reg_or_mem() -> Self {
-        Self {
-            register: Some(RegSemantics::any()),
-            // memory: true,
-            ..Default::default()
-        }
-    }
-    /// The operand may be placed in any register.
-    fn any_reg() -> Self {
-        Self {
-            register: Some(RegSemantics::any()),
-            ..Default::default()
-        }
-    }
-    fn any() -> Self {
-        Self {
-            register: Some(RegSemantics::any()),
-            immediate: true,
-        }
-    }
-
     pub fn immediate(&self) -> bool {
         self.immediate
     }
 
     pub fn register(&self) -> Option<RegSemantics> {
         self.register
+    }
+
+    pub fn direction(&self) -> Direction {
+        self.direction
     }
 }
 
@@ -75,8 +58,12 @@ impl RegSemantics {
     }
 }
 
-/// TODO: Op semantics are more complicated than this and should be modelled
-/// as a list of rules.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Direction {
+    Read,
+    Write,
+}
+
 pub trait HasOpSemantics {
     /// Get the operand semantics for the first operand of this instruction.
     fn op1_semantics(&self) -> OpSemantics;
@@ -97,44 +84,91 @@ pub trait HasOpSemantics {
     }
 }
 
+use Direction::*;
 use Op::*;
 impl HasOpSemantics for Op {
     /// Retrieves the operand semantics for the first operand.
     fn op1_semantics(&self) -> OpSemantics {
         match self {
-            Test => OpSemantics::any_reg(),
-            Cmp => OpSemantics::any_reg_or_mem(),
-            Idiv => OpSemantics::any_reg_or_mem(),
-            Mov => OpSemantics::any(),
-            Sete | Setg | Setge | Setl | Setle | Setne => OpSemantics {
-                immediate: false,
-                register: Some(RegSemantics::any_sized(PtrSize::Byte)),
-            },
+            Test => direction(Read).any_register(),
+            Cmp => direction(Read).any_register(),
+            Mov => direction(Write).any_register().immediate(),
+            Sete | Setg | Setge | Setl | Setle | Setne => {
+                direction(Write).any_sized_register(PtrSize::Byte)
+            }
             _ => {
                 warn!(
-                    "Don't know operand 1 semantics for {}, guessing 'any'",
+                    "Don't know operand 1 semantics for {}, guessing 'write + any'",
                     self
                 );
-                // Not a big problem if this is wrong, because then nasm will just throw an error
-                // if we try to assemble the code.
-                OpSemantics::any()
+                // Not a big problem if the destination is wrong, because then nasm will just throw an error
+                // if we try to assemble the code. The direction is trickier though.
+                direction(Write).any()
             }
         }
+        .build()
     }
     /// Retrieves the operand semantics for the second operand.
     fn op2_semantics(&self) -> OpSemantics {
         match self {
-            Cmp => OpSemantics::any_reg(),
-            Mov => OpSemantics::any(),
+            Cmp => direction(Read).any_register(),
+            Mov => direction(Read).any(),
             _ => {
                 warn!(
                     "Don't know operand 2 semantics for {}, guessing 'any'",
                     self
                 );
-                // Not a big problem if this is wrong, because then nasm will just throw an error
-                // if we try to assemble the code.
-                OpSemantics::any()
+                // Not a big problem if the destination is wrong, because then nasm will just throw an error
+                // if we try to assemble the code. The direction is trickier though.
+                direction(Read).any()
             }
+        }
+        .build()
+    }
+}
+
+fn direction(direction: Direction) -> Builder {
+    Builder::new(direction)
+}
+
+struct Builder {
+    direction: Direction,
+    register: Option<RegSemantics>,
+    immediate: bool,
+}
+impl Builder {
+    pub fn new(direction: Direction) -> Self {
+        Self {
+            direction,
+            register: None,
+            immediate: false,
+        }
+    }
+
+    pub fn any_register(mut self) -> Self {
+        self.register = Some(RegSemantics::any());
+        self
+    }
+
+    pub fn any_sized_register(mut self, size: PtrSize) -> Self {
+        self.register = Some(RegSemantics::any_sized(size));
+        self
+    }
+
+    pub fn immediate(mut self) -> Self {
+        self.immediate = true;
+        self
+    }
+
+    pub fn any(self) -> Self {
+        self.immediate().any_register()
+    }
+
+    pub fn build(self) -> OpSemantics {
+        OpSemantics {
+            direction: self.direction,
+            register: self.register,
+            immediate: self.immediate,
         }
     }
 }
