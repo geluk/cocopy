@@ -549,7 +549,7 @@ mod tests {
 
     macro_rules! check_with {
         ($method:ident, $source:expr, $param:expr) => {{
-            let (_, mut checker) = make_type_checker!($source);
+            let (_, checker) = make_type_checker!($source);
 
             checker.$method($param)
         }};

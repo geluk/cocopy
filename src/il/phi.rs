@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use super::Variable;
 
@@ -16,40 +16,10 @@ impl Variables {
         Self(variables)
     }
 
-    /// Construct a set containing a single variable.
-    pub fn one(var: Variable) -> Self {
-        let mut hashmap = HashMap::new();
-        hashmap.insert(var.name, var.subscript);
-        Self(hashmap)
-    }
-
     /// Insert the given variable into the set. If a variable with this name already exists,
     /// its subscript is overwritten.
     pub fn insert(&mut self, var: Variable) {
         self.0.insert(var.name, var.subscript);
-    }
-
-    /// Collect the variables from an an iterator of variables, keeping the highest subscript
-    /// for each variable.
-    pub fn collect<I: Iterator<Item = Variables>>(iterator: I) -> Variables {
-        iterator.fold(Variables::none(), |a, b| a.combine(b))
-    }
-
-    /// Combine this set of variables with another, producing a new set.
-    /// When duplicate variables are encountered, the highest subscript is kept.
-    pub fn combine(mut self, other: Variables) -> Self {
-        for (name, value) in other.0 {
-            match self.0.entry(name) {
-                Entry::Occupied(mut ocp) => {
-                    let existing = ocp.get_mut();
-                    *existing = value.max(*existing);
-                }
-                Entry::Vacant(vac) => {
-                    vac.insert(value);
-                }
-            }
-        }
-        self
     }
 
     /// Determines the ɸ-functions that should be emitted for the variables assigned

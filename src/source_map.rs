@@ -67,7 +67,7 @@ pub struct LineContext<'a> {
 }
 impl LineContext<'_> {
     pub fn for_display(&self) -> String {
-        self.source.replace(&['\r', '\n'], "")
+        self.source.replace(['\r', '\n'], "")
     }
 
     pub fn range(&self) -> Span {

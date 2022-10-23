@@ -172,7 +172,7 @@ impl TacInstr {
         match self {
             Self::Assign(_, v) => collect([v]),
             Self::Bin(_, _, lhs, rhs) => collect([lhs, rhs]),
-            Self::Goto(_, names) => names.iter().cloned().collect(),
+            Self::Goto(_, names) => names.to_vec(),
             Self::IfTrue(v, _) => collect([v]),
             Self::IfFalse(v, _) => collect([v]),
             Self::IfCmp(lhs, _, rhs, _) => collect([lhs, rhs]),
@@ -448,7 +448,7 @@ impl From<Literal> for Value {
         match value {
             Literal::Integer(i) => Value::Const(i as TargetSize),
             Literal::Boolean(b) => Value::Const(b as TargetSize),
-            Literal::String(s) => todo!("Convert `str` to TAC value."),
+            Literal::String(_) => todo!("Convert `str` to TAC value."),
             Literal::None => todo!("Convert `None` to TAC value"),
         }
     }
