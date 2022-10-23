@@ -12,7 +12,7 @@ pub fn generate(program: Program) -> TacProgram {
         procedure: TacProgram::new(),
         name_generator: NameGenerator::new(),
         label_generator: LabelGenerator::new(),
-        operations: vec![],
+        accesses: vec![],
     };
 
     for var_def in program.var_defs {
@@ -33,7 +33,7 @@ pub fn generate(program: Program) -> TacProgram {
             // TODO: It should now be possible to use a fresh label generator,
             // since our labels are now function-scoped.
             label_generator,
-            operations: vec![],
+            accesses: vec![],
         };
 
         for parameter in func.parameters {
@@ -72,11 +72,11 @@ impl TacProcedure for TacListing {
 }
 
 #[derive(Debug, Clone)]
-enum VariableOperation {
+enum VariableAccess {
     Write(Position, Name),
     Read(Position, Name),
 }
-impl VariableOperation {
+impl VariableAccess {
     fn position(&self) -> Position {
         match self {
             Self::Write(pos, _) => *pos,
@@ -101,7 +101,7 @@ struct TacGenerator<P> {
     procedure: P,
     name_generator: NameGenerator,
     label_generator: LabelGenerator,
-    operations: Vec<VariableOperation>,
+    accesses: Vec<VariableAccess>,
 }
 impl<P: TacProcedure> TacGenerator<P> {
     /// Lower a variable definition to an assignment instruction.
@@ -135,7 +135,7 @@ impl<P: TacProcedure> TacGenerator<P> {
     }
 
     /// Lower a block of statements. Returns the variables that were assigned in this block.
-    fn lower_block(&mut self, block: Block) -> Vec<VariableOperation> {
+    fn lower_block(&mut self, block: Block) -> Vec<VariableAccess> {
         let first_line = self.mark_next();
 
         for stmt in block.statements.into_iter() {
@@ -143,7 +143,7 @@ impl<P: TacProcedure> TacGenerator<P> {
         }
 
         let last_line = self.mark_current();
-        self.operations_within(first_line, last_line)
+        self.accesses_within(first_line, last_line)
     }
 
     /// Lower an if-statement. If-statements are lowered to one or more conditional jumps, to
@@ -191,7 +191,7 @@ impl<P: TacProcedure> TacGenerator<P> {
         self.emit_label(start_lbl.clone());
 
         let cond_ops =
-            self.record_operations(|s| s.lower_condition(while_stmt.condition, end_lbl.clone()));
+            self.record_accesses(|s| s.lower_condition(while_stmt.condition, end_lbl.clone()));
 
         let live_variables = self.name_generator.get_live_variables();
         let block_ops = self.lower_block(while_stmt.body);
@@ -347,7 +347,7 @@ impl<P: TacProcedure> TacGenerator<P> {
             }
         }
 
-        // Should we use ɸ(t, f) here?
+        // Should we use ɸ(t, f) here? (YES)
         let res_name = self.name_generator.next_temp();
         self.emit_label(true_lbl);
         self.emit(TacInstr::Assign(res_name.clone(), Value::Const(1)));
@@ -373,12 +373,11 @@ impl<P: TacProcedure> TacGenerator<P> {
         let position = self.mark_current();
 
         for name in reads {
-            self.operations
-                .push(VariableOperation::Read(position, name.clone()));
+            self.accesses
+                .push(VariableAccess::Read(position, name.clone()));
         }
         if let Some(name) = write {
-            self.operations
-                .push(VariableOperation::Write(position, name))
+            self.accesses.push(VariableAccess::Write(position, name))
         }
     }
 
@@ -388,20 +387,20 @@ impl<P: TacProcedure> TacGenerator<P> {
         self.procedure.push(instr);
     }
 
-    /// Record variable operations that occur during execution of the given closure.
-    fn record_operations<F: FnOnce(&mut Self)>(&mut self, f: F) -> Vec<VariableOperation> {
+    /// Convert an identifier to a [`Value`]. This does not result in the emission
+    /// of intermediate code.
+    fn convert_identifier(&self, id: String) -> Value {
+        Value::Name(Name::Sub(self.name_generator.last_subscript(id)))
+    }
+
+    /// Record variable accesses that occur during execution of the given closure.
+    fn record_accesses<F: FnOnce(&mut Self)>(&mut self, f: F) -> Vec<VariableAccess> {
         let first_line = self.mark_next();
 
         f(self);
 
         let last_line = self.mark_current();
-        self.operations_within(first_line, last_line)
-    }
-
-    /// Convert an identifier to a [`Value`]. This does not result in the emission
-    /// of intermediate code.
-    fn convert_identifier(&self, id: String) -> Value {
-        Value::Name(Name::Sub(self.name_generator.last_subscript(id)))
+        self.accesses_within(first_line, last_line)
     }
 
     /// Get a position marker for the current (already emitted) line.
@@ -414,9 +413,9 @@ impl<P: TacProcedure> TacGenerator<P> {
         self.procedure.current_line_pos()
     }
 
-    /// Returns the variable operations performed within the given range (inclusive, inclusive).
-    fn operations_within(&self, start: Position, end: Position) -> Vec<VariableOperation> {
-        self.operations
+    /// Returns the variable accesses performed within the given range (inclusive, inclusive).
+    fn accesses_within(&self, start: Position, end: Position) -> Vec<VariableAccess> {
+        self.accesses
             .iter()
             .filter(|o| o.position() >= start && o.position() <= end)
             .cloned()
@@ -424,7 +423,7 @@ impl<P: TacProcedure> TacGenerator<P> {
     }
 }
 
-fn collect_writes(operations: Vec<VariableOperation>) -> Variables {
+fn collect_writes(operations: Vec<VariableAccess>) -> Variables {
     let writes = operations
         .into_iter()
         .filter_map(|o| o.into_write())
