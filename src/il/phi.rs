@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet};
 
-use super::Variable;
-
 /// A set of variables. Mainly used for calculating the ɸ-function.
 #[derive(Clone)]
 pub struct Variables(HashMap<String, usize>);
@@ -14,12 +12,6 @@ impl Variables {
     /// Construct a set of variables from a [`HashMap`] of names to subscripts.
     pub fn new(variables: HashMap<String, usize>) -> Self {
         Self(variables)
-    }
-
-    /// Insert the given variable into the set. If a variable with this name already exists,
-    /// its subscript is overwritten.
-    pub fn insert(&mut self, var: Variable) {
-        self.0.insert(var.name, var.subscript);
     }
 
     /// Determines the ɸ-functions that should be emitted for the variables assigned

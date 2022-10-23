@@ -243,16 +243,13 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// more branches, emit a ɸ-function for each variable assigned in one or more
     /// branches. Returns the variables to which the outcomes of the ɸ-functions
     /// were assigned.
-    fn emit_phi<const N: usize>(
-        &mut self,
-        live_variables: Variables,
+    fn emit_phi<const N: usize>(&mut self, live_variables: Variables, others: [Variables; N]) {
         // Ideally we would use const generic bounds to provide a compile-time guarantee
         // that N > 1 as analysing only one branch does not make sense:
         // no ɸ-function would be needed.
-        others: [Variables; N],
-    ) -> Variables {
+        assert!(N > 1);
+
         let phi_functions = live_variables.calculate_phi(others.to_vec());
-        let mut return_vars = Variables::none();
 
         for (name, args) in phi_functions {
             let next = self.name_generator.next_subscript(&name);
@@ -261,10 +258,8 @@ impl<P: TacProcedure> TacGenerator<P> {
                 .map(|sub| Name::Sub(Variable::new(name.clone(), sub)))
                 .collect();
 
-            return_vars.insert(next.clone());
             self.emit(TacInstr::Phi(Name::Sub(next), subscripts))
         }
-        return_vars
     }
 
     /// Lower a variable assignment by evaluating an expression and assigning its
