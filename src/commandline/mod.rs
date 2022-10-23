@@ -25,6 +25,8 @@ pub enum Operation {
         #[clap(flatten)]
         backend: BackendOptions,
     },
+    /// Reassemble the previously generated program
+    Reassemble,
 }
 
 #[derive(Debug, Args)]

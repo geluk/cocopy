@@ -38,7 +38,23 @@ pub fn generate_native<P: AsRef<Path>>(prog: TacProgram, out_dir: P) -> Result<P
     asm_path.push("out.asm");
 
     generate_assembly(prog, &asm_path, os).context("Failed to generate assembly")?;
-    let obj_path = assemble(&asm_path, &out_dir, os).context("Failed to assemble program")?;
+    let obj_path =
+        assemble_internal(&asm_path, &out_dir, os).context("Failed to assemble program")?;
+
+    link(obj_path, &out_dir, os)
+}
+
+/// Reassemble and link an already generated `.asm` file.
+pub fn reassemble<P: AsRef<Path>>(out_dir: P) -> Result<PathBuf> {
+    let out_dir = PathBuf::from(out_dir.as_ref());
+
+    let os = current_os()?;
+
+    let mut asm_path = out_dir.clone();
+    asm_path.push("out.asm");
+
+    let obj_path =
+        assemble_internal(&asm_path, &out_dir, os).context("Failed to assemble program")?;
 
     link(obj_path, &out_dir, os)
 }
@@ -67,7 +83,7 @@ fn generate_assembly<P: AsRef<Path>>(prog: TacProgram, asm_path: P, os: Os) -> R
     Ok(())
 }
 
-fn assemble<P: AsRef<Path>>(asm_path: P, out_dir: P, os: Os) -> Result<PathBuf> {
+fn assemble_internal<P: AsRef<Path>>(asm_path: P, out_dir: P, os: Os) -> Result<PathBuf> {
     let asm_path = asm_path.try_decode()?;
 
     let (format, nasm_path, obj_name) = match os {

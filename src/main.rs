@@ -80,6 +80,9 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Operation::Reassemble => {
+            codegen::reassemble("out")?;
+        }
     };
     Ok(())
 }
