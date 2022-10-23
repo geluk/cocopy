@@ -6,7 +6,7 @@ use crate::{
     listing::Position,
 };
 
-use super::{assembly::*, x86::*};
+use super::{assembly::*, op_semantics::OpSemantics, x86::*};
 
 #[derive(Debug)]
 pub enum DeferredLine {
@@ -76,11 +76,12 @@ impl DeferredOperand {
         self,
         allocator: &Allocator<DeferredReg, Register>,
         position: Position,
+        op_semantics: OpSemantics,
     ) -> Operand {
         match self {
             Self::ConstReg(reg) => Operand::Reg(reg),
             // TODO: Improve position handling to make it clear what's happening here
-            Self::Reg(deferred) => deferred.resolve(allocator, position - 1),
+            Self::Reg(deferred) => deferred.resolve(allocator, position - 1, op_semantics),
 
             Self::Lit(lit) => Operand::Lit(lit as i128),
             Self::Lbl(lbl) => Operand::Lbl(format!(".{lbl}")),
@@ -123,10 +124,13 @@ impl DeferredReg {
         self,
         allocator: &Allocator<DeferredReg, Register>,
         position: Position,
+        op_semantics: OpSemantics,
     ) -> Operand {
-        match allocator.lookup(&self, position) {
-            Destination::Reg(alloc) => Operand::Reg(alloc.register()),
-            Destination::Stack(_) => todo!("Reference the stack"),
+        let size = op_semantics.register().and_then(|r| r.requires_size());
+        match (allocator.lookup(&self, position), size) {
+            (Destination::Reg(alloc), None) => Operand::Reg(alloc.register()),
+            (Destination::Reg(alloc), Some(size)) => Operand::Reg(alloc.register().resize(size)),
+            (Destination::Stack(_), _) => todo!("Reference the stack"),
         }
     }
 }

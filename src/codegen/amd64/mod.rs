@@ -5,6 +5,7 @@ mod calling_convention;
 mod defer;
 mod lifetime_analysis;
 pub mod linux;
+mod op_semantics;
 mod procedure_compiler;
 mod stack_convention;
 pub mod windows;

@@ -341,7 +341,7 @@ impl Display for Operand {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PtrSize {
     Byte,
     Word,

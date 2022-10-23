@@ -4,6 +4,8 @@ use std::{
     slice::Iter,
 };
 
+use super::assembly::PtrSize;
+
 /// An x86 register.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Register {
@@ -46,25 +48,6 @@ impl Register {
         [Rax, Rbx, Rcx, Rdx, R8, R9, R10, R11, R12, R13, R14, R15].iter()
     }
 
-    pub fn into_byte(self) -> Self {
-        use Register::*;
-        match self {
-            Rax => Al,
-            Rbx => Bl,
-            Rcx => Cl,
-            Rdx => Dl,
-            R8 => R8b,
-            R9 => R9b,
-            R10 => R10b,
-            R11 => R11b,
-            R12 => R12b,
-            R13 => R13b,
-            R14 => R14b,
-            R15 => R15b,
-            other => panic!("Can't convert {} into a byte register", other),
-        }
-    }
-
     pub fn byte_size(self) -> usize {
         use Register::*;
         match self {
@@ -72,6 +55,27 @@ impl Register {
             | R14 | R15 => 8,
             _ => {
                 unimplemented!("Consider the implications of handling variable-size registers.")
+            }
+        }
+    }
+
+    pub fn resize(self, size: PtrSize) -> Register {
+        use Register::*;
+        match (self, size) {
+            (Rax, PtrSize::Byte) => Al,
+            (Rbx, PtrSize::Byte) => Bl,
+            (Rcx, PtrSize::Byte) => Cl,
+            (Rdx, PtrSize::Byte) => Dl,
+            (R8, PtrSize::Byte) => R8b,
+            (R9, PtrSize::Byte) => R9b,
+            (R10, PtrSize::Byte) => R10b,
+            (R11, PtrSize::Byte) => R11b,
+            (R12, PtrSize::Byte) => R12b,
+            (R13, PtrSize::Byte) => R13b,
+            (R14, PtrSize::Byte) => R14b,
+            (R15, PtrSize::Byte) => R15b,
+            _ => {
+                unimplemented!("Implement resize({}) for register {}", size, self);
             }
         }
     }

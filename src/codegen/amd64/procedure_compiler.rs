@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
     codegen::register_allocation::Allocator,
@@ -10,7 +8,8 @@ use crate::{
 
 use super::{
     assembly::*, calling_convention::CallingConvention, defer::*,
-    lifetime_analysis::LifetimeAnalysis, stack_convention::StackConvention, x86::*,
+    lifetime_analysis::LifetimeAnalysis, op_semantics::*, stack_convention::StackConvention,
+    x86::*,
 };
 
 use DeferredOperand::*;
@@ -50,10 +49,12 @@ fn resolve_deferred_instrs<S: StackConvention>(
             }
             DeferredLine::Label(lbl) => procedure.body.add_label(format!(".{lbl}")),
             DeferredLine::Instr(instr) => {
+                let op = instr.op;
                 let operands: Vec<_> = instr
                     .operands
                     .into_iter()
-                    .map(|o| o.resolve(&allocator, position))
+                    .enumerate()
+                    .map(|(n, o)| o.resolve(&allocator, position, op.op_semantics(n)))
                     .collect();
 
                 procedure.body.push(instr.op, operands);
@@ -273,11 +274,6 @@ impl DeferringCompiler {
         let left_op = self.value_to_operand(left, Cmp.op1_semantics());
         let right_op = self.value_to_operand(right, Cmp.op2_semantics());
 
-        // TODO: We may not need this operation if `Setg` clears the register for us.
-        let target_op = self.value_to_operand(Value::Name(tgt), OpSemantics::any());
-        self.emit(Xor, [target_op.clone(), target_op.clone()]);
-
-        self.emit(Cmp, [left_op, right_op]);
         // The x86 `set` operation copies a comparison flag into a register,
         // allowing us to treat the value as a boolean.
         let set_op = match cmp {
@@ -288,7 +284,15 @@ impl DeferringCompiler {
             CmpOp::Equal => Sete,
             CmpOp::NotEqual => Setne,
         };
-        self.emit(set_op, [target_op]);
+        let bool_tgt = self.value_to_operand(Value::Name(tgt), set_op.op1_semantics());
+
+        // This `xor` is necessary because `setxx` only writes to the lower byte of the register,
+        // so we need to zero the rest.
+        self.emit(Xor, [bool_tgt.clone(), bool_tgt.clone()]);
+
+        self.emit(Cmp, [left_op, right_op]);
+
+        self.emit(set_op, [bool_tgt]);
     }
 
     /// Compile a call to a function with `param_count` parameters.
@@ -341,7 +345,7 @@ impl DeferringCompiler {
     fn value_to_operand(&mut self, value: Value, semantics: OpSemantics) -> DeferredOperand {
         match value {
             Value::Const(c) => {
-                if semantics.immediate {
+                if semantics.immediate() {
                     DeferredOperand::Lit(c)
                 } else {
                     let temp_reg = DeferredReg::AsmTemp(self.next_temp());
@@ -394,90 +398,5 @@ fn translate_binop(op: BinOp) -> Op {
         BinOp::IntArith(IntOp::Divide) => Idiv,
         BinOp::IntArith(IntOp::Subtract) => Sub,
         _ => todo!("Don't know how to translate {:?} to assembly", op),
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AcceptsReg {
-    AnyReg,
-}
-impl Default for AcceptsReg {
-    fn default() -> Self {
-        Self::AnyReg
-    }
-}
-
-/// Describes what types of locations are accepted for an operand.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct OpSemantics {
-    immediate: bool,
-    register: AcceptsReg,
-}
-impl OpSemantics {
-    /// The operand may be placed in memory or in any register.
-    fn any_reg_or_mem() -> Self {
-        Self {
-            register: AcceptsReg::AnyReg,
-            // memory: true,
-            ..Default::default()
-        }
-    }
-    /// The operand may be placed in any register.
-    fn any_reg() -> Self {
-        Self {
-            register: AcceptsReg::AnyReg,
-            ..Default::default()
-        }
-    }
-    fn any() -> Self {
-        Self {
-            register: AcceptsReg::AnyReg,
-            immediate: true,
-        }
-    }
-}
-
-/// TODO: Op semantics are more complicated than this and should be modelled
-/// as a list of rules.
-trait OpSemanticsFor {
-    /// Get the operand semantics for the first operand of this instruction.
-    fn op1_semantics(&self) -> OpSemantics;
-    /// Get the operand semantics for the second operand of this instruction.
-    fn op2_semantics(&self) -> OpSemantics;
-}
-impl OpSemanticsFor for Op {
-    /// Retrieves the operand semantics for the first operand.
-    fn op1_semantics(&self) -> OpSemantics {
-        match self {
-            Test => OpSemantics::any_reg(),
-            Cmp => OpSemantics::any_reg_or_mem(),
-            Idiv => OpSemantics::any_reg_or_mem(),
-            Mov => OpSemantics::any(),
-            _ => {
-                warn!(
-                    "Don't know operand 1 semantics for {}, guessing 'any'",
-                    self
-                );
-                // Not a big problem if this is wrong, because then nasm will just throw an error
-                // if we try to assemble the code.
-                OpSemantics::any()
-            }
-        }
-    }
-    /// Retrieves the operand semantics for the second operand.
-    fn op2_semantics(&self) -> OpSemantics {
-        match self {
-            Cmp => OpSemantics::any_reg(),
-            Mov => OpSemantics::any(),
-            _ => {
-                warn!(
-                    "Don't know operand 2 semantics for {}, guessing 'any'",
-                    self
-                );
-                // Not a big problem if this is wrong, because then nasm will just throw an error
-                // if we try to assemble the code.
-                OpSemantics::any()
-            }
-        }
     }
 }
