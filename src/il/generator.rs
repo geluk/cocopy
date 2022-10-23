@@ -161,24 +161,18 @@ impl<P: TacProcedure> TacGenerator<P> {
         self.lower_condition(if_stmt.condition, false_label);
 
         let live_variables = self.name_generator.get_live_variables();
-        let true_variables = self.lower_block(if_stmt.body);
-        let mut false_variables = vec![];
+        let true_accesses = self.lower_block(if_stmt.body);
+        let mut false_accesses = vec![];
 
         if let Some(else_body) = if_stmt.else_body {
             self.emit(TacInstr::Goto(end_lbl.clone(), vec![]));
             self.emit_label(else_lbl);
-            false_variables = self.lower_block(else_body);
+            false_accesses = self.lower_block(else_body);
             self.emit(TacInstr::Goto(end_lbl.clone(), vec![]));
         }
 
         self.emit_label(end_lbl);
-        self.emit_phi(
-            live_variables,
-            [
-                collect_writes(true_variables),
-                collect_writes(false_variables),
-            ],
-        );
+        self.emit_phi(live_variables, [true_accesses, false_accesses]);
     }
 
     /// Lower a while-statement. While-statements are lowered to an inverted
@@ -194,11 +188,11 @@ impl<P: TacProcedure> TacGenerator<P> {
             self.record_accesses(|s| s.lower_condition(while_stmt.condition, end_lbl.clone()));
 
         let live_variables = self.name_generator.get_live_variables();
-        let block_ops = self.lower_block(while_stmt.body);
+        let body_accesses = self.lower_block(while_stmt.body);
 
         let reads = cond_ops
             .into_iter()
-            .chain(block_ops.clone().into_iter())
+            .chain(body_accesses.clone().into_iter())
             .filter_map(|o| o.into_read().map(|(_, n)| n))
             // Poor man's `unique()`
             .collect::<HashSet<_>>()
@@ -209,12 +203,9 @@ impl<P: TacProcedure> TacGenerator<P> {
 
         self.emit_label(end_lbl);
         // For the purpose of liveness analysis, a while loop has two branches:
-        // in one it is entered at least once (so variables in its block are assigned),
+        // in one it is entered at least once (so variables in its body are assigned),
         // in the other it is never entered (so no variables are ever assigned).
-        self.emit_phi(
-            live_variables,
-            [collect_writes(block_ops), Variables::none()],
-        );
+        self.emit_phi(live_variables, [body_accesses, vec![]]);
     }
 
     /// Lower a condition expression as used in an if-statement or a while-statement.
@@ -243,13 +234,28 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// more branches, emit a ɸ-function for each variable assigned in one or more
     /// branches. Returns the variables to which the outcomes of the ɸ-functions
     /// were assigned.
-    fn emit_phi<const N: usize>(&mut self, live_variables: Variables, others: [Variables; N]) {
+    fn emit_phi<const N: usize>(
+        &mut self,
+        live_variables: Variables,
+        others: [Vec<VariableAccess>; N],
+    ) {
         // Ideally we would use const generic bounds to provide a compile-time guarantee
         // that N > 1 as analysing only one branch does not make sense:
         // no ɸ-function would be needed.
         assert!(N > 1);
 
-        let phi_functions = live_variables.calculate_phi(others.to_vec());
+        fn collect_writes(operations: Vec<VariableAccess>) -> Variables {
+            let writes = operations
+                .into_iter()
+                .filter_map(|o| o.into_write())
+                .filter_map(|(_, n)| n.into_sub())
+                .map(|s| (s.name, s.subscript))
+                .collect();
+
+            Variables::new(writes)
+        }
+        let branches = others.into_iter().map(collect_writes).collect();
+        let phi_functions = live_variables.calculate_phi(branches);
 
         for (name, args) in phi_functions {
             let next = self.name_generator.next_subscript(&name);
@@ -347,7 +353,6 @@ impl<P: TacProcedure> TacGenerator<P> {
             }
         }
 
-        // Should we use ɸ(t, f) here? (YES)
         let res_name = self.name_generator.next_temp();
         self.emit_label(true_lbl);
         self.emit(TacInstr::Assign(res_name.clone(), Value::Const(1)));
@@ -355,6 +360,7 @@ impl<P: TacProcedure> TacGenerator<P> {
         self.emit_label(false_lbl);
         self.emit(TacInstr::Assign(res_name.clone(), Value::Const(0)));
         self.emit_label(end_lbl);
+        self.emit(TacInstr::Phi(res_name.clone(), vec![res_name.clone()]));
         Value::Name(res_name)
     }
 
@@ -421,17 +427,6 @@ impl<P: TacProcedure> TacGenerator<P> {
             .cloned()
             .collect()
     }
-}
-
-fn collect_writes(operations: Vec<VariableAccess>) -> Variables {
-    let writes = operations
-        .into_iter()
-        .filter_map(|o| o.into_write())
-        .filter_map(|(_, n)| n.into_sub())
-        .map(|s| (s.name, s.subscript))
-        .collect();
-
-    Variables::new(writes)
 }
 
 #[cfg(test)]

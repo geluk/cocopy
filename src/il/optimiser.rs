@@ -158,15 +158,21 @@ impl Optimiser {
     /// ```
     fn remove_phi(&mut self) {
         let mut phi_fns = vec![];
-        let replacements: HashMap<_, _> = self
+        let mut replacements = HashMap::new();
+
+        for (line, (dest, sources)) in self
             .listing
             .iter_lines()
             .match_instruction(TacInstr::as_phi)
-            .flat_map(|(line, (dest, sources))| {
-                phi_fns.push(line);
-                sources.iter().map(|src| (src.clone(), dest.clone()))
-            })
-            .collect();
+        {
+            phi_fns.push(line);
+
+            // Special case: x = ɸ(x) is skipped.
+            let is_identity = sources.len() == 1 && &sources[0] == dest;
+            if !is_identity {
+                replacements.extend(sources.iter().map(|src| (src.clone(), dest.clone())));
+            }
+        }
 
         for &line in phi_fns.iter() {
             let instr = self.listing.instruction_mut(line);
