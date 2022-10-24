@@ -225,6 +225,13 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
 
         regs_to_avoid.chain(allocated_regs).collect()
     }
+
+    pub fn get_moves(&self) -> Vec<Move<R>> {
+        self.name_allocations
+            .iter()
+            .flat_map(|(_, alloc)| alloc.get_moves())
+            .collect()
+    }
 }
 
 #[cfg(test)]

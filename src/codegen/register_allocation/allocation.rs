@@ -5,6 +5,8 @@ use std::{
     slice::{Iter, IterMut},
 };
 
+use itertools::Itertools;
+
 use crate::listing::Position;
 
 #[derive(Debug)]
@@ -204,6 +206,25 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
             }
         }
     }
+
+    pub fn get_moves(&self) -> Vec<Move<R>> {
+        assert!(
+            self.stack_slices.is_empty(),
+            "TODO: Implement moves to stack"
+        );
+        let mut slices: Vec<_> = self.reg_slices.iter().collect();
+        slices.sort_by_key(|a| a.lifetime());
+
+        let mut moves = vec![];
+        for (from, to) in slices.into_iter().tuple_windows() {
+            moves.push(Move {
+                from: from.register(),
+                to: to.register(),
+                position: to.lifetime().start(),
+            })
+        }
+        moves
+    }
 }
 
 /// A destination in which the value of a variable will be held.
@@ -340,6 +361,24 @@ impl StackAllocation {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Move<R: Copy + Eq> {
+    position: Position,
+    from: R,
+    to: R,
+}
+impl<R: Copy + Eq> Move<R> {
+    pub fn position(&self) -> Position {
+        self.position
+    }
+    pub fn from(&self) -> R {
+        self.from
+    }
+    pub fn to(&self) -> R {
+        self.to
+    }
+}
+
 /// A lifetime of an allocation, indicated by a start position (inclusive) and
 /// an end position (exclusive) in the source code.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -358,7 +397,6 @@ impl Lifetime {
         Self::new(position, position + 1)
     }
 
-    #[cfg(test)]
     pub fn start(&self) -> Position {
         self.start
     }
@@ -390,6 +428,16 @@ impl Lifetime {
             Self::new(self.start, position),
             Self::new(position, self.end),
         )
+    }
+}
+impl Ord for Lifetime {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.start.cmp(&other.start)
+    }
+}
+impl PartialOrd for Lifetime {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.start.cmp(&other.start))
     }
 }
 impl Display for Lifetime {

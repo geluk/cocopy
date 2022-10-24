@@ -3,5 +3,5 @@
 mod allocation;
 mod allocator;
 
-pub use allocation::{BaseOffset, Destination, Lifetime};
+pub use allocation::{BaseOffset, Destination, Lifetime, Move};
 pub use allocator::Allocator;

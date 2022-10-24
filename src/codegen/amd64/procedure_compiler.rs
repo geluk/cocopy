@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
     codegen::register_allocation::Allocator,
@@ -12,6 +14,7 @@ use super::{
     x86::*,
 };
 
+use itertools::Itertools;
 use DeferredOperand::*;
 use Op::*;
 
@@ -42,8 +45,24 @@ fn resolve_deferred_instrs<S: StackConvention>(
     let mut stack_size = 0;
     let mut aligned_bytes = 0;
 
+    let mut moves: HashMap<_, _> = allocator
+        .get_moves()
+        .into_iter()
+        .group_by(|mv| mv.position())
+        .into_iter()
+        .map(|(k, v)| (k, v.collect::<Vec<_>>()))
+        .collect();
+
+    debug!("After emitting moves:\n{}", instrs.display_line_nos());
+
     for (position, line) in instrs.into_iter() {
         trace!("Resolve line: {position} {line}");
+
+        for mv in moves.remove(&position).unwrap_or_default() {
+            procedure
+                .body
+                .push(Mov, vec![Operand::Reg(mv.to()), Operand::Reg(mv.from())]);
+        }
 
         match line {
             DeferredLine::Comment(cmt) => {

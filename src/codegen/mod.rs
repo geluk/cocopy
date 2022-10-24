@@ -38,9 +38,12 @@ pub fn generate_native<P: AsRef<Path>>(prog: TacProgram, out_dir: P) -> Result<P
     asm_path.push("out.asm");
 
     generate_assembly(prog, &asm_path, os).context("Failed to generate assembly")?;
+
+    debug!("Assembling program");
     let obj_path =
         assemble_internal(&asm_path, &out_dir, os).context("Failed to assemble program")?;
 
+    debug!("Linking program");
     link(obj_path, &out_dir, os)
 }
 
