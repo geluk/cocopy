@@ -16,13 +16,17 @@ use super::{
 pub struct LifetimeAnalysis<'l> {
     requests: OrderedHashMap<&'l DeferredReg, AllocationRequest>,
     listing: &'l Listing<DeferredLine>,
+    avoids: Vec<(Position, Register)>,
 }
 impl<'l> LifetimeAnalysis<'l> {
+    /// Analyse the lifetimes of variables in the given listing, and allocate the variables to
+    /// registers.
     pub fn create_allocator_for(
         listing: &'l Listing<DeferredLine>,
     ) -> Allocator<DeferredReg, Register> {
         let mut analysis = Self {
             requests: Default::default(),
+            avoids: vec![],
             listing,
         };
         analysis.determine_lifetimes();
@@ -38,6 +42,11 @@ impl<'l> LifetimeAnalysis<'l> {
         }
 
         let mut allocator = Allocator::new(Register::iter().copied().collect());
+
+        for (position, register) in self.avoids {
+            trace!("at {position}: avoid {register}");
+            allocator.avoid(position, register);
+        }
 
         for (name, request) in self.requests.into_iter() {
             allocator.allocate(name.clone(), request.lifetime);
@@ -62,6 +71,7 @@ impl<'l> LifetimeAnalysis<'l> {
         allocator
     }
 
+    /// Determine the lifetimes of all variables.
     fn determine_lifetimes(&mut self) {
         // Process instructions
         for (pos, line) in self.listing.iter_lines() {
@@ -84,6 +94,9 @@ impl<'l> LifetimeAnalysis<'l> {
                 DeferredLine::LockRequest(name, reg) => {
                     self.expand_lifetime(name, pos);
                     self.add_lock(name, pos, *reg);
+                }
+                DeferredLine::ImplicitWrite(reg) => {
+                    self.avoids.push((pos, *reg));
                 }
                 _ => (),
             }

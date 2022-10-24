@@ -123,6 +123,7 @@ fn resolve_deferred_instrs<S: StackConvention>(
             }
             DeferredLine::LockRequest(_, _) => (),
             DeferredLine::ImplicitRead(_) => (),
+            DeferredLine::ImplicitWrite(_) => {}
             DeferredLine::AlignStack => (),
         }
     }
@@ -360,7 +361,8 @@ impl DeferringCompiler {
         }
     }
 
-    /// Prepare the given value as an operand.
+    /// Prepare the given value as an operand. This may result in the allocation of a register to
+    /// hold a temporary variable.
     fn value_to_operand(&mut self, value: Value, semantics: OpSemantics) -> DeferredOperand {
         match value {
             Value::Const(c) => {
@@ -391,6 +393,11 @@ impl DeferringCompiler {
             Value::Const(c) => self.emit(Mov, [ConstReg(register), Lit(c)]),
             Value::Name(n) => self.emit_lock(n, register),
         };
+    }
+
+    /// Signal that the register will be overwritten.
+    fn emit_overwrite(&mut self, register: Register) {
+        self.asm_listing.push(DeferredLine::ImplicitWrite(register))
     }
 
     fn emit<V: Into<Vec<DeferredOperand>>>(&mut self, op: Op, operands: V) {
