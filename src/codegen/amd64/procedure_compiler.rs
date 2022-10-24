@@ -17,6 +17,7 @@ use super::{
 use itertools::Itertools;
 use DeferredOperand::*;
 use Op::*;
+use Register::*;
 
 pub fn compile<S: StackConvention>(
     listing: TacListing,
@@ -234,38 +235,35 @@ impl DeferringCompiler {
             return;
         }
 
-        // Integer division and remainder are handled specially.
+        // Integer division and remainder are handled specially
         if let BinOp::IntArith(int_op @ (IntOp::Divide | IntOp::Remainder)) = op {
-            // The lower half of the dividend goes in RDX.
-            // This is also where the remainder is stored.
-            todo!("Deal with integer division");
-            // self.reserve(Rdx);
-            // // The upper half of the dividend goes in RAX.
-            // // This is also where the quotient is stored.
-            // let dividend = self.prepare_operand(left, OpSemantics::rax_only());
-            // let divisor = self.prepare_operand(right, Idiv.op1_semantics());
+            // The idiv instruction divides a value spread across rdx and rax
+            // by the value in a different register or memory location.
+            self.emit_lock_or_write(left, Rax);
 
-            // We also need CQO here.
+            let overwritten_register = match int_op {
+                IntOp::Divide => {
+                    // The quotient goes in Rax
+                    self.emit_lock(tgt, Rax);
+                    Rdx
+                }
+                IntOp::Remainder => {
+                    // The remainder goes in Rdx
+                    self.emit_lock(tgt, Rdx);
+                    Rax
+                }
+                _ => unreachable!(),
+            };
 
-            // self.emit(Xor, [Reg(Rdx), Reg(Rdx)]);
+            self.emit_overwrite(overwritten_register);
 
-            // self.emit_cmt(Xor, [Reg(Rdx), Reg(Rdx)], "<div> clear upper half")
-            //     .emit_cmt(Idiv, [divisor.operand()], format!("<div> {}", comment));
+            // Since we only work with 64-bit values, we rdx must be zeroed.
+            self.emit(Xor, [ConstReg(Rdx), ConstReg(Rdx)]);
+            self.emit(Cqo, []);
 
-            // match int_op {
-            //     IntOp::Divide => {
-            //         self.allocator.bind_to(tgt, Rax);
-            //         self.allocator.release(Rdx);
-            //     }
-            //     IntOp::Remainder => {
-            //         self.allocator.bind_to(tgt, Rdx);
-            //         self.release_prepared(dividend);
-            //     }
-            //     _ => unreachable!(),
-            // }
-
-            // self.release_prepared(divisor);
-            // return;
+            let rhs_op = self.value_to_operand(right, Idiv.op1_semantics());
+            self.emit(Idiv, [rhs_op]);
+            return;
         }
 
         let op = translate_binop(op);

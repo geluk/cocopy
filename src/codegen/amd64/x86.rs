@@ -134,6 +134,7 @@ pub enum Op {
     Idiv,
     // Bitwise operations
     Xor,
+    Cqo,
     // Comparison
     Cmp,
     Test,
@@ -164,15 +165,21 @@ impl Display for Op {
             Op::Pop => "pop",
             Op::Call => "call",
             Op::Ret => "ret",
+
             Op::Mov => "mov",
             Op::Lea => "lea",
+
             Op::Add => "add",
             Op::Sub => "sub",
             Op::Imul => "imul",
             Op::Idiv => "idiv",
+
             Op::Xor => "xor",
+            Op::Cqo => "cqo",
+
             Op::Cmp => "cmp",
             Op::Test => "test",
+
             Op::Jmp => "jmp",
             Op::Jz => "jz",
             Op::Jnz => "jnz",
@@ -182,13 +189,15 @@ impl Display for Op {
             Op::Jge => "jge",
             Op::Jl => "jl",
             Op::Jle => "jle",
-            Op::Nop => "nop",
+
             Op::Setg => "setg",
             Op::Setge => "setge",
             Op::Setl => "setl",
             Op::Setle => "setle",
             Op::Sete => "sete",
             Op::Setne => "setne",
+
+            Op::Nop => "nop",
         })
     }
 }

@@ -93,6 +93,7 @@ impl HasOpSemantics for Op {
             Test => direction(Read).any_register(),
             Cmp => direction(Read).any_register(),
             Mov => direction(Write).any_register().immediate(),
+            Idiv => direction(Read).any_register(),
             Sete | Setg | Setge | Setl | Setle | Setne => {
                 direction(Write).any_sized_register(PtrSize::Byte)
             }
