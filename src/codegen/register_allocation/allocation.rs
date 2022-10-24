@@ -1,4 +1,6 @@
 use std::{
+    cmp::Ordering,
+    collections::HashSet,
     fmt::{self, Debug, Display, Formatter},
     slice::{Iter, IterMut},
 };
@@ -13,7 +15,7 @@ pub struct NameAllocation<R: Copy + Eq> {
     reg_slices: Vec<RegAllocation<R>>,
     stack_slices: Vec<StackAllocation>,
 }
-impl<R: Copy + Eq + Debug> NameAllocation<R> {
+impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
     pub fn from_reg(reg: RegAllocation<R>) -> NameAllocation<R> {
         Self {
             lifetime: reg.lifetime,
@@ -34,10 +36,13 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
         self.lifetime
     }
 
+    /// Returns `true` if this allocation has one or more slices allocated on the stack.
     pub fn has_stack_allocation(&self) -> bool {
         !self.stack_slices.is_empty()
     }
 
+    /// Returns the slice at the given position. Could be either a stack slice or a register slice.
+    /// Panics if the position is not contained within the lifetime of the current allocation.
     pub fn slice_at(&self, position: Position) -> Destination<R> {
         let reg = self
             .reg_slices
@@ -60,12 +65,15 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
         })
     }
 
+    // TODO: remove and update caller to use `slice_at`.
     pub fn reg_slice_at(&self, position: Position) -> Option<&RegAllocation<R>> {
         self.reg_slices
             .iter()
             .find(|s| s.lifetime.contains(position))
     }
 
+    /// Returns a mutable reference to the register slice at the given position. Panics if no such
+    /// slice exists.
     pub fn reg_slice_at_mut(&mut self, position: Position) -> &mut RegAllocation<R> {
         self.reg_slices
             .iter_mut()
@@ -73,14 +81,30 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
             .expect("Attempted to look up invalid position")
     }
 
+    /// Takes the register slice at the given position out of the list of slices, so it can be
+    /// easily mutated. Care must be taken to ensure the current allocation is left in a valid
+    /// state when finished, which is why this method is not public.
+    fn take_reg_slice_at(&mut self, position: Position) -> RegAllocation<R> {
+        let index = self
+            .reg_slices
+            .iter()
+            .position(|s| s.lifetime.contains(position))
+            .expect("Attempted to look up invalid position");
+
+        self.reg_slices.remove(index)
+    }
+
+    /// Iterate over all register slices.
     pub fn iter_reg_slices(&self) -> Iter<RegAllocation<R>> {
         self.reg_slices.iter()
     }
 
+    /// Iterate over all stack slices.
     pub fn iter_stack_slices(&self) -> Iter<StackAllocation> {
         self.stack_slices.iter()
     }
 
+    /// Mutable iteration over all stack slices.
     pub fn iter_stack_slices_mut(&mut self) -> IterMut<StackAllocation> {
         self.stack_slices.iter_mut()
     }
@@ -92,40 +116,93 @@ impl<R: Copy + Eq + Debug> NameAllocation<R> {
             .collect()
     }
 
+    /// Returns `true` if the current allocation has one or more slices assigned to the target register
+    /// within the given lifetime.
     pub fn conflicts_on_lifetime(&self, lifetime: Lifetime, target_reg: R) -> bool {
         self.reg_slices
             .iter()
             .any(|s| s.register == target_reg && s.lifetime.overlaps(lifetime))
     }
 
-    pub fn try_kick_from<I: IntoIterator<Item = R>>(
-        &mut self,
-        target_reg: R,
-        lifetime: Lifetime,
-        free_registers: I,
-    ) -> bool {
+    /// Tries to kick the current allocation out of the given register within the given lifetime.
+    /// If none of its overlapping slices are locked to the register, they are moved to the
+    /// free register, and `true` is returned. Otherwise, returns `false` without taking any action.
+    pub fn try_kick_from(&mut self, target_reg: R, lifetime: Lifetime, free_register: R) -> bool {
         let overlapping_slices: Vec<_> = self
             .reg_slices
             .iter_mut()
             .filter(|s| s.register == target_reg && s.lifetime.overlaps(lifetime))
             .collect();
 
+        // At least one overlapping slice is locked to that register, so we refuse to move.
+        // Does it make sense to still move the non-locked slices out?
         if overlapping_slices.iter().any(|s| s.has_lock()) {
             return false;
         }
 
-        let mut reg_iter = free_registers.into_iter();
         for slice in overlapping_slices {
-            match reg_iter.next() {
-                Some(reg) => {
-                    slice.move_to(reg);
-                }
-                None => {
-                    todo!("Spill slice to stack.")
-                }
-            }
+            slice.move_to(free_register);
         }
         true
+    }
+
+    /// Lock the allocation to the given register at the given position. If the slice enveloping
+    /// that position is not locked to its current register, it is moved directly. Otherwise, it
+    /// will be broken up into two or three slices, depending on how many locks it has.
+    pub fn add_lock(&mut self, target_reg: R, lock_point: Position) {
+        let subject = self.reg_slice_at_mut(lock_point);
+
+        // The slice is already in the correct register! Easy.
+        if subject.register() == target_reg {
+            subject.add_lock(lock_point);
+            return;
+        }
+
+        let (locked_before, locked_at, locked_after) = subject.locks_around(lock_point);
+        assert!(
+            !locked_at,
+            "Slice {subject} is already locked to {} at the same position ({lock_point})",
+            subject.register()
+        );
+
+        let mut subject = self.take_reg_slice_at(lock_point);
+        match (locked_before, locked_after) {
+            (false, false) => {
+                // The subject slice is not locked in any way, so we can just move it.
+                subject.move_and_lock_to(target_reg, lock_point);
+                self.reg_slices.push(subject);
+            }
+            (false, true) => {
+                // The subject slice has a lock after the lock we're introducing, so we split it
+                // at lock_point + 1 and move the first slice.
+                let (mut at, after) = subject.split_at(lock_point + 1);
+                at.move_and_lock_to(target_reg, lock_point);
+
+                self.reg_slices.push(at);
+                self.reg_slices.push(after);
+            }
+            (true, false) => {
+                // The subject slice has a lock before the lock we're introducing, so we split it
+                // at lock_point and move the second slice.
+                let (before, mut at) = subject.split_at(lock_point);
+                at.move_and_lock_to(target_reg, lock_point);
+
+                self.reg_slices.push(before);
+                self.reg_slices.push(at);
+            }
+            (true, true) => {
+                // The subject has locks before and after the lock we're introducing, so we chop it
+                // up as closely around the lock point as we can.
+                let (before, rest) = subject.split_at(lock_point);
+                let (mut middle, after) = rest.split_at(lock_point + 1);
+
+                middle.move_and_lock_to(target_reg, lock_point);
+
+                self.reg_slices.push(before);
+                self.reg_slices.push(middle);
+                self.reg_slices.push(after);
+            }
+        }
     }
 }
 
@@ -143,13 +220,13 @@ pub enum Destination<'a, R: Copy + Eq> {
 pub struct RegAllocation<R: Copy + Eq> {
     register: R,
     lifetime: Lifetime,
-    locks: Vec<Position>,
+    locks: HashSet<Position>,
 }
 impl<R: Copy + Eq> RegAllocation<R> {
-    pub fn new(register: R, lifetime: Lifetime, locks: Vec<Position>) -> Self {
+    pub fn new(register: R, lifetime: Lifetime) -> Self {
         Self {
             register,
-            locks,
+            locks: HashSet::new(),
             lifetime,
         }
     }
@@ -162,9 +239,32 @@ impl<R: Copy + Eq> RegAllocation<R> {
         self.lifetime
     }
 
-    pub fn move_and_lock_to(&mut self, target_reg: R, lock_point: Position) {
-        self.move_to(target_reg);
-        self.locks = vec![lock_point];
+    pub fn has_lock(&self) -> bool {
+        !self.locks.is_empty()
+    }
+
+    pub fn locks_around(&self, position: Position) -> (bool, bool, bool) {
+        let mut locked_before = false;
+        let mut locked_at = false;
+        let mut locked_after = false;
+        for &existing_lock in &self.locks {
+            match existing_lock.cmp(&position) {
+                Ordering::Less => {
+                    locked_before = true;
+                }
+                Ordering::Equal => {
+                    locked_at = true;
+                }
+                Ordering::Greater => {
+                    locked_after = true;
+                }
+            }
+        }
+        (locked_before, locked_at, locked_after)
+    }
+
+    pub fn add_lock(&mut self, lock_point: Position) {
+        self.locks.insert(lock_point);
     }
 
     pub fn move_to(&mut self, target_reg: R) {
@@ -174,8 +274,41 @@ impl<R: Copy + Eq> RegAllocation<R> {
         self.register = target_reg;
     }
 
-    fn has_lock(&self) -> bool {
-        !self.locks.is_empty()
+    pub fn move_and_lock_to(&mut self, target_reg: R, lock_point: Position) {
+        self.move_to(target_reg);
+        self.add_lock(lock_point);
+    }
+
+    /// Consumes this allocation an splits it into two separate allocations.
+    /// The first allocation will end at `position`, the second will start there.
+    fn split_at(self, position: Position) -> (RegAllocation<R>, RegAllocation<R>) {
+        let (first, second) = self.lifetime.split_at(position);
+        let mut locks_before = HashSet::new();
+        let mut locks_after = HashSet::new();
+        for lock in self.locks {
+            if lock >= position {
+                locks_after.insert(lock);
+            } else {
+                locks_before.insert(lock);
+            }
+        }
+        (
+            Self {
+                register: self.register,
+                lifetime: first,
+                locks: locks_before,
+            },
+            Self {
+                register: self.register,
+                lifetime: second,
+                locks: locks_after,
+            },
+        )
+    }
+}
+impl<R: Display + Copy + Eq> Display for RegAllocation<R> {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "{} -> {}", self.lifetime(), self.register())
     }
 }
 
@@ -248,6 +381,15 @@ impl Lifetime {
             start: self.start.min(position),
             end: self.end.max(Position(position.0 + 1)),
         }
+    }
+
+    /// Split the lifetime into two separate lifetimes at the given position.
+    fn split_at(&self, position: Position) -> (Lifetime, Lifetime) {
+        assert!(self.contains(position));
+        (
+            Self::new(self.start, position),
+            Self::new(position, self.end),
+        )
     }
 }
 impl Display for Lifetime {

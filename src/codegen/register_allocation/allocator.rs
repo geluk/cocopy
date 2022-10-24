@@ -15,6 +15,7 @@ use super::allocation::*;
 #[derive(Debug)]
 pub struct Allocator<N: Eq, R: Copy + Eq> {
     registers: Vec<R>,
+    avoids: Vec<(Position, R)>,
     name_allocations: HashMap<N, NameAllocation<R>>,
 }
 
@@ -24,6 +25,7 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
     pub fn new(registers: Vec<R>) -> Self {
         Self {
             registers,
+            avoids: vec![],
             name_allocations: Default::default(),
         }
     }
@@ -33,7 +35,7 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
     /// but if no free registers remain, they will be stored on the stack.
     /// Panics if the name was already allocated before.
     pub fn allocate(&mut self, name: N, lifetime: Lifetime) -> &mut NameAllocation<R> {
-        let allocation = self.allocate_unchecked(lifetime);
+        let allocation = self.next_allocation(lifetime);
 
         match self.name_allocations.entry(name) {
             Entry::Occupied(ocp) => {
@@ -44,6 +46,18 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
             }
             Entry::Vacant(vac) => vac.insert(allocation),
         }
+    }
+
+    /// Avoid the given register at the given position. This signals to the
+    /// allocator that at this position, anything may happen to the value of
+    /// that register.
+    ///
+    /// The allocator will therefore ensure that no live variable will be
+    /// assigned to the register at that position, but it may still assign
+    /// variables to that register if their lifetime ends before (or starts
+    /// after) the point to be avoided.
+    pub fn avoid(&mut self, position: Position, register: R) {
+        self.avoids.push((position, register));
     }
 
     /// Lock a name to the given target register.
@@ -63,17 +77,16 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
 
         let alloc_lifetime = allocation.lifetime();
         trace!(
-            "Try to lock {name} (with lifetime {alloc_lifetime}) to {target_reg} at {lock_point}"
+            "Try to lock {name} (with lifetime {alloc_lifetime}) to {target_reg} at line {lock_point}"
         );
 
+        // TODO: This is naïve, it could also be a stack slice.
+        let slice_in_question = allocation.reg_slice_at_mut(lock_point);
+
         // Maybe we already assigned it to the right register by sheer dumb luck?
-        if allocation
-            .reg_slice_at(lock_point)
-            .expect("Attempted to look up invalid position")
-            .register()
-            == target_reg
-        {
-            // Well now that's convenient!
+        if slice_in_question.register() == target_reg {
+            // Well now that's convenient! Then all we need to do is add the lock to the slice:
+            slice_in_question.add_lock(lock_point);
             trace!("No need to lock {name} to {target_reg}, it's already there");
             // Don't forget to put it back though:
             self.name_allocations.insert(name, allocation);
@@ -81,24 +94,9 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
             return;
         }
 
-        let slice_in_question = allocation.reg_slice_at_mut(lock_point);
-
-        // In keeping with the trend of trying the laziest thing that could
-        // possibly work first, maybe we can just move our entire allocation
-        // slice over to the target register?
+        // We've established that we're in the wrong register. First, let's check if we have
+        // contending allocations.
         let lifetime = slice_in_question.lifetime();
-        if !self
-            .name_allocations
-            .values()
-            .any(|a| a.conflicts_on_lifetime(lifetime, target_reg))
-        {
-            // Yes We Can!
-            trace!("No conflicting allocations on {target_reg}, moving entire slice");
-            slice_in_question.move_and_lock_to(target_reg, lock_point);
-            self.name_allocations.insert(name, allocation);
-            return;
-        }
-
         let conflicting_names: Vec<_> = self
             .name_allocations
             .iter()
@@ -106,14 +104,20 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
             .map(|(n, a)| (n.clone(), a.lifetime()))
             .collect();
 
-        // We have some overlapping allocations. Let's deal with them one by one.
-        for (name, lifetime) in conflicting_names {
+        // Let's deal with them one by one.
+        for (name, conflicting_lifetime) in conflicting_names {
             // If it's not locked to the target register, we can just kick it out.
-            let free_registers = self.free_registers(lifetime);
+
+            let free_registers = self.free_registers(conflicting_lifetime);
+            assert!(
+                !free_registers.is_empty(),
+                "TODO: No more free registers, move to the stack instead."
+            );
 
             let alloc = self.name_allocations.get_mut(&name).unwrap();
-            if alloc.try_kick_from(target_reg, lifetime, free_registers) {
+            if alloc.try_kick_from(target_reg, conflicting_lifetime, free_registers[0]) {
                 // Hey, that worked!
+                trace!("Kicked one conflicting allocation from {target_reg}");
                 continue;
             }
             // Can't kick it out, so we'll need to split some slices here.
@@ -121,9 +125,20 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
             todo!("Overlapping allocation has a slice locked to the target register");
         }
 
-        // Now we have no more overlapping allocations, so we can move our slice.
-        trace!("Removed conflicting allocations on {target_reg}, moving entire slice");
-        slice_in_question.move_and_lock_to(target_reg, lock_point);
+        let points_to_avoid: Vec<_> = self
+            .avoids
+            .iter()
+            .filter(|(pos, reg)| *reg == target_reg && allocation.lifetime().contains(*pos))
+            .copied()
+            .collect();
+        assert!(
+            points_to_avoid.is_empty(),
+            "TODO: Avoid {} points when splitting the allocation.",
+            points_to_avoid.len()
+        );
+
+        trace!("No (more) conflicting allocations, adding lock to existing allocation.");
+        allocation.add_lock(target_reg, lock_point);
         self.name_allocations.insert(name, allocation);
     }
 
@@ -164,16 +179,11 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
             .collect()
     }
 
-    /// Assign a register or a stack position to the given variable during the
-    /// provided lifetime. Unlike [`Self::allocate()`], it will accept
-    /// conflicting allocations. The caller is responsible for resolving
-    /// these conflicts afterwards.
-    fn allocate_unchecked(&mut self, lifetime: Lifetime) -> NameAllocation<R> {
+    /// Find a free destination for a variable within the given lifetime.
+    fn next_allocation(&self, lifetime: Lifetime) -> NameAllocation<R> {
         let next_free = self.free_registers(lifetime).into_iter().next();
         match next_free {
-            Some(register) => {
-                NameAllocation::from_reg(RegAllocation::new(register, lifetime, vec![]))
-            }
+            Some(register) => NameAllocation::from_reg(RegAllocation::new(register, lifetime)),
             None => {
                 // Stack allocations are deferred: their position on the stack
                 // will not be determined yet, as these allocations may continue
@@ -188,6 +198,7 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
         }
     }
 
+    /// Find out which registers are free during the given lifetime.
     fn free_registers(&self, lifetime: Lifetime) -> Vec<R> {
         let occupied_regs = self.occupied_registers(lifetime);
         self.registers
@@ -200,11 +211,19 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
     /// Returns a set containing the registers that are occupied at some point
     /// during the given lifetime.
     fn occupied_registers(&self, lifetime: Lifetime) -> HashSet<R> {
-        self.name_allocations
+        let regs_to_avoid = self
+            .avoids
+            .iter()
+            .filter(|(pos, _)| lifetime.contains(*pos))
+            .map(|(_, reg)| *reg);
+
+        let allocated_regs = self
+            .name_allocations
             .values()
             .flat_map(|v| v.reg_slices_within(lifetime))
-            .map(|s| s.register())
-            .collect()
+            .map(|s| s.register());
+
+        regs_to_avoid.chain(allocated_regs).collect()
     }
 }
 
