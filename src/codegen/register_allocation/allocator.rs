@@ -129,16 +129,12 @@ impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Displ
             .avoids
             .iter()
             .filter(|(pos, reg)| *reg == target_reg && allocation.lifetime().contains(*pos))
+            .map(|(pos, _)| pos)
             .copied()
             .collect();
-        assert!(
-            points_to_avoid.is_empty(),
-            "TODO: Avoid {} points when splitting the allocation.",
-            points_to_avoid.len()
-        );
 
         trace!("No (more) conflicting allocations, adding lock to existing allocation.");
-        allocation.add_lock(target_reg, lock_point);
+        allocation.add_lock(target_reg, lock_point, points_to_avoid);
         self.name_allocations.insert(name, allocation);
     }
 

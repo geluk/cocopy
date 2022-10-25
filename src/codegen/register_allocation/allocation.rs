@@ -151,16 +151,27 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
     /// Lock the allocation to the given register at the given position. If the slice enveloping
     /// that position is not locked to its current register, it is moved directly. Otherwise, it
     /// will be broken up into two or three slices, depending on how many locks it has.
-    pub fn add_lock(&mut self, target_reg: R, lock_point: Position) {
+    pub fn add_lock(&mut self, target_reg: R, lock_point: Position, avoid_points: Vec<Position>) {
         let subject = self.reg_slice_at_mut(lock_point);
 
         // The slice is already in the correct register! Easy.
         if subject.register() == target_reg {
+            for point in avoid_points {
+                assert!(
+                    !subject.lifetime().contains(point),
+                    "Slice was already incorrectly allocated to a point that should be avoided."
+                );
+            }
             subject.add_lock(lock_point);
             return;
         }
 
-        let (locked_before, locked_at, locked_after) = subject.locks_around(lock_point);
+        let (mut locked_before, mut locked_at, mut locked_after) = subject.locks_around(lock_point);
+
+        locked_before = locked_before || avoid_points.iter().any(|&p| p < lock_point);
+        locked_at = locked_at || avoid_points.iter().any(|&p| p == lock_point);
+        locked_after = locked_after || avoid_points.iter().any(|&p| p > lock_point);
+
         assert!(
             !locked_at,
             "Slice {subject} is already locked to {} at the same position ({lock_point})",
