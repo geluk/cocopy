@@ -4,6 +4,7 @@ use crate::{
     codegen::register_allocation::{Allocator, Destination},
     il::{Label, Name, TargetSize, Variable},
     listing::Position,
+    prelude::*,
 };
 
 use super::{
@@ -16,39 +17,99 @@ use super::{
 pub enum DeferredLine {
     Comment(String),
     Label(Label),
-    Instr(DeferredInstr),
-    LockRequest(DeferredReg, Register),
-    ImplicitRead(DeferredReg),
-    ImplicitWrite(Register),
-    CallerPreserve,
-    CallerRestore,
-    AlignStack,
-    Return,
+    Block(DeferredBlock),
 }
 impl Display for DeferredLine {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Self::Comment(cmt) => write!(f, "    ; {cmt}"),
             Self::Label(lbl) => write!(f, "{lbl}:"),
-            Self::Instr(instr) => write!(
-                f,
-                "    {} {}",
-                instr.op,
-                instr
-                    .operands
-                    .iter()
-                    .map(|i| i.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-            Self::LockRequest(dfr, reg) => write!(f, "    lock {dfr} to {reg}"),
-            Self::ImplicitRead(dfr) => write!(f, "    implicit_read {dfr}"),
-            Self::ImplicitWrite(reg) => write!(f, "    implicit_write {reg}"),
-            Self::CallerPreserve => f.write_str("    caller_preserve"),
-            Self::CallerRestore => f.write_str("    caller_restore"),
-            Self::AlignStack => f.write_str("    align_stack"),
-            Self::Return => f.write_str("    return"),
+            Self::Block(blk) => write!(f, "{blk}"),
         }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct DeferredBlock {
+    /// The instructions contained within this block.
+    pub instructions: Vec<DeferredInstr>,
+    /// Indicates that caller-saved registers must be preserved before this
+    /// block is executed. This is effectively a shorthand for emitting an
+    /// `implicit_write` for every register that is considered to be caller-
+    /// saved, except that caller preservation can be smart about writing
+    /// them all to the stack together.
+    pub caller_preserve: bool,
+    /// Indicates that, before this block is executed, the stack must be
+    /// aligned in some manner meaningful to the current stack convention.
+    /// For instance, on various platforms, the stack must be aligned on a
+    /// 16-byte boundary before standard library procedures can be called.
+    pub align_stack: bool,
+    /// The final instruction in this block should be a return from the
+    /// current procedure, cleaning up the stack and returning control to
+    /// the caller.
+    pub ret: bool,
+    /// A lock request signals that a variable must be tied to a certain
+    /// register within this block. This could happen as a result of calling
+    /// conventions, or special operations that require a variable's value to
+    /// be in a certain register. The direction specifies whether the lock
+    /// should have happened before the block executes (i.e. it reads the
+    /// register), or after it (i.e. it writes the register).
+    pub lock_requests: Vec<(DeferredReg, Register, Direction)>,
+    /// Signals that a register is read implicitly, i.e. without it being
+    /// obvious from the instruction operands. This is mainly useful for
+    /// lifetime analysis as it indicates that the variable being read must
+    /// still be alive at this point.
+    pub implicit_reads: Vec<DeferredReg>,
+    /// Signals that a register is being written implicitly, i.e. without it
+    /// being obvious from the instruction operands. This suggests that the
+    /// register write is not associated with any variable, and has instead
+    /// occurred as a result of some other (temporary) computation. The
+    /// allocator will make sure no live variable occupies the register when
+    /// the write occurs.
+    pub implicit_writes: Vec<Register>,
+}
+impl DeferredBlock {
+    pub fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+
+    pub fn implicit_read(&mut self, reg: DeferredReg) {
+        self.implicit_reads.push(reg);
+    }
+
+    pub fn implicit_write(&mut self, register: Register) {
+        self.implicit_writes.push(register);
+    }
+
+    pub fn lock_register(&mut self, name: Name, reg: Register, dir: Direction) {
+        self.lock_requests
+            .push((DeferredReg::from_name(name), reg, dir));
+    }
+
+    pub fn emit<V: Into<Vec<DeferredOperand>>>(&mut self, op: Op, operands: V) {
+        let instr = DeferredInstr {
+            op,
+            operands: operands.into(),
+        };
+        debug!("Emit {instr:?}");
+        self.instructions.push(instr);
+    }
+}
+impl Display for DeferredBlock {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        // Self::LockRequest(dfr, reg) => write!(f, "    lock {dfr} to {reg}"),
+        // Self::ImplicitRead(dfr) => write!(f, "    implicit_read {dfr}"),
+        // Self::ImplicitWrite(reg) => write!(f, "    implicit_write {reg}"),
+        // Self::CallerPreserve => f.write_str("    caller_preserve"),
+        // Self::CallerRestore => f.write_str("    caller_restore"),
+        // Self::AlignStack => f.write_str("    align_stack"),
+        // Self::Return => f.write_str("    return"),
+        for instr in &self.instructions {
+            write!(f, "{instr}")?;
+        }
+        Ok(())
     }
 }
 
@@ -57,6 +118,20 @@ pub struct DeferredInstr {
     pub op: Op,
     pub operands: Vec<DeferredOperand>,
 }
+impl Display for DeferredInstr {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(
+            f,
+            "    {} {}",
+            self.op,
+            self.operands
+                .iter()
+                .map(|i| i.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum DeferredOperand {
@@ -64,9 +139,10 @@ pub enum DeferredOperand {
     /// calling conventions or operator semantics.
     ConstReg(Register),
     /// Some not yet known register.
-    /// Also includes the operator semantics so that the register allocator
-    /// can make sure to assign the name to a valid register, or to emit a
-    /// just-in-time swap to bring it into the right register.
+    /// Based on the operator semantics of the operator to which this operand
+    /// belongs, the register allocator can make sure to assign the name to a
+    /// valid register, or to emit a just-in-time swap to bring it into the
+    /// right register.
     Reg(DeferredReg),
     /// An immediate value
     Lit(TargetSize),
@@ -94,6 +170,10 @@ impl DeferredOperand {
             Self::Lbl(lbl) => Operand::Lbl(format!(".{lbl}")),
             Self::Id(id) => Operand::Id(id),
         }
+    }
+
+    pub fn from_name(name: Name) -> Self {
+        Self::Reg(DeferredReg::from_name(name))
     }
 }
 impl Display for DeferredOperand {

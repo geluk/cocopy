@@ -70,62 +70,62 @@ fn resolve_deferred_instrs<S: StackConvention>(
                 procedure.body.push_cmt_only(cmt);
             }
             DeferredLine::Label(lbl) => procedure.body.add_label(format!(".{lbl}")),
-            DeferredLine::Instr(instr) => {
-                let op = instr.op;
-                let operands: Vec<_> = instr
-                    .operands
-                    .into_iter()
-                    .enumerate()
-                    .map(|(n, o)| o.resolve(&allocator, position, op.op_semantics(n)))
-                    .collect();
+            DeferredLine::Block(block) => {
+                if block.caller_preserve {
+                    for reg_to_push in allocator
+                        .live_regs_at(position)
+                        .into_iter()
+                        .map(|a| a.register())
+                        .filter(|&r| {
+                            calling_convention.is_caller_saved(r)
+                                || r == calling_convention.get_return_reg()
+                        })
+                    {
+                        procedure.body.push(Push, [Operand::Reg(reg_to_push)]);
+                        stack_size += reg_to_push.byte_size();
+                        pushed_regs.push(reg_to_push);
+                    }
+                    let alignment = calling_convention.stack_alignment();
+                    let misaligned_bytes = stack_size % alignment;
+                    if misaligned_bytes != 0 {
+                        aligned_bytes = (alignment - misaligned_bytes) as i128;
+                        procedure.body.push(
+                            Sub,
+                            [Operand::Reg(Register::Rsp), Operand::Lit(aligned_bytes)],
+                        );
+                    }
+                }
 
-                procedure.body.push(instr.op, operands);
-            }
-            DeferredLine::CallerPreserve => {
-                for reg_to_push in allocator
-                    .live_regs_at(position)
-                    .into_iter()
-                    .map(|a| a.register())
-                    .filter(|&r| {
-                        calling_convention.is_caller_saved(r)
-                            || r == calling_convention.get_return_reg()
-                    })
-                {
-                    procedure.body.push(Push, [Operand::Reg(reg_to_push)]);
-                    stack_size += reg_to_push.byte_size();
-                    pushed_regs.push(reg_to_push);
+                for instr in block.instructions {
+                    let op = instr.op;
+                    let operands: Vec<_> = instr
+                        .operands
+                        .into_iter()
+                        .enumerate()
+                        .map(|(n, o)| o.resolve(&allocator, position, op.op_semantics(n)))
+                        .collect();
+
+                    procedure.body.push(instr.op, operands);
                 }
-                let alignment = calling_convention.stack_alignment();
-                let misaligned_bytes = stack_size % alignment;
-                if misaligned_bytes != 0 {
-                    aligned_bytes = (alignment - misaligned_bytes) as i128;
-                    procedure.body.push(
-                        Sub,
-                        [Operand::Reg(Register::Rsp), Operand::Lit(aligned_bytes)],
-                    );
+
+                if block.caller_preserve {
+                    if aligned_bytes != 0 {
+                        procedure.body.push(
+                            Add,
+                            [Operand::Reg(Register::Rsp), Operand::Lit(aligned_bytes)],
+                        );
+                    }
+                    for reg_to_pop in pushed_regs.drain(..).rev() {
+                        procedure.body.push(Pop, [Operand::Reg(reg_to_pop)]);
+                        stack_size -= reg_to_pop.byte_size();
+                    }
                 }
-            }
-            DeferredLine::CallerRestore => {
-                if aligned_bytes != 0 {
-                    procedure.body.push(
-                        Add,
-                        [Operand::Reg(Register::Rsp), Operand::Lit(aligned_bytes)],
-                    );
-                }
-                for reg_to_pop in pushed_regs.drain(..).rev() {
-                    procedure.body.push(Pop, [Operand::Reg(reg_to_pop)]);
-                    stack_size -= reg_to_pop.byte_size();
+                if block.ret {
+                    if position != last_line {
+                        S::add_epilogue(&mut procedure.body);
+                    }
                 }
             }
-            DeferredLine::Return => {
-                if position != last_line {
-                    S::add_epilogue(&mut procedure.body);
-                }
-            }
-            DeferredLine::LockRequest(_, _) => (),
-            DeferredLine::ImplicitRead(_) => (),
-            DeferredLine::ImplicitWrite(_) => {}
-            DeferredLine::AlignStack => (),
         }
     }
 
@@ -180,10 +180,13 @@ impl DeferringCompiler {
 
     fn compile_return(&mut self, value: Option<Value>) {
         let return_reg = self.calling_convention.get_return_reg();
-        if let Some(value) = value {
-            self.emit_lock_or_write(value, return_reg);
-        }
-        self.asm_listing.push(DeferredLine::Return);
+
+        self.emit_block(|block| {
+            if let Some(value) = value {
+                block.emit_lock_or_write(value, return_reg);
+            }
+            block.ret = true;
+        })
     }
 
     /// Compile a conditional jump. A jump will be made if `value` evaluates to
@@ -196,6 +199,7 @@ impl DeferringCompiler {
         };
 
         let operand = self.value_to_operand(value, Test.op1_semantics());
+
         self.emit(Test, [operand.clone(), operand]);
         self.emit(jump_type, [DeferredOperand::Lbl(label)]);
     }
@@ -220,8 +224,10 @@ impl DeferringCompiler {
 
     /// Compile an assignment.
     fn compile_assign(&mut self, target: Name, value: Value) {
-        let target = self.name_to_operand(target);
+        let target = DeferredOperand::from_name(target);
         let value = self.value_to_operand(value, Mov.op2_semantics());
+
+        debug!("Assign {target:?} = {value:?}");
 
         self.emit(Mov, [target, value]);
     }
@@ -237,32 +243,36 @@ impl DeferringCompiler {
 
         // Integer division and remainder are handled specially
         if let BinOp::IntArith(int_op @ (IntOp::Divide | IntOp::Remainder)) = op {
-            // The idiv instruction divides a value spread across rdx and rax
-            // by the value in a different register or memory location.
-            self.emit_lock_or_write(left, Rax);
+            let divisor_temp = self.generate_temp();
 
-            let overwritten_register = match int_op {
-                IntOp::Divide => {
-                    // The quotient goes in Rax
-                    self.emit_lock(tgt, Rax);
-                    Rdx
-                }
-                IntOp::Remainder => {
-                    // The remainder goes in Rdx
-                    self.emit_lock(tgt, Rdx);
-                    Rax
-                }
-                _ => unreachable!(),
-            };
+            self.emit_block(|block| {
+                // The idiv instruction divides a value spread across rdx and rax
+                // by the value in a different register or memory location.
+                block.emit_lock_or_write(left, Rax);
 
-            self.emit_overwrite(overwritten_register);
+                let overwritten_register = match int_op {
+                    IntOp::Divide => {
+                        // The quotient goes in Rax
+                        block.lock_register(tgt, Rax, Direction::Write);
+                        Rdx
+                    }
+                    IntOp::Remainder => {
+                        // The remainder goes in Rdx
+                        block.lock_register(tgt, Rdx, Direction::Write);
+                        Rax
+                    }
+                    _ => unreachable!(),
+                };
 
-            // Since we only work with 64-bit values, we rdx must be zeroed.
-            self.emit(Xor, [ConstReg(Rdx), ConstReg(Rdx)]);
-            self.emit(Cqo, []);
+                block.implicit_write(overwritten_register);
 
-            let rhs_op = self.value_to_operand(right, Idiv.op1_semantics());
-            self.emit(Idiv, [rhs_op]);
+                // Since we only work with 64-bit values, we rdx must be zeroed.
+                block.emit(Xor, [ConstReg(Rdx), ConstReg(Rdx)]);
+                block.emit(Cqo, []);
+
+                let rhs_op = block.value_to_operand_hint(right, Idiv.op1_semantics(), divisor_temp);
+                block.emit(Idiv, [rhs_op]);
+            });
             return;
         }
 
@@ -271,12 +281,12 @@ impl DeferringCompiler {
         match &left {
             // Instructions like `a = a + 1` can be performed in a single operation.
             Value::Name(name) if name == &tgt => {
-                let target = self.name_to_operand(tgt);
+                let target = DeferredOperand::from_name(tgt);
                 let right = self.value_to_operand(right, op.op2_semantics());
                 self.emit(op, [target, right]);
             }
             _ => {
-                let target = self.name_to_operand(tgt);
+                let target = DeferredOperand::from_name(tgt);
                 let left = self.value_to_operand(left, op.op2_semantics());
                 let right = self.value_to_operand(right, op.op2_semantics());
                 // Binary operations of the form `x = y <> z` (where <> is some operation) cannot be
@@ -322,9 +332,6 @@ impl DeferringCompiler {
             todo!("Can't deal with more than {} parameters yet.", max_args);
         }
 
-        self.asm_listing.push(DeferredLine::CallerPreserve);
-        self.asm_listing.push(DeferredLine::AlignStack);
-
         let param_regs: Vec<_> = self
             .calling_convention
             .iter_params(args.len())
@@ -332,36 +339,111 @@ impl DeferringCompiler {
             // one by one.
             .rev()
             .collect();
-        for (_, reg) in param_regs {
-            let value = args.pop().expect("Parameter count mismatch");
-            self.emit_lock_or_write(value, reg);
-        }
-        if let Some(tgt) = tgt {
-            self.emit_lock(tgt, Register::Rax);
-        }
 
-        self.emit(Call, [Id(name)]);
+        self.emit_block(|block| {
+            block.caller_preserve = true;
+            block.align_stack = true;
 
-        self.asm_listing.push(DeferredLine::CallerRestore);
+            for (_, reg) in param_regs {
+                let value = args.pop().expect("Parameter count mismatch");
+                block.emit_lock_or_write(value, reg);
+            }
+            if let Some(tgt) = tgt {
+                block.lock_register(tgt, Register::Rax, Direction::Write);
+            }
+
+            block.emit(Call, [Id(name)]);
+        });
     }
 
+    /// Compile a parameter. This does not emit any actual assembly, it only
+    /// informs the register allocator in which register the parameter is
+    /// located.
     fn compile_param(&mut self, param: Name) {
         let param_reg = self.calling_convention.get_params()[self.current_param];
         self.current_param += 1;
-        self.emit_lock(param, param_reg);
+
+        self.emit_block(|block| {
+            block.lock_register(param, param_reg, Direction::Read);
+        })
     }
 
+    /// Compile a goto instruction.
     fn compile_goto(&mut self, tgt: Label, names: Vec<Name>) {
-        self.emit(Jmp, [Lbl(tgt)]);
-        for name in names {
-            self.asm_listing
-                .push(DeferredLine::ImplicitRead(DeferredReg::from_name(name)));
-        }
+        self.emit_block(|block| {
+            block.emit(Jmp, [Lbl(tgt)]);
+            for name in names {
+                block.implicit_read(DeferredReg::from_name(name));
+            }
+        })
     }
 
-    /// Prepare the given value as an operand. This may result in the allocation of a register to
-    /// hold a temporary variable.
+    /// Prepare the given value as an operand. This may result in the
+    /// allocation of a register to hold a the value if it is a constant and
+    /// the semantics of this operand do not allow immediate values.
     fn value_to_operand(&mut self, value: Value, semantics: OpSemantics) -> DeferredOperand {
+        // It is not very likely that `temp_reg` will actually end up holding
+        // the value, so in most cases, we will just generate unused
+        // temporaries. This is not ideal, but it's the easiest way to allow
+        // `value_to_operand_hint` to be used both within and outside a block.
+        let temp_reg = self.generate_temp();
+        self.emit_block(|block| block.value_to_operand_hint(value, semantics, temp_reg))
+    }
+
+    /// Emit a block of deferred assembly. Within a block, variables are
+    /// guaranteed not to be moved by the register allocator.
+    fn emit_block<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut DeferredBlock) -> R,
+    {
+        let mut block = DeferredBlock::new();
+        let res = f(&mut block);
+        self.asm_listing.push(DeferredLine::Block(block));
+        res
+    }
+
+    /// Create a 'singleton block' and add a single instruction to it.
+    pub fn emit<V: Into<Vec<DeferredOperand>>>(&mut self, op: Op, operands: V) {
+        self.emit_block(|block| block.emit(op, operands))
+    }
+
+    /// Generate a new temporary variable.
+    fn generate_temp(&mut self) -> DeferredReg {
+        let next = self.current_temp;
+        self.current_temp += 1;
+        DeferredReg::AsmTemp(next)
+    }
+}
+
+trait BlockExt {
+    fn emit_lock_or_write(&mut self, value: Value, register: Register);
+    fn value_to_operand_hint(
+        &mut self,
+        value: Value,
+        semantics: OpSemantics,
+        hint: DeferredReg,
+    ) -> DeferredOperand;
+}
+impl BlockExt for DeferredBlock {
+    /// Lock or write the given value, depending on what it is.
+    /// If the value is a variable, lock it to the target register.
+    /// If it is a constant, write it to the target register.
+    fn emit_lock_or_write(&mut self, value: Value, register: Register) {
+        match value {
+            Value::Const(c) => self.emit(Mov, [ConstReg(register), Lit(c)]),
+            Value::Name(n) => self.lock_register(n, register, Direction::Read),
+        };
+    }
+
+    /// Prepare the given value as an operand. If the value is a constant and
+    /// the operand semantics do not allow immediate values, the value is
+    /// first written to the hinted register.
+    fn value_to_operand_hint(
+        &mut self,
+        value: Value,
+        semantics: OpSemantics,
+        hint: DeferredReg,
+    ) -> DeferredOperand {
         match value {
             Value::Const(c) => {
                 if semantics.immediate() {
@@ -369,51 +451,12 @@ impl DeferringCompiler {
                 } else {
                     // If the operand semantics forbid immediate values, we need to first
                     // emit a write to a temporary register.
-                    let temp_reg = Reg(DeferredReg::AsmTemp(self.next_temp()));
-                    self.emit(Mov, [temp_reg.clone(), Lit(c)]);
-                    temp_reg
+                    self.emit(Mov, [Reg(hint.clone()), Lit(c)]);
+                    Reg(hint)
                 }
             }
-            Value::Name(n) => self.name_to_operand(n),
+            Value::Name(n) => DeferredOperand::from_name(n),
         }
-    }
-
-    // Prepare the given name as an operand.
-    fn name_to_operand(&self, name: Name) -> DeferredOperand {
-        Reg(DeferredReg::from_name(name))
-    }
-
-    /// Lock or write the given value, depending on what it is.
-    /// If the value is a variable, lock it to the target register.
-    /// If it is a constant, write it to the target register.
-    fn emit_lock_or_write(&mut self, value: Value, register: Register) {
-        match value {
-            Value::Const(c) => self.emit(Mov, [ConstReg(register), Lit(c)]),
-            Value::Name(n) => self.emit_lock(n, register),
-        };
-    }
-
-    /// Signal that the register will be overwritten.
-    fn emit_overwrite(&mut self, register: Register) {
-        self.asm_listing.push(DeferredLine::ImplicitWrite(register))
-    }
-
-    fn emit<V: Into<Vec<DeferredOperand>>>(&mut self, op: Op, operands: V) {
-        self.asm_listing.push(DeferredLine::Instr(DeferredInstr {
-            op,
-            operands: operands.into(),
-        }))
-    }
-
-    fn emit_lock(&mut self, name: Name, reg: Register) {
-        self.asm_listing
-            .push(DeferredLine::LockRequest(DeferredReg::from_name(name), reg))
-    }
-
-    fn next_temp(&mut self) -> usize {
-        let next = self.current_temp;
-        self.current_temp += 1;
-        next
     }
 }
 

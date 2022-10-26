@@ -76,27 +76,26 @@ impl<'l> LifetimeAnalysis<'l> {
         // Process instructions
         for (pos, line) in self.listing.iter_lines() {
             match line {
-                DeferredLine::Instr(instr) => {
-                    for (index, operand) in instr.operands.iter().enumerate() {
-                        if let DeferredOperand::Reg(reg) = &operand {
-                            let pos = match instr.op.op_semantics(index).direction() {
-                                Direction::Read => pos.read(),
-                                Direction::Write => pos.write(),
-                            };
-
-                            self.expand_lifetime(reg, pos)
+                DeferredLine::Block(block) => {
+                    for reg in &block.implicit_reads {
+                        self.expand_lifetime(reg, pos.read());
+                    }
+                    for reg in &block.implicit_writes {
+                        self.avoids.push((pos.write(), *reg));
+                    }
+                    for (name, reg, dir) in &block.lock_requests {
+                        let pos = pos.offset_by(*dir);
+                        self.expand_lifetime(name, pos);
+                        self.add_lock(name, pos, *reg);
+                    }
+                    for instr in &block.instructions {
+                        for (index, operand) in instr.operands.iter().enumerate() {
+                            if let DeferredOperand::Reg(reg) = &operand {
+                                let pos = pos.offset_by(instr.op.op_semantics(index).direction());
+                                self.expand_lifetime(reg, pos)
+                            }
                         }
                     }
-                }
-                DeferredLine::ImplicitRead(reg) => {
-                    self.expand_lifetime(reg, pos);
-                }
-                DeferredLine::LockRequest(name, reg) => {
-                    self.expand_lifetime(name, pos);
-                    self.add_lock(name, pos, *reg);
-                }
-                DeferredLine::ImplicitWrite(reg) => {
-                    self.avoids.push((pos, *reg));
                 }
                 _ => (),
             }
@@ -122,6 +121,18 @@ impl<'l> LifetimeAnalysis<'l> {
 
         if let Some(existing) = name.locks.insert(lock_point, register) {
             panic!("Attempted to lock {lock_point:?} to {register:?}, but it was already locked to {existing:?}")
+        }
+    }
+}
+
+trait OffsetBy {
+    fn offset_by(self, direction: Direction) -> Self;
+}
+impl OffsetBy for Position {
+    fn offset_by(self, direction: Direction) -> Self {
+        match direction {
+            Direction::Read => self.read(),
+            Direction::Write => self.write(),
         }
     }
 }
