@@ -473,15 +473,14 @@ mod tests {
             [
                 "a^1 = 1",
                 "if_false a^1 goto if_end_1",
-                "arg 1",
-                "%1 = call print, 1",
-                "if_end_1: nop"
+                "%1 = call print (1)",
+                "if_end_1:"
             ]
         )
     }
 
     #[test]
     fn function_call_generates_param_and_call() {
-        assert_generates!("print(999)", ["arg 999", "%1 = call print, 1",])
+        assert_generates!("print(999)", ["%1 = call print (999)",])
     }
 }
