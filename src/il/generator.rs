@@ -51,14 +51,20 @@ pub fn generate(program: Program) -> TacProgram {
 trait TacProcedure {
     fn push(&mut self, instruction: TacInstr);
     fn current_line_pos(&self) -> Position;
+    fn next_line_pos(&self) -> Position;
 }
 
 impl TacProcedure for TacProgram {
     fn push(&mut self, instruction: TacInstr) {
         self.top_level.push(instruction)
     }
+
     fn current_line_pos(&self) -> Position {
         self.top_level.current_line_pos()
+    }
+
+    fn next_line_pos(&self) -> Position {
+        self.top_level.next_line_pos()
     }
 }
 impl TacProcedure for TacListing {
@@ -68,6 +74,10 @@ impl TacProcedure for TacListing {
 
     fn current_line_pos(&self) -> Position {
         self.len() - 1
+    }
+
+    fn next_line_pos(&self) -> Position {
+        self.len()
     }
 }
 
@@ -416,7 +426,7 @@ impl<P: TacProcedure> TacGenerator<P> {
 
     /// Get a position marker for the next line to be emitted.
     fn mark_next(&self) -> Position {
-        self.procedure.current_line_pos()
+        self.procedure.next_line_pos()
     }
 
     /// Returns the variable accesses performed within the given range (inclusive, inclusive).
