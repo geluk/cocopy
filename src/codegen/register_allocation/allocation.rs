@@ -126,9 +126,17 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
             .any(|s| s.register == target_reg && s.lifetime.overlaps(lifetime))
     }
 
-    /// Tries to kick the current allocation out of the given register within the given lifetime.
-    /// If none of its overlapping slices are locked to the register, they are moved to the
-    /// free register, and `true` is returned. Otherwise, returns `false` without taking any action.
+    /// Returns `true` if the current allocation has a slice assigned to the target register at the
+    /// given position.
+    pub(crate) fn conflicts_on_position(&self, position: Position, target_reg: R) -> bool {
+        self.reg_slices
+            .iter()
+            .any(|s| s.register == target_reg && s.lifetime.contains(position))
+    }
+
+    /// Tries to kick the current allocation out of the given register within the given lifetime,
+    /// by moving all overlapping slices out of the register. Any locked slices encountered will
+    /// be left in place. Returns `true` only if all overlapping slices were moved successfully.
     pub fn try_kick_from(&mut self, target_reg: R, lifetime: Lifetime, free_register: R) -> bool {
         let overlapping_slices: Vec<_> = self
             .reg_slices
@@ -136,16 +144,16 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
             .filter(|s| s.register == target_reg && s.lifetime.overlaps(lifetime))
             .collect();
 
-        // At least one overlapping slice is locked to that register, so we refuse to move.
-        // Does it make sense to still move the non-locked slices out?
-        if overlapping_slices.iter().any(|s| s.has_lock()) {
-            return false;
+        let mut any_locked = false;
+        for slice in overlapping_slices {
+            if slice.has_lock() {
+                any_locked = true;
+            } else {
+                slice.move_to(free_register);
+            }
         }
 
-        for slice in overlapping_slices {
-            slice.move_to(free_register);
-        }
-        true
+        any_locked
     }
 
     /// Lock the allocation to the given register at the given position. If the slice enveloping
@@ -235,6 +243,40 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
             })
         }
         moves
+    }
+
+    /// Find the slice that envelops the given position, and cut it up in such a way that as much of
+    /// it is moved out of its current position as possible while honouring existing locks.
+    /// The freed slice will be moved to the given register.
+    pub fn cut_and_move_out(&mut self, position: Position, free_register: R) -> Lifetime {
+        let slice = self.take_reg_slice_at(position);
+
+        let (before, mut middle, after) = slice.cut_around(position);
+
+        middle.move_to(free_register);
+
+        let freed_lifetime = middle.lifetime();
+
+        self.reg_slices.extend(before);
+        self.reg_slices.push(middle);
+        self.reg_slices.extend(after);
+
+        freed_lifetime
+    }
+
+    /// Cuts a 1-sized slice out of the slice that envelops the given position, and locks that new
+    /// slice to the given register.
+    pub fn cut_and_lock_to(&mut self, position: Position, target_reg: R) {
+        let slice = self.take_reg_slice_at(position);
+
+        let (before, middle) = slice.split_at(position);
+        let (mut middle, after) = middle.split_at(position + 1);
+
+        middle.move_and_lock_to(target_reg, position);
+
+        self.reg_slices.push(before);
+        self.reg_slices.push(middle);
+        self.reg_slices.push(after);
     }
 }
 
@@ -336,6 +378,26 @@ impl<R: Copy + Eq> RegAllocation<R> {
                 locks: locks_after,
             },
         )
+    }
+
+    fn cut_around(self, position: Position) -> (Option<Self>, Self, Option<Self>) {
+        let head_lock = self.locks.iter().copied().filter(|&p| p < position).max();
+        let tail_lock = self.locks.iter().copied().filter(|&p| p > position).min();
+
+        let mut head = None;
+        let mut middle = self;
+        let mut tail = None;
+
+        if let Some(head_lock) = head_lock {
+            let (h, m) = middle.split_at(head_lock + 1);
+            (head, middle) = (Some(h), m)
+        }
+        if let Some(tail_lock) = tail_lock {
+            let (m, t) = middle.split_at(tail_lock);
+            (middle, tail) = (m, Some(t));
+        }
+
+        (head, middle, tail)
     }
 }
 impl<R: Display + Copy + Eq> Display for RegAllocation<R> {
@@ -482,5 +544,147 @@ impl Debug for BaseOffset {
 impl Display for BaseOffset {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{} bytes", self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    macro_rules! lifetime {
+        ($start:expr, $end:expr) => {
+            Lifetime::new(Position($start), Position($end))
+        };
+    }
+
+    macro_rules! alloc {
+        ($reg:expr, $start:expr, $end:expr) => {
+            RegAllocation::new($reg, lifetime!($start, $end))
+        };
+    }
+
+    #[test]
+    fn cut_around_without_locks_returns_equivalent_slice() {
+        let original = alloc!('a', 0, 10);
+        let (start, middle, end) = original.clone().cut_around(Position(4));
+
+        assert!(start.is_none());
+        assert_eq!(middle, original);
+        assert!(end.is_none());
+    }
+
+    #[test]
+    fn cut_around_when_locked_before_splits_after_lock() {
+        let mut slice = alloc!('a', 0, 10);
+        slice.add_lock(Position(2));
+
+        let (start, middle, end) = slice.cut_around(Position(4));
+
+        let mut expected_start = alloc!('a', 0, 3);
+        expected_start.add_lock(Position(2));
+
+        assert_eq!(start.unwrap(), expected_start);
+        assert_eq!(middle, alloc!('a', 3, 10));
+        assert!(end.is_none());
+    }
+
+    #[test]
+    fn cut_around_when_locked_after_splits_before_lock() {
+        let mut slice = alloc!('a', 0, 10);
+        slice.add_lock(Position(5));
+
+        let (start, middle, end) = slice.cut_around(Position(4));
+
+        let mut expected_end = alloc!('a', 5, 10);
+        expected_end.add_lock(Position(5));
+
+        assert!(start.is_none());
+        assert_eq!(middle, alloc!('a', 0, 5));
+        assert_eq!(end.unwrap(), expected_end);
+    }
+
+    #[test]
+    fn cut_around_when_both_locked_splits_both() {
+        let mut slice = alloc!('a', 0, 10);
+        slice.add_lock(Position(0));
+        slice.add_lock(Position(8));
+
+        let (start, middle, end) = slice.cut_around(Position(4));
+
+        let mut expected_start = alloc!('a', 0, 1);
+        expected_start.add_lock(Position(0));
+        let mut expected_end = alloc!('a', 8, 10);
+        expected_end.add_lock(Position(8));
+
+        assert_eq!(start.unwrap(), expected_start);
+        assert_eq!(middle, alloc!('a', 1, 8));
+        assert_eq!(end.unwrap(), expected_end);
+    }
+
+    #[test]
+    fn cut_around_with_many_locks_cuts_between_closest() {
+        let mut slice = alloc!('a', 0, 10);
+        slice.add_lock(Position(0));
+        slice.add_lock(Position(1));
+        slice.add_lock(Position(6));
+        slice.add_lock(Position(8));
+
+        let (start, middle, end) = slice.cut_around(Position(4));
+
+        let mut expected_start = alloc!('a', 0, 2);
+        expected_start.add_lock(Position(0));
+        expected_start.add_lock(Position(1));
+        let mut expected_end = alloc!('a', 6, 10);
+        expected_end.add_lock(Position(6));
+        expected_end.add_lock(Position(8));
+
+        assert_eq!(start.unwrap(), expected_start);
+        assert_eq!(middle, alloc!('a', 2, 6));
+        assert_eq!(end.unwrap(), expected_end);
+    }
+
+    #[test]
+    pub fn lifetime_contained_in_other() {
+        let one = Lifetime::new(Position(1), Position(10));
+        let two = Lifetime::new(Position(2), Position(3));
+
+        assert!(one.overlaps(two));
+        assert!(two.overlaps(one));
+    }
+
+    #[test]
+    pub fn lifetime_ends_overlap() {
+        let one = Lifetime::new(Position(1), Position(10));
+        let two = Lifetime::new(Position(9), Position(15));
+
+        assert!(one.overlaps(two));
+        assert!(two.overlaps(one));
+    }
+
+    #[test]
+    pub fn lifetime_no_overlap() {
+        let one = Lifetime::new(Position(1), Position(10));
+        let two = Lifetime::new(Position(11), Position(15));
+
+        assert!(!one.overlaps(two));
+        assert!(!two.overlaps(one));
+    }
+
+    #[test]
+    pub fn lifetime_touches() {
+        let one = Lifetime::new(Position(1), Position(10));
+        let two = Lifetime::new(Position(10), Position(15));
+
+        assert!(!one.overlaps(two));
+        assert!(!two.overlaps(one));
+    }
+
+    #[test]
+    pub fn lifetime_equal() {
+        let one = Lifetime::new(Position(1), Position(10));
+        let two = Lifetime::new(Position(1), Position(10));
+
+        assert!(one.overlaps(two));
+        assert!(two.overlaps(one));
     }
 }

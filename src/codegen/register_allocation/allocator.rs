@@ -3,9 +3,13 @@ use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
+use itertools::Itertools;
 use log::trace;
 
-use crate::{ext::hash_map::ConstHashMap, listing::Position};
+use crate::{
+    ext::{hash_map::ConstHashMap, iter::MapFirst},
+    listing::Position,
+};
 
 use super::allocation::*;
 
@@ -82,6 +86,16 @@ where
             "Try to lock {name} (with lifetime {alloc_lifetime}) to {target_reg} at line {lock_point}"
         );
 
+        let points_to_avoid: Vec<_> = self
+            .avoids
+            .iter()
+            .filter(|(pos, reg)| *reg == target_reg && allocation.lifetime().contains(*pos))
+            .map(|(pos, _)| pos)
+            .copied()
+            .collect();
+        // TODO: Handle case when this is false.
+        assert!(points_to_avoid.is_empty());
+
         // TODO: This is naïve, it could also be a stack slice.
         let slice_in_question = allocation.reg_slice_at_mut(lock_point);
 
@@ -120,24 +134,46 @@ where
             if alloc.try_kick_from(target_reg, conflicting_lifetime, free_registers[0]) {
                 // Hey, that worked!
                 trace!("Kicked one conflicting allocation from {target_reg}");
-                continue;
             }
-            // Can't kick it out, so we'll need to split some slices here.
-            // This is difficult, do this later.
-            todo!("Overlapping allocation has a slice locked to the target register");
         }
 
-        let points_to_avoid: Vec<_> = self
-            .avoids
+        let maybe_conflicting_name = self
+            .name_allocations
             .iter()
-            .filter(|(pos, reg)| *reg == target_reg && allocation.lifetime().contains(*pos))
-            .map(|(pos, _)| pos)
-            .copied()
-            .collect();
+            .filter(|(_, alloc)| alloc.conflicts_on_position(lock_point, target_reg))
+            .map_first()
+            .cloned()
+            .at_most_one()
+            .expect("Expected at most one allocation to the target register");
 
-        trace!("No (more) conflicting allocations, adding lock to existing allocation.");
-        allocation.add_lock(target_reg, lock_point, points_to_avoid);
-        self.name_allocations.insert(name, allocation);
+        match maybe_conflicting_name {
+            Some(conflicting_name) => {
+                trace!("{name} still conflicts on {target_reg}, it will be chopped");
+
+                let conflicting_slice_lifetime = self
+                    .name_allocations
+                    .get(&conflicting_name)
+                    .unwrap()
+                    .reg_slice_at(lock_point)
+                    .expect("Expected to find a conflicting register slice at the lock point.")
+                    .lifetime();
+                let next_free_reg = self.free_registers(conflicting_slice_lifetime)[0];
+
+                self.name_allocations
+                    .get_mut(&conflicting_name)
+                    .unwrap()
+                    .cut_and_move_out(lock_point, next_free_reg);
+
+                trace!("Moving allocation to {lock_point}");
+                allocation.cut_and_lock_to(lock_point, target_reg);
+                self.name_allocations.insert(name, allocation);
+            }
+            None => {
+                trace!("No (more) conflicting allocations, entire allocation can be moved to {target_reg}");
+                allocation.add_lock(target_reg, lock_point, points_to_avoid);
+                self.name_allocations.insert(name, allocation);
+            }
+        };
     }
 
     /// Assign stack offsets to stack-allocated variables. This must be done
@@ -163,7 +199,11 @@ where
 
     /// Lookup the storage destination for a variable at the given location.
     pub fn lookup(&self, name: &N, position: Position) -> Destination<R> {
-        self.name_allocations[name].slice_at(position)
+        let allocation = self
+            .name_allocations
+            .get(name)
+            .unwrap_or_else(|| panic!("Name not allocated: {name}"));
+        allocation.slice_at(position)
     }
 
     pub fn iter_allocations(&self) -> Iter<N, NameAllocation<R>> {
@@ -241,51 +281,6 @@ mod tests {
         fmt::{self, Formatter},
         slice::Iter,
     };
-
-    #[test]
-    pub fn lifetime_contained_in_other() {
-        let one = Lifetime::new(Position(1), Position(10));
-        let two = Lifetime::new(Position(2), Position(3));
-
-        assert!(one.overlaps(two));
-        assert!(two.overlaps(one));
-    }
-
-    #[test]
-    pub fn lifetime_ends_overlap() {
-        let one = Lifetime::new(Position(1), Position(10));
-        let two = Lifetime::new(Position(9), Position(15));
-
-        assert!(one.overlaps(two));
-        assert!(two.overlaps(one));
-    }
-
-    #[test]
-    pub fn lifetime_no_overlap() {
-        let one = Lifetime::new(Position(1), Position(10));
-        let two = Lifetime::new(Position(11), Position(15));
-
-        assert!(!one.overlaps(two));
-        assert!(!two.overlaps(one));
-    }
-
-    #[test]
-    pub fn lifetime_touches() {
-        let one = Lifetime::new(Position(1), Position(10));
-        let two = Lifetime::new(Position(10), Position(15));
-
-        assert!(!one.overlaps(two));
-        assert!(!two.overlaps(one));
-    }
-
-    #[test]
-    pub fn lifetime_equal() {
-        let one = Lifetime::new(Position(1), Position(10));
-        let two = Lifetime::new(Position(1), Position(10));
-
-        assert!(one.overlaps(two));
-        assert!(two.overlaps(one));
-    }
 
     #[derive(Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
     enum Reg {
@@ -446,5 +441,27 @@ mod tests {
 
         assert_is_reg!(one, Reg::B);
         assert_is_reg!(two, Reg::A);
+    }
+
+    #[test]
+    pub fn multiple_names_can_lock_same_register() {
+        let mut allocator = make_allocator!();
+
+        allocate!(allocator, "one", 0, 10);
+        allocate!(allocator, "two", 4, 14);
+
+        allocator.lock_to(&"one", Position(2), Reg::A);
+        allocator.lock_to(&"one", Position(8), Reg::A);
+        allocator.lock_to(&"two", Position(6), Reg::A);
+
+        dbg!(&allocator);
+
+        assert_is_reg!(allocator.lookup(&"one", Position(2)), Reg::A);
+        assert_is_reg!(allocator.lookup(&"one", Position(6)), Reg::B);
+        assert_is_reg!(allocator.lookup(&"one", Position(8)), Reg::A);
+
+        assert_is_reg!(allocator.lookup(&"two", Position(4)), Reg::B);
+        assert_is_reg!(allocator.lookup(&"two", Position(6)), Reg::A);
+        assert_is_reg!(allocator.lookup(&"two", Position(8)), Reg::B);
     }
 }
