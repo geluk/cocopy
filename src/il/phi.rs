@@ -4,11 +4,6 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone)]
 pub struct Variables(HashMap<String, usize>);
 impl Variables {
-    /// Construct an empty set of variables.
-    pub fn none() -> Self {
-        Self(HashMap::new())
-    }
-
     /// Construct a set of variables from a [`HashMap`] of names to subscripts.
     pub fn new(variables: HashMap<String, usize>) -> Self {
         Self(variables)

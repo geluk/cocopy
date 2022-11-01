@@ -1,18 +1,23 @@
-use std::{collections::HashMap, hash::Hash, slice, vec::IntoIter};
+use std::{
+    collections::HashMap,
+    hash::{BuildHasher, Hash},
+    slice,
+    vec::IntoIter,
+};
 
-pub struct OrderedHashMap<K, V> {
-    inner: HashMap<K, V>,
+pub struct OrderedHashMap<K, V, S> {
+    inner: HashMap<K, V, S>,
     insertion_order: Vec<K>,
 }
-impl<K: Eq + Hash + Copy, V> OrderedHashMap<K, V> {
-    pub fn iter(&self) -> OrderedHashMapIter<K, V> {
+impl<K: Eq + Hash + Copy, V, S: BuildHasher> OrderedHashMap<K, V, S> {
+    pub fn iter(&self) -> OrderedHashMapIter<K, V, S> {
         OrderedHashMapIter {
             inner: &self.inner,
             key_iter: self.insertion_order.iter(),
         }
     }
 
-    pub fn into_iter(self) -> OrderedHashMapIntoIter<K, V> {
+    pub fn into_iter(self) -> OrderedHashMapIntoIter<K, V, S> {
         OrderedHashMapIntoIter {
             inner: self.inner,
             key_iter: self.insertion_order.into_iter(),
@@ -34,8 +39,7 @@ impl<K: Eq + Hash + Copy, V> OrderedHashMap<K, V> {
         self.inner.get_mut(key)
     }
 }
-
-impl<K, V> Default for OrderedHashMap<K, V> {
+impl<K, V, S: BuildHasher + Default> Default for OrderedHashMap<K, V, S> {
     fn default() -> Self {
         Self {
             inner: Default::default(),
@@ -44,12 +48,12 @@ impl<K, V> Default for OrderedHashMap<K, V> {
     }
 }
 
-pub struct OrderedHashMapIter<'k, K, V> {
-    inner: &'k HashMap<K, V>,
+pub struct OrderedHashMapIter<'k, K, V, S> {
+    inner: &'k HashMap<K, V, S>,
     key_iter: slice::Iter<'k, K>,
 }
 
-impl<'k, K: Eq + Hash, V> Iterator for OrderedHashMapIter<'k, K, V> {
+impl<'k, K: Eq + Hash, V, S: BuildHasher> Iterator for OrderedHashMapIter<'k, K, V, S> {
     type Item = (&'k K, &'k V);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -59,11 +63,11 @@ impl<'k, K: Eq + Hash, V> Iterator for OrderedHashMapIter<'k, K, V> {
     }
 }
 
-pub struct OrderedHashMapIntoIter<K, V> {
-    inner: HashMap<K, V>,
+pub struct OrderedHashMapIntoIter<K, V, S: BuildHasher> {
+    inner: HashMap<K, V, S>,
     key_iter: IntoIter<K>,
 }
-impl<K: Eq + Hash, V> Iterator for OrderedHashMapIntoIter<K, V> {
+impl<K: Eq + Hash, V, S: BuildHasher> Iterator for OrderedHashMapIntoIter<K, V, S> {
     type Item = (K, V);
 
     fn next(&mut self) -> Option<Self::Item> {

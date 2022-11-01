@@ -12,7 +12,7 @@ use crate::listing::Position;
 #[derive(Debug)]
 /// A combination of a name and one or more locations to which the name is
 /// allocated.
-pub struct NameAllocation<R: Copy + Eq> {
+pub struct NameAllocation<R> {
     lifetime: Lifetime,
     reg_slices: Vec<RegAllocation<R>>,
     stack_slices: Vec<StackAllocation>,
@@ -249,7 +249,7 @@ pub enum Destination<'a, R: Copy + Eq> {
 
 /// An allocation assigning a variable to a register during a certain lifetime.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RegAllocation<R: Copy + Eq> {
+pub struct RegAllocation<R> {
     register: R,
     lifetime: Lifetime,
     locks: HashSet<Position>,

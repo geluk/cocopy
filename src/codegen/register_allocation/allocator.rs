@@ -1,11 +1,11 @@
 use std::collections::hash_map::{Entry, Iter};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 use log::trace;
 
-use crate::listing::Position;
+use crate::{ext::hash_map::ConstHashMap, listing::Position};
 
 use super::allocation::*;
 
@@ -13,14 +13,16 @@ use super::allocation::*;
 /// Also exposes operations to definitively assign a name to a certain
 /// register in case the operational semantics of an instruction require it.
 #[derive(Debug)]
-pub struct Allocator<N: Eq, R: Copy + Eq> {
+pub struct Allocator<N, R> {
     registers: Vec<R>,
     avoids: Vec<(Position, R)>,
-    name_allocations: HashMap<N, NameAllocation<R>>,
+    name_allocations: ConstHashMap<N, NameAllocation<R>>,
 }
 
-impl<N: Eq + Clone + Debug + Hash + Display, R: Copy + Eq + Hash + Debug + Display>
-    Allocator<N, R>
+impl<N, R> Allocator<N, R>
+where
+    N: Eq + Clone + Debug + Hash + Display,
+    R: Copy + Eq + Hash + Debug + Display,
 {
     pub fn new(registers: Vec<R>) -> Self {
         Self {

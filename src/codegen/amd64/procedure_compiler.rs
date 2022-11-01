@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
     codegen::register_allocation::Allocator,
+    ext::hash_map::ConstHashMap,
     il::*,
     listing::Listing,
     prelude::*,
@@ -45,7 +44,7 @@ fn resolve_deferred_instrs<S: StackConvention>(
     let last_line = instrs.len() - 1;
     let mut stack_size = 0;
 
-    let mut moves: HashMap<_, _> = allocator
+    let mut moves: ConstHashMap<_, _> = allocator
         .get_moves()
         .into_iter()
         .group_by(|mv| mv.position())
@@ -265,7 +264,7 @@ impl DeferringCompiler {
 
                 block.implicit_write(overwritten_register);
 
-                // Since we only work with 64-bit values, we rdx must be zeroed.
+                // Since we only work with 64-bit values, we know rdx must be zeroed.
                 block.emit(Xor, [ConstReg(Rdx), ConstReg(Rdx)]);
                 block.emit(Cqo, []);
 

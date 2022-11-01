@@ -2,6 +2,7 @@ use std::{path::Path, process::Output};
 
 use crate::prelude::*;
 
+pub mod hash_map;
 pub mod ordered_hash_map;
 
 pub trait TryDecode {
