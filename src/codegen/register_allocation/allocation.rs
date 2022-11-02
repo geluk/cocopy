@@ -226,7 +226,7 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
         }
     }
 
-    pub fn get_moves(&self) -> Vec<Move<R>> {
+    pub fn get_moves(&self) -> Vec<OneWayMove<R>> {
         assert!(
             self.stack_slices.is_empty(),
             "TODO: Implement moves to stack"
@@ -236,7 +236,7 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
 
         let mut moves = vec![];
         for (from, to) in slices.into_iter().tuple_windows() {
-            moves.push(Move {
+            moves.push(OneWayMove {
                 from: from.register(),
                 to: to.register(),
                 position: to.lifetime().start(),
@@ -435,12 +435,26 @@ impl StackAllocation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Move<R: Copy + Eq> {
+pub enum Move<R> {
+    OneWay(OneWayMove<R>),
+    Swap(Swap<R>),
+}
+impl<R: Copy + Eq> Move<R> {
+    pub(crate) fn position(&self) -> Position {
+        match self {
+            Move::OneWay(one_way) => one_way.position(),
+            Move::Swap(swap) => swap.position(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OneWayMove<R> {
     position: Position,
     from: R,
     to: R,
 }
-impl<R: Copy + Eq> Move<R> {
+impl<R: Copy + Eq> OneWayMove<R> {
     pub fn position(&self) -> Position {
         self.position
     }
@@ -449,6 +463,34 @@ impl<R: Copy + Eq> Move<R> {
     }
     pub fn to(&self) -> R {
         self.to
+    }
+    pub fn is_opposite_to(&self, other: &OneWayMove<R>) -> bool {
+        self.position == other.position && self.from == other.to && self.to == other.from
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Swap<R> {
+    position: Position,
+    first: R,
+    second: R,
+}
+impl<R: Copy + Eq> Swap<R> {
+    pub fn new(position: Position, first: R, second: R) -> Self {
+        Self {
+            position,
+            first,
+            second,
+        }
+    }
+    pub fn position(&self) -> Position {
+        self.position
+    }
+    pub fn first(&self) -> R {
+        self.first
+    }
+    pub fn second(&self) -> R {
+        self.second
     }
 }
 

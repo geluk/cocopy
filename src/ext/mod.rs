@@ -5,6 +5,7 @@ use crate::prelude::*;
 pub mod hash_map;
 pub mod iter;
 pub mod ordered_hash_map;
+pub mod vec;
 
 pub trait TryDecode {
     fn try_decode(&self) -> Result<&str>;

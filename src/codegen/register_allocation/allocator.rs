@@ -265,10 +265,32 @@ where
     }
 
     pub fn get_moves(&self) -> Vec<Move<R>> {
-        self.name_allocations
+        let mut one_way_moves: Vec<OneWayMove<R>> = vec![];
+
+        let mut moves = vec![];
+
+        for mv in self
+            .name_allocations
             .iter()
             .flat_map(|(_, alloc)| alloc.get_moves())
-            .collect()
+        {
+            if one_way_moves
+                .find_remove(|m| m.is_opposite_to(&mv))
+                .is_some()
+            {
+                log::info!("That's a swap!");
+                let swap = Swap::new(mv.position(), mv.from(), mv.to());
+                moves.push(Move::Swap(swap));
+            } else {
+                one_way_moves.push(mv);
+            }
+        }
+
+        for mv in one_way_moves {
+            moves.push(Move::OneWay(mv));
+        }
+
+        moves
     }
 }
 
@@ -463,5 +485,29 @@ mod tests {
         assert_is_reg!(allocator.lookup(&"two", Position(4)), Reg::B);
         assert_is_reg!(allocator.lookup(&"two", Position(6)), Reg::A);
         assert_is_reg!(allocator.lookup(&"two", Position(8)), Reg::B);
+    }
+
+    #[test]
+    pub fn moves_emits_swap_when_necessary() {
+        let mut allocator = make_allocator!();
+
+        allocate!(allocator, "x", 0, 4);
+        allocate!(allocator, "y", 0, 4);
+
+        allocator.lock_to(&"x", Position(1), Reg::A);
+        allocator.lock_to(&"y", Position(1), Reg::B);
+        allocator.lock_to(&"x", Position(2), Reg::B);
+        allocator.lock_to(&"y", Position(2), Reg::A);
+
+        let move_at_two = allocator
+            .get_moves()
+            .into_iter()
+            .find(|m| m.position() == Position(2))
+            .unwrap();
+
+        assert_matches!(
+            move_at_two,
+            Move::Swap(sw) if sw == Swap::new(Position(2), Reg::B, Reg::A)
+        );
     }
 }

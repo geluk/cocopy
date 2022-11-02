@@ -1,6 +1,6 @@
 use crate::{
     ast::typed::{BinOp, CmpOp, IntOp},
-    codegen::register_allocation::Allocator,
+    codegen::register_allocation::{Allocator, Move},
     ext::hash_map::ConstHashMap,
     il::*,
     listing::Listing,
@@ -55,12 +55,23 @@ fn resolve_deferred_instrs<S: StackConvention>(
     debug!("After emitting moves:\n{}", instrs.display_line_nos());
 
     for (position, line) in instrs.into_iter() {
-        trace!("Resolve line: {position} {line}");
+        trace!("Resolve line {position}: {line}");
 
         for mv in moves.remove(&position).unwrap_or_default() {
-            procedure
-                .body
-                .push(Mov, vec![Operand::Reg(mv.to()), Operand::Reg(mv.from())]);
+            match mv {
+                Move::OneWay(one_way) => {
+                    procedure.body.push(
+                        Mov,
+                        vec![Operand::Reg(one_way.to()), Operand::Reg(one_way.from())],
+                    );
+                }
+                Move::Swap(swap) => {
+                    procedure.body.push(
+                        Xchg,
+                        vec![Operand::Reg(swap.first()), Operand::Reg(swap.second())],
+                    );
+                }
+            }
         }
 
         match line {
@@ -158,8 +169,10 @@ impl DeferringCompiler {
 
     /// Compile a single TAC instruction.
     fn compile_instr(&mut self, instr: TacInstr) {
-        self.asm_listing
-            .push(DeferredLine::Comment(instr.to_string()));
+        if !matches!(instr, TacInstr::Label(_)) {
+            self.asm_listing
+                .push(DeferredLine::Comment(instr.to_string()));
+        }
 
         match instr {
             TacInstr::Assign(tgt, value) => self.compile_assign(tgt, value),

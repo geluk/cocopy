@@ -127,6 +127,7 @@ pub enum Op {
     // Copies
     Mov,
     Lea,
+    Xchg,
     // Arithmetic
     Add,
     Sub,
@@ -168,6 +169,7 @@ impl Display for Op {
 
             Op::Mov => "mov",
             Op::Lea => "lea",
+            Op::Xchg => "xchg",
 
             Op::Add => "add",
             Op::Sub => "sub",
