@@ -5,6 +5,10 @@ use std::{
     vec::IntoIter,
 };
 
+/// Guarantees iteration in insertion order.
+/// This is a stronger guarantee than [`super::hash_map::ConstHashMap`], which only guarantees
+/// iteration in an order that is randomly determined (but predictable) based on which keys are
+/// inserted, and stronger still than [`HashMap`], which has no predictable iteration order.
 pub struct OrderedHashMap<K, V, S> {
     inner: HashMap<K, V, S>,
     insertion_order: Vec<K>,
