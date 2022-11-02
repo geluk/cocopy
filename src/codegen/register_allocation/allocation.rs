@@ -153,7 +153,7 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
             }
         }
 
-        any_locked
+        !any_locked
     }
 
     /// Lock the allocation to the given register at the given position. If the slice enveloping
@@ -162,8 +162,8 @@ impl<R: Copy + Eq + Debug + Display> NameAllocation<R> {
     pub fn add_lock(&mut self, target_reg: R, lock_point: Position, avoid_points: Vec<Position>) {
         let subject = self.reg_slice_at_mut(lock_point);
 
-        // The slice is already in the correct register! Easy.
         if subject.register() == target_reg {
+            // The slice is already in the correct register! Easy.
             for point in avoid_points {
                 assert!(
                     !subject.lifetime().contains(point),

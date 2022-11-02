@@ -6,6 +6,7 @@ use std::hash::Hash;
 use itertools::Itertools;
 use log::trace;
 
+use crate::ext::vec::RemoveWhere;
 use crate::{
     ext::{hash_map::ConstHashMap, iter::MapFirst},
     listing::Position,
@@ -76,9 +77,9 @@ where
         // Temporarily taking the allocation out of the map is the easiest way
         // to allow us to mutate it while holding references to other
         // allocations. We just need to make sure to put it back!
-        let (name, mut allocation) = self
+        let allocation = self
             .name_allocations
-            .remove_entry(name)
+            .get_mut(name)
             .unwrap_or_else(|| panic!("Attempted to lock unallocated name '{name:?}'"));
 
         let alloc_lifetime = allocation.lifetime();
@@ -89,7 +90,7 @@ where
         let points_to_avoid: Vec<_> = self
             .avoids
             .iter()
-            .filter(|(pos, reg)| *reg == target_reg && allocation.lifetime().contains(*pos))
+            .filter(|(pos, reg)| *reg == target_reg && alloc_lifetime.contains(*pos))
             .map(|(pos, _)| pos)
             .copied()
             .collect();
@@ -97,26 +98,25 @@ where
         assert!(points_to_avoid.is_empty());
 
         // TODO: This is naïve, it could also be a stack slice.
-        let slice_in_question = allocation.reg_slice_at_mut(lock_point);
+        let slice_to_lock = allocation.reg_slice_at_mut(lock_point);
 
         // Maybe we already assigned it to the right register by sheer dumb luck?
-        if slice_in_question.register() == target_reg {
+        if slice_to_lock.register() == target_reg {
             // Well now that's convenient! Then all we need to do is add the lock to the slice:
-            slice_in_question.add_lock(lock_point);
+            slice_to_lock.add_lock(lock_point);
             trace!("No need to lock {name} to {target_reg}, it's already there");
-            // Don't forget to put it back though:
-            self.name_allocations.insert(name, allocation);
             // Cave Johnson, we're done here.
             return;
         }
 
         // We've established that we're in the wrong register. First, let's check if we have
         // contending allocations.
-        let lifetime = slice_in_question.lifetime();
+        let slice_lifetime = slice_to_lock.lifetime();
+
         let conflicting_names: Vec<_> = self
             .name_allocations
             .iter()
-            .filter(|(_, a)| a.conflicts_on_lifetime(lifetime, target_reg))
+            .filter(|(_, a)| a.conflicts_on_lifetime(slice_lifetime, target_reg))
             .map(|(n, a)| (n.clone(), a.lifetime()))
             .collect();
 
@@ -131,9 +131,10 @@ where
             );
 
             let alloc = self.name_allocations.get_mut(&name).unwrap();
-            if alloc.try_kick_from(target_reg, conflicting_lifetime, free_registers[0]) {
+            let next_free = free_registers[0];
+            if alloc.try_kick_from(target_reg, conflicting_lifetime, next_free) {
                 // Hey, that worked!
-                trace!("Kicked one conflicting allocation from {target_reg}");
+                trace!("Kicked {name} from {target_reg} to {next_free}");
             }
         }
 
@@ -148,7 +149,7 @@ where
 
         match maybe_conflicting_name {
             Some(conflicting_name) => {
-                trace!("{name} still conflicts on {target_reg}, it will be chopped");
+                trace!("{conflicting_name} still conflicts on {target_reg}, it will be chopped");
 
                 let conflicting_slice_lifetime = self
                     .name_allocations
@@ -159,19 +160,27 @@ where
                     .lifetime();
                 let next_free_reg = self.free_registers(conflicting_slice_lifetime)[0];
 
-                self.name_allocations
-                    .get_mut(&conflicting_name)
-                    .unwrap()
-                    .cut_and_move_out(lock_point, next_free_reg);
+                let alloc_to_move = self.name_allocations.get_mut(&conflicting_name).unwrap();
+
+                trace!("Move {conflicting_name} = {alloc_to_move:#?} out of {target_reg} into {next_free_reg} at {lock_point}");
+
+                alloc_to_move.cut_and_move_out(lock_point, next_free_reg);
 
                 trace!("Moving allocation to {lock_point}");
-                allocation.cut_and_lock_to(lock_point, target_reg);
-                self.name_allocations.insert(name, allocation);
+                self.name_allocations
+                    .get_mut(name)
+                    .unwrap()
+                    .cut_and_lock_to(lock_point, target_reg);
             }
             None => {
-                trace!("No (more) conflicting allocations, entire allocation can be moved to {target_reg}");
-                allocation.add_lock(target_reg, lock_point, points_to_avoid);
-                self.name_allocations.insert(name, allocation);
+                trace!(
+                    "No (more) conflicting allocations, entire slice can be moved to {target_reg}"
+                );
+                self.name_allocations.get_mut(name).unwrap().add_lock(
+                    target_reg,
+                    lock_point,
+                    points_to_avoid,
+                );
             }
         };
     }
@@ -461,7 +470,7 @@ mod tests {
         let one = allocator.lookup(&"one", Position(0));
         let two = allocator.lookup(&"two", Position(4));
 
-        assert_is_reg!(one, Reg::B);
+        assert_is_reg!(one, Reg::C);
         assert_is_reg!(two, Reg::A);
     }
 
@@ -476,10 +485,8 @@ mod tests {
         allocator.lock_to(&"one", Position(8), Reg::A);
         allocator.lock_to(&"two", Position(6), Reg::A);
 
-        dbg!(&allocator);
-
         assert_is_reg!(allocator.lookup(&"one", Position(2)), Reg::A);
-        assert_is_reg!(allocator.lookup(&"one", Position(6)), Reg::B);
+        assert_is_reg!(allocator.lookup(&"one", Position(6)), Reg::C);
         assert_is_reg!(allocator.lookup(&"one", Position(8)), Reg::A);
 
         assert_is_reg!(allocator.lookup(&"two", Position(4)), Reg::B);
