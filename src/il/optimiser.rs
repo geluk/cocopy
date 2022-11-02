@@ -5,35 +5,39 @@ use std::{
 
 use crate::listing::Position;
 
-use super::{MatchInstruction, TacInstr, TacListing, TacProgram, Value};
+use super::{BasicBlock, MatchInstruction, TacInstr, TacProcedure, TacProgram, Value};
 
 pub fn optimise(mut program: TacProgram) -> TacProgram {
-    program.top_level = Optimiser::optimise(program.top_level);
+    optimise_procedure(&mut program.top_level);
 
-    program.functions = program
-        .functions
-        .into_iter()
-        .map(|(name, func)| (name, Optimiser::optimise(func)))
-        .collect();
+    for procedure in program.functions.values_mut() {
+        optimise_procedure(procedure);
+    }
 
     program
 }
 
-struct Optimiser {
-    listing: TacListing,
-}
-impl Optimiser {
-    pub fn optimise(listing: TacListing) -> TacListing {
-        let mut optimiser = Self { listing };
+pub fn optimise_procedure(procedure: &mut TacProcedure) {
+    optimise_block(procedure.entry_block_mut());
 
-        optimiser.remove_unused_assignments();
-        optimiser.remove_unused_return_assignments();
-        optimiser.merge_assign();
-        optimiser.remove_phi();
-
-        optimiser.listing
+    for block in procedure.basic_blocks_mut() {
+        optimise_block(block);
     }
+}
 
+pub fn optimise_block(block: &mut BasicBlock) {
+    let mut optimiser = Optimiser { block };
+
+    optimiser.remove_unused_assignments();
+    optimiser.remove_unused_return_assignments();
+    optimiser.merge_assign();
+    optimiser.remove_phi();
+}
+
+struct Optimiser<'b> {
+    block: &'b mut BasicBlock,
+}
+impl<'b> Optimiser<'b> {
     /// Remove assignments to names that are never read.
     ///
     /// Optimises:
@@ -49,10 +53,11 @@ impl Optimiser {
     /// ```
     fn remove_unused_assignments(&mut self) {
         let candidates = self
-            .listing
+            .block
+            .listing()
             .iter_lines()
             .match_instruction(TacInstr::as_assign)
-            .filter(|(line, (name, _))| !self.listing.is_used_after(name, *line))
+            .filter(|(line, (name, _))| !self.block.listing().is_used_after(name, *line))
             .map(|(line, _)| line)
             .collect();
 
@@ -71,16 +76,18 @@ impl Optimiser {
     /// ```
     fn remove_unused_return_assignments(&mut self) {
         let candidates: HashSet<_> = self
-            .listing
+            .block
+            .listing()
             .iter_lines()
             .match_instruction(TacInstr::as_call)
             .filter_map(|(line, (name, _, _))| name.map(|n| (line, n)))
-            .filter(|(line, name)| !self.listing.is_used_after(name, *line))
+            .filter(|(line, name)| !self.block.listing().is_used_after(name, *line))
             .map(|(line, _)| line)
             .collect();
 
         for (_, instr) in self
-            .listing
+            .block
+            .listing_mut()
             .iter_lines_mut()
             .filter(|(l, _)| candidates.contains(l))
         {
@@ -109,7 +116,8 @@ impl Optimiser {
         let mut replacements = HashMap::new();
 
         for (line, (name, value)) in self
-            .listing
+            .block
+            .listing()
             .iter_lines()
             .match_instruction(TacInstr::as_assign)
         {
@@ -119,11 +127,12 @@ impl Optimiser {
         let mut assignments = vec![];
         for (name, (line, value)) in replacements {
             if self
-                .listing
+                .block
+                .listing_mut()
                 .iter_instructions_mut()
                 .all(|instr| instr.may_replace(&name))
             {
-                for instr in self.listing.iter_instructions_mut() {
+                for instr in self.block.listing_mut().iter_instructions_mut() {
                     instr.replace(&name, Cow::Borrowed(&value));
                 }
                 assignments.push(line);
@@ -161,7 +170,8 @@ impl Optimiser {
         let mut replacements = HashMap::new();
 
         for (line, (dest, sources)) in self
-            .listing
+            .block
+            .listing()
             .iter_lines()
             .match_instruction(TacInstr::as_phi)
         {
@@ -175,23 +185,23 @@ impl Optimiser {
         }
 
         for &line in phi_fns.iter() {
-            let instr = self.listing.instruction_mut(line);
+            let instr = self.block.listing_mut().instruction_mut(line);
             let (tgt, _) = instr.as_phi().unwrap();
             *instr = TacInstr::Phi(tgt.clone(), vec![tgt.clone()])
         }
 
         for (src_name, dest_name) in replacements {
-            for instr in self.listing.iter_instructions_mut() {
+            for instr in self.block.listing_mut().iter_instructions_mut() {
                 instr.replace_assign(&src_name, Cow::Borrowed(&dest_name))
             }
             let dest_value = Value::Name(dest_name);
-            for instr in self.listing.iter_instructions_mut() {
+            for instr in self.block.listing_mut().iter_instructions_mut() {
                 instr.replace(&src_name, Cow::Borrowed(&dest_value));
             }
         }
 
         for line in phi_fns.into_iter().rev() {
-            self.listing.remove(line);
+            self.block.listing_mut().remove(line);
         }
     }
 
@@ -199,7 +209,7 @@ impl Optimiser {
         lines.sort_unstable();
         lines.reverse();
         for line in lines.into_iter() {
-            self.listing.remove(line);
+            self.block.listing_mut().remove(line);
         }
     }
 }
@@ -225,7 +235,9 @@ mod tests {
             println!("==========");
             let tac = tac
                 .top_level
-                .into_instructions()
+                .entry_block()
+                .listing()
+                .iter_instructions()
                 .map(|i| i.to_string())
                 .collect::<Vec<_>>();
 

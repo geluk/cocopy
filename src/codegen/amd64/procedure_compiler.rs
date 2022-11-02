@@ -19,7 +19,7 @@ use Op::*;
 use Register::*;
 
 pub fn compile<S: StackConvention>(
-    listing: TacListing,
+    listing: TacProcedure,
     procedure: Procedure,
     calling_convention: CallingConvention,
 ) -> Procedure {
@@ -151,7 +151,7 @@ impl DeferringCompiler {
     /// Construct a new procedure compiler for the given procedure.
     fn compile_deferred(
         calling_convention: CallingConvention,
-        listing: TacListing,
+        procedure: TacProcedure,
     ) -> Listing<DeferredLine> {
         let mut compiler = Self {
             asm_listing: Listing::new(),
@@ -160,7 +160,11 @@ impl DeferringCompiler {
             current_temp: 0,
         };
 
-        for (_, instr) in listing.into_lines() {
+        for param in procedure.entry_block().iter_parameters() {
+            compiler.compile_param(param.clone());
+        }
+
+        for (_, instr) in procedure.into_lines_temp() {
             compiler.compile_instr(instr);
         }
 
@@ -177,7 +181,6 @@ impl DeferringCompiler {
         match instr {
             TacInstr::Assign(tgt, value) => self.compile_assign(tgt, value),
             TacInstr::Bin(tgt, op, left, right) => self.compile_bin(tgt, op, left, right),
-            TacInstr::Param(param) => self.compile_param(param),
             TacInstr::Call(tgt, name, params) => self.compile_call(tgt, name, params),
             TacInstr::IfTrue(value, lbl) => self.compile_jump(value, lbl, true),
             TacInstr::IfFalse(value, lbl) => self.compile_jump(value, lbl, false),

@@ -2,9 +2,10 @@
 
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{hash_map::ValuesMut, HashMap},
     fmt::{self, Display, Formatter},
     hash::Hash,
+    slice::Iter,
 };
 
 use crate::{
@@ -13,53 +14,132 @@ use crate::{
         untyped::Literal,
     },
     builtins::Builtin,
-    listing::{Listing, Position},
+    ext::hash_map::ConstHashMap,
+    listing::{IntoLines, Listing, Position},
 };
 
 pub type TargetSize = isize;
 
-pub type TacListing = Listing<TacInstr>;
-
 #[derive(Debug)]
-pub struct TacProgram {
-    /// User-defined functions.
-    pub functions: HashMap<String, TacListing>,
-    /// Built-in functions. These functions are not compiled from Python source
-    /// code, and are instead directly emitted as assembly code.
-    pub builtins: HashMap<String, Builtin>,
-    /// The top-level (main) function, containing all code not associated
-    /// with another function.
-    pub top_level: TacListing,
+pub struct TacProcedure {
+    entry_block: BasicBlock,
+    blocks: ConstHashMap<String, BasicBlock>,
 }
-impl TacProgram {
+impl TacProcedure {
     pub fn new() -> Self {
         Self {
-            functions: HashMap::new(),
-            builtins: HashMap::new(),
-            top_level: TacListing::new(),
+            entry_block: BasicBlock::new(),
+            blocks: Default::default(),
         }
     }
+
+    pub fn entry_block(&self) -> &BasicBlock {
+        &self.entry_block
+    }
+
+    pub fn entry_block_mut(&mut self) -> &mut BasicBlock {
+        &mut self.entry_block
+    }
+
+    pub fn into_lines_temp(self) -> IntoLines<TacInstr> {
+        self.entry_block.instructions.into_lines()
+    }
+
+    pub fn basic_blocks_mut(&mut self) -> ValuesMut<String, BasicBlock> {
+        self.blocks.values_mut()
+    }
 }
-impl Display for TacProgram {
+impl Display for TacProcedure {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        writeln!(f, "function main")?;
-        for instr in self.top_level.iter_instructions() {
+        writeln!(f, "{}", self.entry_block)?;
+
+        for (name, block) in &self.blocks {
+            writeln!(f, ".{}:", name)?;
+            writeln!(f, "{}", block)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct BasicBlock {
+    instructions: Listing<TacInstr>,
+    parameters: Vec<Name>,
+}
+impl BasicBlock {
+    pub fn new() -> Self {
+        Self {
+            instructions: Listing::new(),
+            parameters: vec![],
+        }
+    }
+
+    pub fn add_parameter(&mut self, name: Name) {
+        self.parameters.push(name);
+    }
+
+    pub fn push(&mut self, instruction: TacInstr) {
+        self.instructions.push(instruction)
+    }
+
+    pub fn current_line_pos(&self) -> Position {
+        self.instructions.len() - 1
+    }
+
+    pub fn next_line_pos(&self) -> Position {
+        self.instructions.len()
+    }
+
+    pub fn listing(&self) -> &Listing<TacInstr> {
+        &self.instructions
+    }
+    pub fn listing_mut(&mut self) -> &mut Listing<TacInstr> {
+        &mut self.instructions
+    }
+
+    pub fn iter_parameters(&self) -> Iter<Name> {
+        self.parameters.iter()
+    }
+}
+impl Display for BasicBlock {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        for instr in self.instructions.iter_instructions() {
             if let TacInstr::Label(_) = instr {
                 writeln!(f, "    {}", instr)?;
             } else {
                 writeln!(f, "        {}", instr)?;
             }
         }
+        Ok(())
+    }
+}
 
+#[derive(Debug)]
+pub struct TacProgram {
+    /// User-defined functions.
+    pub functions: HashMap<String, TacProcedure>,
+    /// Built-in functions. These functions are not compiled from Python source
+    /// code, and are instead directly emitted as assembly code.
+    pub builtins: HashMap<String, Builtin>,
+    /// The top-level (main) function, containing all code not associated
+    /// with another function.
+    pub top_level: TacProcedure,
+}
+impl TacProgram {
+    pub fn new(top_level: TacProcedure) -> Self {
+        Self {
+            functions: HashMap::new(),
+            builtins: HashMap::new(),
+            top_level,
+        }
+    }
+}
+impl Display for TacProgram {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        writeln!(f, "{}", self.top_level)?;
         for (name, body) in self.functions.iter() {
-            writeln!(f, "function {}", name)?;
-            for instr in body.iter_instructions() {
-                if let TacInstr::Label(_) = instr {
-                    writeln!(f, "    {}", instr)?;
-                } else {
-                    writeln!(f, "        {}", instr)?;
-                }
-            }
+            writeln!(f, "{name}:")?;
+            writeln!(f, "{body}")?;
         }
 
         Ok(())
@@ -127,8 +207,6 @@ pub enum TacInstr {
     IfFalse(Value, Label),
     /// Jump if a comparison evaluates to true.
     IfCmp(Value, CmpOp, Value, Label),
-    /// Pop a parameter from the parameter stack.
-    Param(Name),
     /// Call a function, passing `n` parameters.
     Call(Option<Name>, String, Vec<Value>),
     /// Return a value from a function body.
@@ -145,7 +223,6 @@ impl TacInstr {
             Self::Bin(_, _, lhs, rhs) => {
                 Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
             }
-            Self::Param(_) => false,
             Self::Call(_, _, values) => values.iter().any(|v| Self::is_usage_of(name, v)),
             Self::Goto(_, names) => names.iter().any(|n| n == name),
             Self::IfTrue(value, _) => Self::is_usage_of(name, value),
@@ -176,7 +253,6 @@ impl TacInstr {
             Self::IfTrue(v, _) => collect([v]),
             Self::IfFalse(v, _) => collect([v]),
             Self::IfCmp(lhs, _, rhs, _) => collect([lhs, rhs]),
-            Self::Param(n) => vec![n.clone()],
             Self::Call(_, _, vs) => collect(vs),
             Self::Return(v) => collect(v),
             Self::Label(_) => vec![],
@@ -192,7 +268,6 @@ impl TacInstr {
             Self::IfTrue(_, _) => None,
             Self::IfFalse(_, _) => None,
             Self::IfCmp(_, _, _, _) => None,
-            Self::Param(p) => Some(p),
             Self::Call(t, _, _) => t.as_ref(),
             Self::Return(_) => None,
             Self::Label(_) => None,
@@ -223,7 +298,6 @@ impl TacInstr {
                 try_replace(lhs, src, dest.clone());
                 try_replace(rhs, src, dest);
             }
-            Self::Param(_) => (),
             Self::Call(_, _, args) => {
                 for arg in args.iter_mut() {
                     try_replace(arg, src, dest.clone())
@@ -298,7 +372,6 @@ impl TacInstr {
             Self::IfTrue(_, _) => (),
             Self::IfFalse(_, _) => (),
             Self::IfCmp(_, _, _, _) => (),
-            Self::Param(tgt) => try_replace(tgt, src, dest),
             Self::Call(Some(tgt), _, _) => try_replace(tgt, src, dest),
             Self::Call(_, _, _) => (),
             Self::Return(_) => (),
@@ -329,7 +402,6 @@ impl Display for TacInstr {
             Self::Bin(target, op, lhs, rhs) => {
                 write!(f, "{} = {} {} {}", target, lhs, op, rhs)
             }
-            Self::Param(a) => write!(f, "{} = param", a),
             Self::Call(Some(name), tgt, params) => {
                 write!(f, "{} = call {} ({})", name, tgt, params_to_string(params),)
             }

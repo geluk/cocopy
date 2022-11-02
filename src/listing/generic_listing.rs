@@ -53,11 +53,6 @@ impl<T> Listing<T> {
         }
     }
 
-    #[cfg(test)]
-    pub fn into_instructions(self) -> IntoIter<T> {
-        self.lines.into_iter()
-    }
-
     pub fn len(&self) -> Position {
         Position(self.lines.len())
     }

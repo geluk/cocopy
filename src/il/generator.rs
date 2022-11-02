@@ -8,77 +8,40 @@ use crate::{
 use super::{label_generator::*, name_generator::*, phi::Variables, tac::*};
 
 pub fn generate(program: Program) -> TacProgram {
-    let mut tac = TacGenerator::<TacProgram> {
-        procedure: TacProgram::new(),
+    let mut main = TacGenerator {
+        procedure: TacProcedure::new(),
         name_generator: NameGenerator::new(),
         label_generator: LabelGenerator::new(),
         accesses: vec![],
     };
 
     for var_def in program.var_defs {
-        tac.lower_var_def(var_def);
+        main.lower_var_def(var_def);
     }
 
     for stmt in program.statements {
-        tac.lower_stmt(stmt);
+        main.lower_stmt(stmt);
     }
 
-    let mut tac_program = tac.procedure;
-    let mut label_generator = tac.label_generator;
+    let mut tac_program = TacProgram::new(main.procedure);
 
     for func in program.func_defs {
-        let mut func_gen = TacGenerator::<TacListing> {
-            procedure: TacListing::new(),
+        let mut func_gen = TacGenerator {
+            procedure: TacProcedure::new(),
             name_generator: NameGenerator::new(),
-            // TODO: It should now be possible to use a fresh label generator,
-            // since our labels are now function-scoped.
-            label_generator,
+            label_generator: LabelGenerator::new(),
             accesses: vec![],
         };
 
         for parameter in func.parameters {
-            func_gen.lower_parameter(parameter);
+            func_gen.add_parameter(parameter);
         }
         func_gen.lower_block(func.body);
 
         tac_program.functions.insert(func.name, func_gen.procedure);
-        label_generator = func_gen.label_generator;
     }
 
     tac_program
-}
-
-trait TacProcedure {
-    fn push(&mut self, instruction: TacInstr);
-    fn current_line_pos(&self) -> Position;
-    fn next_line_pos(&self) -> Position;
-}
-
-impl TacProcedure for TacProgram {
-    fn push(&mut self, instruction: TacInstr) {
-        self.top_level.push(instruction)
-    }
-
-    fn current_line_pos(&self) -> Position {
-        self.top_level.current_line_pos()
-    }
-
-    fn next_line_pos(&self) -> Position {
-        self.top_level.next_line_pos()
-    }
-}
-impl TacProcedure for TacListing {
-    fn push(&mut self, instruction: TacInstr) {
-        self.push(instruction)
-    }
-
-    fn current_line_pos(&self) -> Position {
-        self.len() - 1
-    }
-
-    fn next_line_pos(&self) -> Position {
-        self.len()
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -107,22 +70,25 @@ impl VariableAccess {
     }
 }
 
-struct TacGenerator<P> {
-    procedure: P,
+struct TacGenerator {
+    procedure: TacProcedure,
     name_generator: NameGenerator,
     label_generator: LabelGenerator,
     accesses: Vec<VariableAccess>,
 }
-impl<P: TacProcedure> TacGenerator<P> {
+impl TacGenerator {
     /// Lower a variable definition to an assignment instruction.
     fn lower_var_def(&mut self, var_def: VarDef) {
         self.emit_assign(var_def.name, var_def.value.into());
     }
 
-    /// Lower a parameter definition, retrieving it and storing it in a local variable.
-    fn lower_parameter(&mut self, parameter: Parameter) {
+    /// Add a parameter to the entry block.
+    fn add_parameter(&mut self, parameter: Parameter) {
         let variable = self.name_generator.next_subscript(parameter.name);
-        self.emit(TacInstr::Param(Name::Sub(variable)));
+
+        self.procedure
+            .entry_block_mut()
+            .add_parameter(Name::Sub(variable));
     }
 
     /// Lower a statement.
@@ -385,7 +351,7 @@ impl<P: TacProcedure> TacGenerator<P> {
         let reads = instr.reads();
         let write = instr.write().cloned();
 
-        self.procedure.push(instr);
+        self.current_block_mut().push(instr);
         let position = self.mark_current();
 
         for name in reads {
@@ -400,7 +366,7 @@ impl<P: TacProcedure> TacGenerator<P> {
     /// Emit a label, adding it to the listing.
     fn emit_label(&mut self, label: Label) {
         let instr = TacInstr::Label(label);
-        self.procedure.push(instr);
+        self.current_block_mut().push(instr);
     }
 
     /// Convert an identifier to a [`Value`]. This does not result in the emission
@@ -421,12 +387,20 @@ impl<P: TacProcedure> TacGenerator<P> {
 
     /// Get a position marker for the current (already emitted) line.
     fn mark_current(&self) -> Position {
-        self.procedure.current_line_pos()
+        self.current_block().current_line_pos()
     }
 
     /// Get a position marker for the next line to be emitted.
     fn mark_next(&self) -> Position {
-        self.procedure.next_line_pos()
+        self.current_block().next_line_pos()
+    }
+
+    fn current_block_mut(&mut self) -> &mut BasicBlock {
+        self.procedure.entry_block_mut()
+    }
+
+    fn current_block(&self) -> &BasicBlock {
+        self.procedure.entry_block()
     }
 
     /// Returns the variable accesses performed within the given range (inclusive, inclusive).
@@ -450,9 +424,14 @@ mod tests {
             let tokens = lex($source).unwrap();
             let program = parse(&tokens).unwrap();
             let program = verify_well_typed(program).unwrap();
-            let instrs = generate(program).top_level;
+            let mut program = generate(program);
+            let instrs = program.top_level.entry_block_mut();
 
-            let instr_lines: Vec<_> = instrs.into_instructions().map(|i| i.to_string()).collect();
+            let instr_lines: Vec<_> = instrs
+                .listing()
+                .iter_instructions()
+                .map(|i| i.to_string())
+                .collect();
 
             assert_eq!(&$il[..], instr_lines)
         }};
