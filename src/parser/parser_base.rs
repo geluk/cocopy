@@ -136,6 +136,14 @@ impl<'a> Parser<'a> {
         res
     }
 
+    pub fn peek_parser<P, R, E>(&mut self, parse_func: P) -> Result<R, E>
+    where
+        P: FnOnce(&mut Self) -> Result<R, E>,
+    {
+        let mut sub_parser = self.clone();
+        parse_func(&mut sub_parser)
+    }
+
     /// Tries two parsing functions, returning the result of the first if it succeeds.
     /// If the first fails, tries the second parser, returning its result if it succeeds.
     /// If both parsers fail, returns the error of the parser that advanced the farthest.
@@ -166,4 +174,50 @@ impl<'a> Parser<'a> {
             result_2
         }
     }
+
+    pub fn alt_2<P1, P2, R1, R2, E>(&mut self, p1: P1, p2: P2) -> Result<Branch<R1, R2>, E>
+    where
+        P1: FnOnce(&mut Self) -> Result<R1, E>,
+        P2: FnOnce(&mut Self) -> Result<R2, E>,
+    {
+        let mut sub_parser_1 = self.clone();
+        let result_1 = p1(&mut sub_parser_1);
+
+        let mut sub_parser_2 = self.clone();
+        let result_2 = p2(&mut sub_parser_2);
+
+        match (result_1, result_2) {
+            (Ok(res), Err(_)) => {
+                *self = sub_parser_1;
+                Ok(Branch::Fst(res))
+            }
+            (Err(_), Ok(res)) => {
+                *self = sub_parser_2;
+                Ok(Branch::Snd(res))
+            }
+            (Ok(res1), Ok(res2)) => {
+                if sub_parser_1.token_position >= sub_parser_2.token_position {
+                    *self = sub_parser_1;
+                    Ok(Branch::Fst(res1))
+                } else {
+                    *self = sub_parser_2;
+                    Ok(Branch::Snd(res2))
+                }
+            }
+            (Err(err1), Err(err2)) => {
+                if sub_parser_1.token_position >= sub_parser_2.token_position {
+                    *self = sub_parser_1;
+                    Err(err1)
+                } else {
+                    *self = sub_parser_2;
+                    Err(err2)
+                }
+            }
+        }
+    }
+}
+
+pub enum Branch<A, B> {
+    Fst(A),
+    Snd(B),
 }

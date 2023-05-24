@@ -10,42 +10,18 @@ use crate::{lexer::tokens, span::Span};
 
 use super::{typed, TypeSpec};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Program {
-    pub var_defs: Vec<VarDef>,
-    pub func_defs: Vec<FuncDef>,
-    pub statements: Vec<Statement>,
+    pub entry_block: Block,
 }
 impl Program {
-    pub fn new() -> Self {
-        Self {
-            var_defs: vec![],
-            func_defs: vec![],
-            statements: vec![],
-        }
-    }
-
-    pub fn add_var_def(&mut self, var_def: VarDef) {
-        self.var_defs.push(var_def);
-    }
-
-    pub fn add_func_def(&mut self, func_def: FuncDef) {
-        self.func_defs.push(func_def);
-    }
-
-    pub fn add_statement(&mut self, statement: Statement) {
-        self.statements.push(statement);
+    pub fn new(entry_block: Block) -> Self {
+        Self { entry_block }
     }
 }
 impl Display for Program {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        for var in &self.var_defs {
-            writeln!(f, "{}", var)?;
-        }
-        for stmt in &self.statements {
-            write!(f, "{}", stmt)?;
-        }
-        Ok(())
+        self.entry_block.fmt(f)
     }
 }
 
@@ -101,19 +77,44 @@ impl Display for Parameter {
 
 #[derive(Debug)]
 pub struct Block {
+    pub func_defs: Vec<FuncDef>,
+    pub var_defs: Vec<VarDef>,
     pub statements: Vec<Statement>,
     pub span: Span,
 }
 impl Block {
-    pub fn new(statements: Vec<Statement>, span: Span) -> Self {
-        Self { statements, span }
+    pub fn new(
+        func_defs: Vec<FuncDef>,
+        var_defs: Vec<VarDef>,
+        statements: Vec<Statement>,
+        span: Span,
+    ) -> Self {
+        Self {
+            func_defs,
+            var_defs,
+            statements,
+            span,
+        }
     }
 }
 impl Display for Block {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for func in &self.func_defs {
+            write!(f, "{}", func)?;
+        }
+
+        for var in &self.var_defs {
+            writeln!(f, "{}", var)?;
+        }
+
+        for stmt in &self.statements {
+            write!(f, "{}", stmt)?;
+        }
+
         for stmt in &self.statements {
             write!(f, "    {}", stmt)?;
         }
+
         Ok(())
     }
 }

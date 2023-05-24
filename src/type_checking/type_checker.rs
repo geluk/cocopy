@@ -41,10 +41,13 @@ impl TypeChecker {
     }
 
     fn check(&mut self, program: untyped::Program) -> Vec<TypeError> {
-        let mut type_errors = self.assign_var_defs(program.var_defs);
-        type_errors.append(&mut self.assign_func_defs(program.func_defs));
-        type_errors.append(&mut self.check_statements(program.statements));
-        type_errors
+        match self.check_block(program.entry_block) {
+            Ok(block) => {
+                self.program.statements = block.statements;
+                vec![]
+            }
+            Err(errs) => errs,
+        }
     }
 
     /// Check variable definitions and write them to the global environment.
@@ -128,20 +131,6 @@ impl TypeChecker {
         block_result
     }
 
-    /// Verify that all statements are well-typed.
-    fn check_statements(&mut self, statements: Vec<Statement>) -> Vec<TypeError> {
-        let mut all_errors = vec![];
-        for statement in statements {
-            match self.check_statement(statement) {
-                Ok(stmt) => {
-                    self.program.statements.push(stmt);
-                }
-                Err(mut errors) => all_errors.append(&mut errors),
-            }
-        }
-        all_errors
-    }
-
     /// Verify that a statement is well-typed.
     fn check_statement(
         &mut self,
@@ -202,15 +191,21 @@ impl TypeChecker {
     }
 
     fn check_block(&mut self, block: Block) -> Result<typed::Block, Vec<TypeError>> {
-        block
-            .statements
-            .into_iter()
-            .map(|stmt| self.check_statement(stmt))
-            .collect::<Result<Vec<_>, _>>()
-            .map(|statements| typed::Block {
-                statements,
-                span: block.span,
-            })
+        let mut type_errors = self.assign_var_defs(block.var_defs);
+        type_errors.append(&mut self.assign_func_defs(block.func_defs));
+
+        // TODO: Typed block variable definitions
+        if type_errors.is_empty() {
+            let typed_statements = block
+                .statements
+                .into_iter()
+                .map(|stmt| self.check_statement(stmt))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            Ok(typed::Block::new(typed_statements, block.span))
+        } else {
+            Err(type_errors)
+        }
     }
 
     /// Verify that assignment to a variable is well-typed.

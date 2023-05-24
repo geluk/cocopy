@@ -21,43 +21,21 @@ pub fn parse(token_stream: &[Token]) -> Result<Program, ParseError> {
 impl<'a> Parser<'a> {
     /// Parse a complete program (a single ChocoPy file).
     fn program(&mut self) -> Result<Program, ParseError> {
-        let mut program = Program::new();
+        let mut var_defs = vec![];
+        let mut func_defs = vec![];
+        let mut statements = vec![];
+        let start = self.position();
 
-        while self.has_next() {
-            // Keep parsing variable definitions...
-            if let Ok(var_def) = self.recognise_parser(Self::var_def) {
-                program.add_var_def(var_def);
-            }
-            // ... or function definitions...
-            else if let Ok(func_def) = self.recognise_parser(Self::func_def) {
-                program.add_func_def(func_def);
-            }
-            // ... until we encounter an error. Then try a statement...
-            else if let Ok(stmt) = self.recognise_parser(Self::statement) {
-                // If that succeeds, add it. From now on, recognise only statements.
-                program.add_statement(stmt);
-                break;
-            }
-            // ... and if that doesn't work either, return the longest parse error.
-            else {
-                self.alt(
-                    |p1| p1.var_def().discard_ok(),
-                    |p2| {
-                        p2.alt(
-                            |p2a| p2a.func_def().discard_ok(),
-                            |p2b| p2b.statement().discard_ok(),
-                        )
-                    },
-                )?;
-                unreachable!("Compiler state borxed! (failed to reproduce parse error)")
-            }
-        }
+        self.block_prelude(&mut var_defs, &mut func_defs)?;
 
         while self.has_next() {
             let stmt = self.statement()?;
-            program.add_statement(stmt);
+            statements.push(stmt);
         }
 
+        let span = self.span_from(start);
+
+        let program = Program::new(Block::new(func_defs, var_defs, statements, span));
         Ok(program)
     }
 
@@ -277,18 +255,60 @@ impl<'a> Parser<'a> {
         self.recognise_structure(Structure::Indent)
             .add_stage(Stage::Block)?;
 
-        let mut body = vec![];
+        let mut func_defs = vec![];
+        let mut var_defs = vec![];
+        let mut statements = vec![];
+
+        self.block_prelude(&mut var_defs, &mut func_defs)?;
+
         loop {
             // The ChocoPy syntax prescribes that a block should always contain at
             // least one statement. This is required because otherwise the lexer
             // won't detect any indents, which means it also won't emit any dedents,
             // which would cause the block parser to fail.
-            body.push(self.statement()?);
+            // If the block should remain empty, a `pass` statement can be used.
+            statements.push(self.statement()?);
             if self.recognise_structure(Structure::Dedent).is_ok() {
                 break;
             }
         }
-        Ok(Block::new(body, self.span_from(start)))
+
+        Ok(Block::new(
+            func_defs,
+            var_defs,
+            statements,
+            self.span_from(start),
+        ))
+    }
+
+    /// Parse any variable and function definitions at the top of a block. Valid
+    /// definitions will be placed in the vectors passed into this function.
+    ///
+    fn block_prelude(
+        &mut self,
+        var_defs: &mut Vec<VarDef>,
+        func_defs: &mut Vec<FuncDef>,
+    ) -> Result<(), ParseError> {
+        while self.has_next() {
+            match self.alt_2(
+                // Keep parsing variable definitions...
+                |p1| p1.var_def(),
+                |p2| {
+                    p2.alt_2(
+                        // ... or function definitions...
+                        |p2a| p2a.func_def(),
+                        // ... or check if we encounter a statement (without consuming it).
+                        // This lets us know when the prelude is finished.
+                        |p2b| p2b.peek_parser(Self::statement),
+                    )
+                },
+            )? {
+                Branch::Fst(var_def) => var_defs.push(var_def),
+                Branch::Snd(Branch::Fst(func_def)) => func_defs.push(func_def),
+                Branch::Snd(Branch::Snd(_)) => return Ok(()),
+            }
+        }
+        Ok(())
     }
 
     /// Parse a variable assignment statement.
