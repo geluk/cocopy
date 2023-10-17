@@ -56,10 +56,6 @@ impl<T> Listing<T> {
     pub fn len(&self) -> Position {
         Position(self.lines.len())
     }
-
-    pub fn instruction_mut(&mut self, line: Position) -> &mut T {
-        self.lines.get_mut(line.0).expect("Invalid line numbers")
-    }
 }
 impl<T: Display> Listing<T> {
     pub fn display_line_nos(&self) -> DisplayLineNos<T> {

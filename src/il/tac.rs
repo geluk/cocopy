@@ -2,7 +2,10 @@
 
 use std::{
     borrow::Cow,
-    collections::{hash_map::ValuesMut, HashMap},
+    collections::{
+        hash_map::{Values, ValuesMut},
+        HashMap,
+    },
     fmt::{self, Display, Formatter},
     hash::Hash,
     slice::Iter,
@@ -14,8 +17,8 @@ use crate::{
         untyped::Literal,
     },
     builtins::Builtin,
-    ext::hash_map::ConstHashMap,
-    listing::{IntoLines, Listing, Position},
+    ext::ordered_hash_map::OrderedHashMap,
+    listing::{Listing, Position},
 };
 
 pub type TargetSize = isize;
@@ -23,13 +26,13 @@ pub type TargetSize = isize;
 #[derive(Debug)]
 pub struct TacProcedure {
     entry_block: BasicBlock,
-    blocks: ConstHashMap<String, BasicBlock>,
+    blocks: OrderedHashMap<Label, BasicBlock>,
 }
 impl TacProcedure {
-    pub fn new() -> Self {
+    pub fn new(entry_block: BasicBlock, blocks: OrderedHashMap<Label, BasicBlock>) -> Self {
         Self {
-            entry_block: BasicBlock::new(),
-            blocks: Default::default(),
+            entry_block,
+            blocks,
         }
     }
 
@@ -41,11 +44,19 @@ impl TacProcedure {
         &mut self.entry_block
     }
 
-    pub fn into_lines_temp(self) -> IntoLines<TacInstr> {
-        self.entry_block.instructions.into_lines()
+    pub fn into_blocks(self) -> (BasicBlock, OrderedHashMap<Label, BasicBlock>) {
+        (self.entry_block, self.blocks)
     }
 
-    pub fn basic_blocks_mut(&mut self) -> ValuesMut<String, BasicBlock> {
+    pub fn basic_block(&self, name: &Label) -> &BasicBlock {
+        self.blocks.get(name).expect("No such basic block exists")
+    }
+
+    pub fn basic_blocks(&self) -> Values<Label, BasicBlock> {
+        self.blocks.values()
+    }
+
+    pub fn basic_blocks_mut(&mut self) -> ValuesMut<Label, BasicBlock> {
         self.blocks.values_mut()
     }
 }
@@ -53,8 +64,8 @@ impl Display for TacProcedure {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         writeln!(f, "{}", self.entry_block)?;
 
-        for (name, block) in &self.blocks {
-            writeln!(f, ".{}:", name)?;
+        for (name, block) in self.blocks.iter() {
+            writeln!(f, "  .{}({}):", name, params_to_string(&block.parameters))?;
             writeln!(f, "{}", block)?;
         }
         Ok(())
@@ -67,15 +78,15 @@ pub struct BasicBlock {
     parameters: Vec<Name>,
 }
 impl BasicBlock {
-    pub fn new() -> Self {
+    pub fn new(parameters: Vec<Name>) -> Self {
         Self {
             instructions: Listing::new(),
-            parameters: vec![],
+            parameters,
         }
     }
 
-    pub fn add_parameter(&mut self, name: Name) {
-        self.parameters.push(name);
+    pub fn into_lines_params(self) -> (Listing<TacInstr>, Vec<Name>) {
+        (self.instructions, self.parameters)
     }
 
     pub fn push(&mut self, instruction: TacInstr) {
@@ -86,15 +97,16 @@ impl BasicBlock {
         self.instructions.len() - 1
     }
 
-    pub fn next_line_pos(&self) -> Position {
-        self.instructions.len()
-    }
-
     pub fn listing(&self) -> &Listing<TacInstr> {
         &self.instructions
     }
+
     pub fn listing_mut(&mut self) -> &mut Listing<TacInstr> {
         &mut self.instructions
+    }
+
+    pub fn parameters(&self) -> &Vec<Name> {
+        &self.parameters
     }
 
     pub fn iter_parameters(&self) -> Iter<Name> {
@@ -104,11 +116,7 @@ impl BasicBlock {
 impl Display for BasicBlock {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         for instr in self.instructions.iter_instructions() {
-            if let TacInstr::Label(_) = instr {
-                writeln!(f, "    {}", instr)?;
-            } else {
-                writeln!(f, "        {}", instr)?;
-            }
+            writeln!(f, "      {}", instr)?;
         }
         Ok(())
     }
@@ -136,6 +144,7 @@ impl TacProgram {
 }
 impl Display for TacProgram {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        writeln!(f, "main:")?;
         writeln!(f, "{}", self.top_level)?;
         for (name, body) in self.functions.iter() {
             writeln!(f, "{name}:")?;
@@ -202,19 +211,13 @@ pub enum TacInstr {
     ///
     Goto(Label, Vec<Name>),
     /// Jump if a value is true.
-    IfTrue(Value, Label),
-    /// Jump if a value is false.
-    IfFalse(Value, Label),
+    If(Value, Label, Label, Vec<Name>),
     /// Jump if a comparison evaluates to true.
-    IfCmp(Value, CmpOp, Value, Label),
+    IfCmp(Value, CmpOp, Value, Label, Label, Vec<Name>),
     /// Call a function, passing `n` parameters.
     Call(Option<Name>, String, Vec<Value>),
     /// Return a value from a function body.
     Return(Option<Value>),
-    /// A label which can be jumped to.
-    Label(Label),
-    /// The ɸ-function.
-    Phi(Name, Vec<Name>),
 }
 impl TacInstr {
     pub fn reads_from_name(&self, name: &Name) -> bool {
@@ -225,15 +228,16 @@ impl TacInstr {
             }
             Self::Call(_, _, values) => values.iter().any(|v| Self::is_usage_of(name, v)),
             Self::Goto(_, names) => names.iter().any(|n| n == name),
-            Self::IfTrue(value, _) => Self::is_usage_of(name, value),
-            Self::IfFalse(value, _) => Self::is_usage_of(name, value),
-            Self::IfCmp(lhs, _, rhs, _) => {
-                Self::is_usage_of(name, lhs) || Self::is_usage_of(name, rhs)
+            Self::If(value, _, _, names) => {
+                Self::is_usage_of(name, value) || names.iter().any(|n| n == name)
+            }
+            Self::IfCmp(lhs, _, rhs, _, _, names) => {
+                Self::is_usage_of(name, lhs)
+                    || Self::is_usage_of(name, rhs)
+                    || names.iter().any(|n| n == name)
             }
             Self::Return(None) => false,
             Self::Return(Some(value)) => Self::is_usage_of(name, value),
-            Self::Label(_) => false,
-            Self::Phi(_, names) => names.iter().any(|n| n == name),
         }
     }
 
@@ -250,13 +254,12 @@ impl TacInstr {
             Self::Assign(_, v) => collect([v]),
             Self::Bin(_, _, lhs, rhs) => collect([lhs, rhs]),
             Self::Goto(_, names) => names.to_vec(),
-            Self::IfTrue(v, _) => collect([v]),
-            Self::IfFalse(v, _) => collect([v]),
-            Self::IfCmp(lhs, _, rhs, _) => collect([lhs, rhs]),
+            Self::If(v, _, _, names) => names.iter().cloned().chain(collect([v])).collect(),
+            Self::IfCmp(lhs, _, rhs, _, _, names) => {
+                names.iter().cloned().chain(collect([lhs, rhs])).collect()
+            }
             Self::Call(_, _, vs) => collect(vs),
             Self::Return(v) => collect(v),
-            Self::Label(_) => vec![],
-            Self::Phi(_, vs) => vs.to_vec(),
         }
     }
 
@@ -265,20 +268,19 @@ impl TacInstr {
             Self::Assign(t, _) => Some(t),
             Self::Bin(t, _, _, _) => Some(t),
             Self::Goto(_, _) => None,
-            Self::IfTrue(_, _) => None,
-            Self::IfFalse(_, _) => None,
-            Self::IfCmp(_, _, _, _) => None,
+            Self::If(_, _, _, _) => None,
+            Self::IfCmp(_, _, _, _, _, _) => None,
             Self::Call(t, _, _) => t.as_ref(),
             Self::Return(_) => None,
-            Self::Label(_) => None,
-            Self::Phi(_, _) => None,
         }
     }
 
     pub fn may_replace(&self, name: &Name) -> bool {
         match self {
-            // Names referenced by the ɸ-function may never be replaced with a value
-            Self::Phi(_, names) => names.iter().all(|n| n != name),
+            // Names referenced by a jump target may not be replaced right away.
+            Self::Goto(_, names) => names.iter().all(|n| n != name),
+            Self::If(_, _, _, names) => names.iter().all(|n| n != name),
+            Self::IfCmp(_, _, _, _, _, names) => names.iter().all(|n| n != name),
             _ => true,
         }
     }
@@ -292,18 +294,9 @@ impl TacInstr {
                 }
             }
         }
-        match self {
-            Self::Assign(_, value) => try_replace(value, src, dest),
-            Self::Bin(_, _, lhs, rhs) => {
-                try_replace(lhs, src, dest.clone());
-                try_replace(rhs, src, dest);
-            }
-            Self::Call(_, _, args) => {
-                for arg in args.iter_mut() {
-                    try_replace(arg, src, dest.clone())
-                }
-            }
-            Self::Goto(_, names) => match dest.as_ref() {
+
+        fn replace_in(names: &mut Vec<Name>, src: &Name, dest: Cow<Value>) {
+            match dest.as_ref() {
                 Value::Const(_) => {
                     // If we replace a name with a constant, it effectively results in that name
                     // no longer being read by the jump target, so we can just remove its reference.
@@ -318,23 +311,32 @@ impl TacInstr {
                         }
                     }
                 }
-            },
-            Self::IfTrue(value, _) => try_replace(value, src, dest),
-            Self::IfFalse(value, _) => try_replace(value, src, dest),
-            Self::IfCmp(lhs, _, rhs, _) => {
+            }
+        }
+
+        match self {
+            Self::Assign(_, value) => try_replace(value, src, dest),
+            Self::Bin(_, _, lhs, rhs) => {
                 try_replace(lhs, src, dest.clone());
                 try_replace(rhs, src, dest);
             }
+            Self::Call(_, _, args) => {
+                for arg in args.iter_mut() {
+                    try_replace(arg, src, dest.clone())
+                }
+            }
+            Self::Goto(_, names) => replace_in(names, src, dest),
+            Self::If(value, _, _, names) => {
+                try_replace(value, src, dest.clone());
+                replace_in(names, src, dest);
+            }
+            Self::IfCmp(lhs, _, rhs, _, _, names) => {
+                try_replace(lhs, src, dest.clone());
+                try_replace(rhs, src, dest.clone());
+                replace_in(names, src, dest);
+            }
             Self::Return(None) => (),
             Self::Return(Some(value)) => try_replace(value, src, dest),
-            Self::Label(_) => (),
-            Self::Phi(_, values) => {
-                let any_replaced = values.iter().any(|n| n == src);
-                assert!(
-                    !any_replaced,
-                    "Optimiser error! Replacing a name used in the phi function is not allowed ({} -> {})", src, dest
-                )
-            }
         }
     }
 
@@ -352,13 +354,6 @@ impl TacInstr {
         }
     }
 
-    pub fn as_phi(&self) -> Option<(&Name, &Vec<Name>)> {
-        match self {
-            Self::Phi(target, params) => Some((target, params)),
-            _ => None,
-        }
-    }
-
     pub fn replace_assign(&mut self, src: &Name, dest: Cow<Name>) {
         fn try_replace(tgt: &mut Name, src: &Name, dest: Cow<Name>) {
             if tgt == src {
@@ -369,14 +364,11 @@ impl TacInstr {
             Self::Assign(tgt, _) => try_replace(tgt, src, dest),
             Self::Bin(tgt, _, _, _) => try_replace(tgt, src, dest),
             Self::Goto(_, _) => (),
-            Self::IfTrue(_, _) => (),
-            Self::IfFalse(_, _) => (),
-            Self::IfCmp(_, _, _, _) => (),
+            Self::If(_, _, _, _) => (),
+            Self::IfCmp(_, _, _, _, _, _) => (),
             Self::Call(Some(tgt), _, _) => try_replace(tgt, src, dest),
             Self::Call(_, _, _) => (),
             Self::Return(_) => (),
-            Self::Label(_) => (),
-            Self::Phi(tgt, _) => try_replace(tgt, src, dest),
         }
     }
 
@@ -389,14 +381,6 @@ impl TacInstr {
 }
 impl Display for TacInstr {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        fn params_to_string<P: ToString>(params: &[P]) -> String {
-            params
-                .iter()
-                .map(|p| p.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        }
-
         match self {
             Self::Assign(target, value) => write!(f, "{} = {}", target, value),
             Self::Bin(target, op, lhs, rhs) => {
@@ -410,22 +394,30 @@ impl Display for TacInstr {
             }
             Self::Goto(label, names) if names.is_empty() => write!(f, "goto {}", label),
             Self::Goto(label, names) => write!(f, "goto {} ({})", label, params_to_string(names)),
-            Self::IfTrue(value, lbl) => write!(f, "if_true {} goto {}", value, lbl),
-            Self::IfFalse(value, lbl) => write!(f, "if_false {} goto {}", value, lbl),
-            Self::IfCmp(lhs, op, rhs, lbl) => {
-                write!(f, "if {} {} {} goto {}", lhs, op, rhs, lbl)
+            Self::If(value, true_lbl, false_lbl, names) => {
+                write!(
+                    f,
+                    "if {} goto {} else goto {} ({})",
+                    value,
+                    true_lbl,
+                    false_lbl,
+                    params_to_string(names)
+                )
+            }
+            Self::IfCmp(lhs, op, rhs, true_lbl, false_lbl, names) => {
+                write!(
+                    f,
+                    "if {} {} {} goto {} else goto {} ({})",
+                    lhs,
+                    op,
+                    rhs,
+                    true_lbl,
+                    false_lbl,
+                    params_to_string(names)
+                )
             }
             Self::Return(None) => f.write_str("return"),
             Self::Return(Some(value)) => write!(f, "return {}", value),
-            Self::Label(lbl) => write!(f, "{}:", lbl),
-            Self::Phi(name, values) => {
-                let args = values
-                    .iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                write!(f, "{} = ɸ({})", name, args)
-            }
         }
     }
 }
@@ -454,21 +446,13 @@ pub enum Name {
     /// A subscripted variable.
     Sub(Variable),
     /// A generated, temporary name.
-    Temp(usize),
-}
-impl Name {
-    pub fn into_sub(self) -> Option<Variable> {
-        match self {
-            Self::Sub(s) => Some(s),
-            _ => None,
-        }
-    }
+    Temp(TempVariable),
 }
 impl Display for Name {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Name::Sub(sub) => sub.fmt(f),
-            Name::Temp(temp) => write!(f, "%{}", temp),
+            Name::Temp(temp) => write!(f, "%{}", temp.id()),
         }
     }
 }
@@ -487,6 +471,23 @@ impl Variable {
 impl Display for Variable {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "{}^{}", self.name, self.subscript)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub struct TempVariable(usize);
+impl TempVariable {
+    pub fn new(index: usize) -> TempVariable {
+        Self(index)
+    }
+
+    pub fn id(&self) -> usize {
+        self.0
+    }
+}
+impl Display for TempVariable {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "%{}", self.0)
     }
 }
 
@@ -561,4 +562,12 @@ where
             f: pred,
         }
     }
+}
+
+fn params_to_string<P: ToString>(params: &[P]) -> String {
+    params
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }

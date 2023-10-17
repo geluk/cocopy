@@ -78,7 +78,7 @@ fn resolve_deferred_instrs<S: StackConvention>(
             DeferredLine::Comment(cmt) => {
                 procedure.body.push_cmt_only(cmt);
             }
-            DeferredLine::Label(lbl) => procedure.body.add_label(format!(".{lbl}")),
+            DeferredLine::BlockEntry(name, params) => procedure.body.add_label(format!(".{name}")),
             DeferredLine::Block(block) => {
                 let mut aligned_bytes = 0;
 
@@ -160,35 +160,50 @@ impl DeferringCompiler {
             current_temp: 0,
         };
 
-        for param in procedure.entry_block().iter_parameters() {
+        let (entry, children) = procedure.into_blocks();
+
+        for param in entry.parameters() {
             compiler.compile_param(param.clone());
         }
 
-        for (_, instr) in procedure.into_lines_temp() {
-            compiler.compile_instr(instr);
+        compiler.compile_basic_block(entry, None);
+
+        for (name, block) in children.into_iter() {
+            compiler.compile_basic_block(block, Some(name));
         }
 
         compiler.asm_listing
     }
 
+    fn compile_basic_block(&mut self, block: BasicBlock, name: Option<Label>) {
+        let (lines, params) = block.into_lines_params();
+        if let Some(name) = name {
+            self.asm_listing
+                .push(DeferredLine::BlockEntry(name, params));
+        }
+
+        for (_, instr) in lines {
+            self.compile_instr(instr);
+        }
+    }
+
     /// Compile a single TAC instruction.
     fn compile_instr(&mut self, instr: TacInstr) {
-        if !matches!(instr, TacInstr::Label(_)) {
-            self.asm_listing
-                .push(DeferredLine::Comment(instr.to_string()));
-        }
+        self.asm_listing
+            .push(DeferredLine::Comment(instr.to_string()));
 
         match instr {
             TacInstr::Assign(tgt, value) => self.compile_assign(tgt, value),
             TacInstr::Bin(tgt, op, left, right) => self.compile_bin(tgt, op, left, right),
-            TacInstr::Call(tgt, name, params) => self.compile_call(tgt, name, params),
-            TacInstr::IfTrue(value, lbl) => self.compile_jump(value, lbl, true),
-            TacInstr::IfFalse(value, lbl) => self.compile_jump(value, lbl, false),
-            TacInstr::IfCmp(lhs, op, rhs, label) => self.compile_compare_jump(lhs, op, rhs, label),
-            TacInstr::Return(val) => self.compile_return(val),
-            TacInstr::Label(lbl) => self.asm_listing.push(DeferredLine::Label(lbl)),
-            TacInstr::Phi(_, _) => unreachable!("Phi was not optimised away!"),
+            TacInstr::Call(tgt, name, args) => self.compile_call(tgt, name, args),
             TacInstr::Goto(tgt, names) => self.compile_goto(tgt, names),
+            TacInstr::If(value, true_lbl, false_lbl, args) => {
+                self.compile_jump(value, true_lbl, false_lbl, args)
+            }
+            TacInstr::IfCmp(lhs, op, rhs, true_lbl, false_lbl, args) => {
+                self.compile_compare_jump(lhs, op, rhs, true_lbl, false_lbl, args)
+            }
+            TacInstr::Return(val) => self.compile_return(val),
         }
     }
 
@@ -203,24 +218,44 @@ impl DeferringCompiler {
         })
     }
 
+    /// Compile a goto instruction.
+    fn compile_goto(&mut self, tgt: Label, params: Vec<Name>) {
+        self.emit_block(|block| {
+            block.emit(Jmp, [Lbl(tgt)]);
+            for param in params {
+                block.implicit_read(DeferredReg::from_name(param));
+            }
+        })
+    }
+
     /// Compile a conditional jump. A jump will be made if `value` evaluates to
     /// `jump_when`. This allows this function to compile both `if_true x goto
     /// label` and `if_false y goto label`.
-    fn compile_jump(&mut self, value: Value, label: Label, jump_when: bool) {
-        let jump_type = match jump_when {
-            true => Jnz,
-            false => Jz,
-        };
-
+    fn compile_jump(&mut self, value: Value, true_lbl: Label, false_lbl: Label, params: Vec<Name>) {
         let operand = self.value_to_operand(value, Test.op1_semantics());
 
-        self.emit(Test, [operand.clone(), operand]);
-        self.emit(jump_type, [DeferredOperand::Lbl(label)]);
+        self.emit_block(|block| {
+            for param in params {
+                block.implicit_read(DeferredReg::from_name(param));
+            }
+
+            block.emit(Test, [operand.clone(), operand]);
+            block.emit(Jnz, [Lbl(true_lbl)]);
+            block.emit(Jmp, [Lbl(false_lbl)]);
+        });
     }
 
     /// Compile a compare & jump. A jump will be made if the comparison evaluates
     /// to true.
-    fn compile_compare_jump(&mut self, lhs: Value, op: CmpOp, rhs: Value, label: Label) {
+    fn compile_compare_jump(
+        &mut self,
+        lhs: Value,
+        op: CmpOp,
+        rhs: Value,
+        true_lbl: Label,
+        false_lbl: Label,
+        params: Vec<Name>,
+    ) {
         let jump_type = match op {
             CmpOp::Equal => Je,
             CmpOp::NotEqual => Jne,
@@ -232,16 +267,21 @@ impl DeferringCompiler {
 
         let lhs = self.value_to_operand(lhs, Cmp.op1_semantics());
         let rhs = self.value_to_operand(rhs, Cmp.op2_semantics());
-        self.emit(Cmp, [lhs, rhs]);
-        self.emit(jump_type, [Lbl(label)]);
+
+        self.emit_block(|block| {
+            for param in params {
+                block.implicit_read(DeferredReg::from_name(param));
+            }
+            block.emit(Cmp, [lhs, rhs]);
+            block.emit(jump_type, [Lbl(true_lbl)]);
+            block.emit(Jmp, [Lbl(false_lbl)]);
+        });
     }
 
     /// Compile an assignment.
     fn compile_assign(&mut self, target: Name, value: Value) {
         let target = DeferredOperand::from_name(target);
         let value = self.value_to_operand(value, Mov.op2_semantics());
-
-        debug!("Assign {target:?} = {value:?}");
 
         self.emit(Mov, [target, value]);
     }
@@ -379,16 +419,6 @@ impl DeferringCompiler {
 
         self.emit_block(|block| {
             block.lock_register(param, param_reg, Direction::Read);
-        })
-    }
-
-    /// Compile a goto instruction.
-    fn compile_goto(&mut self, tgt: Label, names: Vec<Name>) {
-        self.emit_block(|block| {
-            block.emit(Jmp, [Lbl(tgt)]);
-            for name in names {
-                block.implicit_read(DeferredReg::from_name(name));
-            }
         })
     }
 

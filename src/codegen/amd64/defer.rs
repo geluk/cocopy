@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 
 use crate::{
     codegen::register_allocation::{Allocator, Destination},
-    il::{Label, Name, TargetSize, Variable},
+    il::{Label, Name, TargetSize, TempVariable, Variable},
     listing::Position,
     prelude::*,
 };
@@ -16,14 +16,14 @@ use super::{
 #[derive(Debug)]
 pub enum DeferredLine {
     Comment(String),
-    Label(Label),
+    BlockEntry(Label, Vec<Name>),
     Block(DeferredBlock),
 }
 impl Display for DeferredLine {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Self::Comment(cmt) => write!(f, "    ; {cmt}"),
-            Self::Label(lbl) => write!(f, "{lbl}:"),
+            Self::BlockEntry(lbl, params) => write!(f, "{lbl}:"),
             Self::Block(blk) => write!(f, "{blk}"),
         }
     }
@@ -198,7 +198,7 @@ impl Display for DeferredOperand {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DeferredReg {
     Sub(Variable),
-    Temp(usize),
+    Temp(TempVariable),
     AsmTemp(usize),
 }
 impl DeferredReg {
@@ -229,7 +229,7 @@ impl Display for DeferredReg {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             DeferredReg::Sub(sub) => write!(f, "{}", sub),
-            DeferredReg::Temp(temp) => write!(f, "%{}", temp),
+            DeferredReg::Temp(temp) => write!(f, "{}", temp),
             DeferredReg::AsmTemp(temp) => write!(f, "${}", temp),
         }
     }

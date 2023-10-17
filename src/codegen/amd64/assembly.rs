@@ -136,6 +136,7 @@ impl Display for Procedure {
 }
 
 /// A declaration, used to provide hints to the assembler.
+#[derive(Debug)]
 pub enum Decl {
     Bits(usize),
     Default(Str),
@@ -190,9 +191,9 @@ impl Block {
 
     /// Add a label to the last line
     pub fn add_label(&mut self, label: String) {
-        if let Some(line) = self.lines.last_mut() {
-            line.add_label(label);
-        }
+        let mut line = Line::new_blank();
+        line.label = Some(label);
+        self.lines.push(line);
     }
 
     pub fn blank(&mut self) -> &mut Self {

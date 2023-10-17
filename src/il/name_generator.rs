@@ -1,43 +1,58 @@
 use std::collections::HashMap;
 
-use super::{phi::Variables, Name, Variable};
+use crate::ext::{hash_map::ConstHashMap, ordered_hash_map::OrderedHashMap};
+
+use super::{Name, TempVariable, Variable};
 
 pub struct NameGenerator {
-    index: usize,
-    seen_subscripts: HashMap<String, usize>,
+    temp_index: usize,
+    seen_subscripts: OrderedHashMap<String, usize>,
 }
 impl NameGenerator {
     pub fn new() -> Self {
         Self {
-            index: 0,
-            seen_subscripts: HashMap::new(),
+            temp_index: 0,
+            seen_subscripts: OrderedHashMap::new(),
         }
     }
 
     /// Generates a new unique temporary name.
     pub fn next_temp(&mut self) -> Name {
-        self.index += 1;
-        Name::Temp(self.index)
+        self.temp_index += 1;
+        Name::Temp(TempVariable::new(self.temp_index))
     }
 
     /// Generates a unique subscripted name from an existing identifier.
     pub fn next_subscript<S: Into<String>>(&mut self, id: S) -> Variable {
         let id = id.into();
-        let current_subscript = self.seen_subscripts.entry(id.clone()).or_insert(0);
-        *current_subscript += 1;
+        let value = self
+            .seen_subscripts
+            .insert_or_modify(id.clone(), || 1, |cur| *cur += 1);
 
-        Variable::new(id, *current_subscript)
+        Variable::new(id, *value)
     }
 
     /// Returns the most recently generated subscripted name for an identifier.
     pub fn last_subscript<S: Into<String>>(&self, id: S) -> Variable {
         let id = id.into();
-        let current_subscript = self.seen_subscripts[&id];
+
+        let current_subscript = self
+            .seen_subscripts
+            .get(&id)
+            .copied()
+            .expect("Unknown variable");
         Variable::new(id, current_subscript)
     }
 
-    pub fn get_live_variables(&self) -> Variables {
-        Variables::new(self.seen_subscripts.clone())
+    pub fn get_live_variables(&self) -> impl Iterator<Item = Variable> + '_ {
+        self.seen_subscripts
+            .iter()
+            .map(|(n, &s)| Variable::new(n.clone(), s))
+    }
+
+    pub fn register_generation(&mut self, variable: &Variable) {
+        self.seen_subscripts
+            .insert(variable.name.clone(), variable.subscript);
     }
 }
 

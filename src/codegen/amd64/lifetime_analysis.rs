@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     codegen::register_allocation::{Allocator, Lifetime},
-    ext::{hash_map::ConstState, ordered_hash_map::OrderedHashMap},
+    ext::ordered_hash_map::OrderedHashMap,
     listing::{Listing, Position},
     prelude::*,
 };
@@ -14,7 +14,7 @@ use super::{
 };
 
 pub struct LifetimeAnalysis<'l> {
-    requests: OrderedHashMap<&'l DeferredReg, AllocationRequest, ConstState>,
+    requests: OrderedHashMap<&'l DeferredReg, AllocationRequest>,
     listing: &'l Listing<DeferredLine>,
     avoids: Vec<(Position, Register)>,
 }
