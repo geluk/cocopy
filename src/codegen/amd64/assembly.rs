@@ -7,6 +7,7 @@ use super::x86::{Op, Register};
 pub type Str = &'static str;
 
 /// A complete assembly file, containing declarations and sections.
+#[derive(Debug)]
 pub struct Assembly {
     declarations: Vec<Decl>,
     pub text: Text,
@@ -44,6 +45,7 @@ pub trait Section {
 }
 
 /// A `.data` section. For now, only directives are supported.
+#[derive(Debug)]
 pub struct Data {
     lines: Vec<Line<Directive>>,
 }
@@ -75,6 +77,7 @@ impl Display for Data {
 
 /// A `.text` section. Contains a single main procedure,
 /// and may contain any number of additional procedures.
+#[derive(Debug)]
 pub struct Text {
     pub main: Procedure,
     pub procedures: Vec<Procedure>,
@@ -106,6 +109,7 @@ impl Display for Text {
 }
 
 /// An assembly procedure, marked by a label and optionally surrounded by a prologue and epilogue.
+#[derive(Debug)]
 pub struct Procedure {
     pub name: String,
     pub prologue: Block,
@@ -275,6 +279,7 @@ impl<T: Display> Display for Line<T> {
 }
 
 /// A directive as used in the `.text` section. Currently, only `db` is supported.
+#[derive(Debug)]
 pub enum Directive {
     Db(Str, Str),
 }
